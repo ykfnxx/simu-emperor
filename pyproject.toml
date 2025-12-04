@@ -1,0 +1,93 @@
+[project]
+name = "eu4-strategy-game"
+version = "0.1.0"
+description = "EU4风格回合制策略游戏 - MVP版本"
+authors = [
+    {name = "AI Assistant", email = "noreply@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+keywords = ["game", "strategy", "cli", "turn-based"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Games/Entertainment :: Turn Based Strategy",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.14",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "anthropic>=0.75.0",
+    "instructor>=1.13.0",
+    # 本项目仅使用Python标准库
+    # SQLite3（内置）
+    # random（内置）
+    "pydantic>=2.12.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    # 开发依赖（可选）
+    # "pytest>=7.0",  # 如果需要测试
+    # "black>=22.0",  # 代码格式化
+    # "flake8>=4.0",  # 代码检查
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/eu4-strategy-game"
+"Bug Reports" = "https://github.com/yourusername/eu4-strategy-game/issues"
+"Source" = "https://github.com/yourusername/eu4-strategy-game"
+
+[project.scripts]
+# 定义命令行脚本（可选）
+# eu4-game = "main:main"
+
+eu4-game = "main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# 自动发现包
+where = ["."]
+include = ["core*", "db*", "ui*"]
+exclude = ["tests*", "*.tests*"]
+
+[tool.setuptools.package-data]
+# 数据文件（如有需要）
+# "my_package" = ["data/*.dat"]
+
+[tool.black]
+# Black代码格式化配置（如果使用）
+line-length = 88
+target-version = ['py314']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+# Pytest配置（如果需要测试）
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+# 代码覆盖率配置（如果需要）
+source = ["core", "db", "ui"]
+omit = ["*/tests/*"]
