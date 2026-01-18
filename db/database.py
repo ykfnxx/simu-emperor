@@ -441,7 +441,7 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT * FROM events
-            WHERE province_id = ? AND month = ? AND end_month = ?
+            WHERE province_id = ? AND start_month = ? AND end_month = ?
         """, (province_id, month, month))
         rows = cursor.fetchall()
         conn.close()
