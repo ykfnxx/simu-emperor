@@ -84,11 +84,11 @@ class BudgetExecutor:
         Returns:
             Processing result
         """
-        # 获取Allocation ratio
+        # GetAllocation ratio
         ratio = self._get_allocation_ratio(province.province_id)
 
         # Calculate allocation amount
-        central_allocation = surplus * ratio  # Transfer to national国库
+        central_allocation = surplus * ratio  # Transfer to nationaltreasury
         provincial_allocation = surplus * (1 - ratio)  # Transfer to provincial treasury
 
         # Record transaction
@@ -135,7 +135,7 @@ class BudgetExecutor:
         """
         deficit_amount = abs(deficit)
 
-        # 获取Current省库余额
+        # GetCurrentprovincial treasurybalance
         provincial_balance = self.treasury_system.get_provincial_balance(province.province_id)
 
         # Deduct from provincial treasury
@@ -167,13 +167,13 @@ class BudgetExecutor:
 
     def _get_allocation_ratio(self, province_id: int) -> float:
         """
-        获取省份盈余分配比例
+        Getprovince盈余allocation比例
 
         Args:
-            province_id: 省份ID
+            province_id: provinceID
 
         Returns:
-            分配比例（0-1，表示上交中央的比例）
+            allocation比例（0-1，表示上交中央的比例）
         """
         conn = self.budget_system.db.get_connection()
         cursor = conn.cursor()
@@ -199,15 +199,15 @@ class BudgetExecutor:
         Returns:
             Execution result
         """
-        # 固定支出300金币（Adjusted）
+        # 固定支出300gold coins（Adjusted）
         fixed_expenditure = 300
 
-        # 计算Events支出（如果有活跃Events）
+        # CalculateEvents支出（如果有活跃Events）
         event_expenditure = self._calculate_event_expenditure()
 
         total_expenditure = fixed_expenditure + event_expenditure
 
-        # 获取Current国库余额（扣款前）
+        # GetCurrenttreasurybalance（扣款前）
         starting_balance = self.treasury_system.get_national_balance()
 
         # Deduct from national treasury
@@ -216,7 +216,7 @@ class BudgetExecutor:
             year=year,
             type='expenditure',
             amount=-total_expenditure,
-            description=f"中央Monthly expenditure (basic: {fixed_expenditure:.0f}, 事件: {event_expenditure:.0f}）"
+            description=f"中央Monthly expenditure (basic: {fixed_expenditure:.0f}, event: {event_expenditure:.0f}）"
         )
 
         # Get balance after deduction
@@ -242,33 +242,33 @@ class BudgetExecutor:
 
     def _calculate_event_expenditure(self) -> float:
         """
-        计算事件导致的中央支出
+        Calculateevent导致的中央支出
 
         Returns:
-            事件支出金额
+            event支出金额
         """
-        # 这里可以扩展为根据Events类型和严重程度计算支出
+        # 这里可以扩展为根据Events类型和严重程度Calculate支出
         # 目前简化为固定值
         return 0
 
     def _handle_province_overdraft(self, province: Any, overdraft_amount: float,
                                   month: int, year: int) -> bool:
         """
-        处理省份超支
+        Processprovince超支
 
         Args:
-            province: 省份对象
+            province: province对象
             overdraft_amount: 超支金额
             month: 月份
             year: 年份
 
         Returns:
-            bool: 是否成功处理
+            bool: 是否SuccessProcess
         """
         # 随机选择一个超支Events模板
         event_template = random.choice(OVERDRAFT_EVENTS)
 
-        # 创建超支Events
+        # Create超支Events
         event = Event(
             event_id=f"overdraft_{province.province_id}_{month}_{year}_{random.randint(1000, 9999)}",
             name=event_template['name'],
@@ -282,22 +282,22 @@ class BudgetExecutor:
             is_active=True
         )
 
-        # Agent决定是否隐藏Events
+        # Agent决定是否hiddenEvents
         if hasattr(province, 'agent') and province.agent:
             should_hide = province.agent.decide_event_visibility(event)
             if should_hide:
                 event.visibility = 'hidden'
                 event.is_hidden_by_governor = True
-                event.hidden_reason = f"官员选择隐瞒超支事件（超支金额：{overdraft_amount:.2f}）"
+                event.hidden_reason = f"官员选择隐瞒超支event（超支金额：{overdraft_amount:.2f}）"
 
-        # 添加Events到Events管理器
+        # AddEvents到EventsManage器
         self.event_manager.add_event(event)
 
         return True
 
     def _handle_national_overdraft(self, overdraft_amount: float, month: int, year: int) -> bool:
         """
-        处理中央超支
+        Process中央超支
 
         Args:
             overdraft_amount: 超支金额
@@ -305,13 +305,13 @@ class BudgetExecutor:
             year: 年份
 
         Returns:
-            bool: 是否成功处理
+            bool: 是否SuccessProcess
         """
         # Create central fiscal crisis event
         event = Event(
             event_id=f"national_crisis_{month}_{year}_{random.randint(1000, 9999)}",
             name="Central fiscal crisis",
-            description=f"中央财政出现严重赤字，超支 {overdraft_amount:.2f} 金币",
+            description=f"中央财政出现严重赤字，超支 {overdraft_amount:.2f} gold coins",
             event_type='national',
             severity=0.9,
             continuous_effects=[
@@ -323,7 +323,7 @@ class BudgetExecutor:
             is_active=True
         )
 
-        # 添加Events到Events管理器
+        # AddEvents到EventsManage器
         self.event_manager.add_event(event)
 
         return True
@@ -336,7 +336,7 @@ class BudgetExecutor:
             year: 年度
 
         Returns:
-            结转结果
+            结转Result
         """
         results = {
             'national_rollover': 0,
