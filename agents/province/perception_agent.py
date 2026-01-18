@@ -85,8 +85,10 @@ class PerceptionAgent(BaseAgent):
             PerceptionContext with layered historical data
         """
         # Step 1: Build monthly detailed data (last month)
+        # Calculate previous month correctly (handles year boundary)
+        prev_month, prev_year = self._calculate_previous_month(current_month, current_year)
         recent_data = await self._build_monthly_detailed(
-            province_id, current_month - 1, current_year
+            province_id, prev_month, prev_year
         )
 
         # Step 2: Build quarterly summaries (last 4 quarters)
@@ -136,6 +138,40 @@ class PerceptionAgent(BaseAgent):
         if province:
             return province['name']
         return f"Province {province_id}"
+
+    def _calculate_previous_month(self, current_month: int, current_year: int) -> tuple:
+        """
+        Calculate the previous month and year correctly
+
+        Handles two conventions:
+        1. current_month is 1-12 (month within year)
+        2. current_month is continuous (13 = Jan year 2, 24 = Dec year 2)
+
+        Args:
+            current_month: Current month (can be 1-12 or continuous)
+            current_year: Current year
+
+        Returns:
+            Tuple of (previous_month, previous_year) where month is 1-12
+        """
+        # If month is in the continuous format (> 12), convert to (month, year) first
+        if current_month > 12:
+            # Convert continuous month to (month_in_year, year)
+            month_in_year = (current_month - 1) % 12 + 1
+            year = (current_month - 1) // 12 + 1
+
+            # Now calculate previous month
+            if month_in_year > 1:
+                return month_in_year - 1, year
+            else:
+                return 12, year - 1
+        else:
+            # Standard format: month is 1-12
+            if current_month > 1:
+                return current_month - 1, current_year
+            else:
+                # January -> December of previous year
+                return 12, current_year - 1
 
     # ========== Abstract Method Implementations ==========
 
@@ -213,13 +249,21 @@ class PerceptionAgent(BaseAgent):
         current_year: int
     ) -> List[QuarterlySummary]:
         """Build quarterly summaries for the last 4 quarters"""
-        current_quarter = (current_month - 1) // 3 + 1
+        # Handle continuous month counting (e.g., month 13 = Jan of year 2)
+        if current_month > 12:
+            month_in_year = (current_month - 1) % 12 + 1
+            year = (current_month - 1) // 12 + 1
+        else:
+            month_in_year = current_month
+            year = current_year
+
+        current_quarter = (month_in_year - 1) // 3 + 1
         quarters_to_build = []
 
         # Generate last 4 quarters
         for i in range(1, 5):
             q = current_quarter - i
-            y = current_year
+            y = year
 
             if q <= 0:
                 q = 4 + q

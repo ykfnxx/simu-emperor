@@ -201,6 +201,35 @@ def migrate(db_path: str = "game.db") -> bool:
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add province state columns to monthly_reports for historical tracking
+        try:
+            cursor.execute("""
+                ALTER TABLE monthly_reports ADD COLUMN population INTEGER DEFAULT 0
+            """)
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("""
+                ALTER TABLE monthly_reports ADD COLUMN development_level REAL DEFAULT 5.0
+            """)
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("""
+                ALTER TABLE monthly_reports ADD COLUMN loyalty REAL DEFAULT 50.0
+            """)
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("""
+                ALTER TABLE monthly_reports ADD COLUMN stability REAL DEFAULT 50.0
+            """)
+        except sqlite3.OperationalError:
+            pass
+
         # Create indexes for performance
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_monthly_summaries_province

@@ -59,15 +59,21 @@ def setup_test_data(db: Database):
             loyalty = 45.0 + (month - 6) * 5  # 45 → 75
             stability = 40.0 + (month - 6) * 4.5  # 40 → 67.5
 
+        # Calculate population and development changes
+        population = 50000 + month * 100  # Gradual population growth
+        development = 7.5 + month * 0.05  # Gradual improvement
+
         cursor.execute("""
             INSERT INTO monthly_reports (
                 month, year, province_id,
+                population, development_level, loyalty, stability,
                 actual_income, actual_expenditure,
                 reported_income, reported_expenditure,
                 treasury_change
-            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             month, 1,
+            population, development, loyalty, stability,
             income, expenditure,
             income, expenditure,  # Assume honest reporting
             income - expenditure
