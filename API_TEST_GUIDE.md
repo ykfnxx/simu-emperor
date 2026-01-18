@@ -1,320 +1,320 @@
-# Province Agent API测试指南
+# Province Agent API Testing Guide
 
-## 配置系统说明
+## Configuration System Description
 
-### 文件结构
+### File Structure
 
 ```
 /Users/yangkefan/workspace/simu-emperor/
-├── config.yaml.example           # 配置模板（已提交到git）
-├── config.yaml                   # 实际配置文件（不会被提交）
-├── config_loader.py              # 配置加载模块
-├── test_perception_agent_with_api.py   # API测试脚本
-└── .gitignore                    # 保护敏感信息
+├── config.yaml.example           # Configuration template (committed to git)
+├── config.yaml                   # Actual configuration file (not committed)
+├── config_loader.py              # Configuration loading module
+├── tests/province/test_perception_agent_with_api.py   # API test script
+└── .gitignore                    # Protect sensitive information
 ```
 
-### 快速开始
+### Quick Start
 
-#### 1. 创建配置文件
+#### 1. Create Configuration File
 
 ```bash
-# 复制配置模板
+# Copy configuration template
 cp config.yaml.example config.yaml
 
-# 编辑配置文件
-vim config.yaml  # 或使用你喜欢的编辑器
+# Edit configuration file
+vim config.yaml  # or use your preferred editor
 ```
 
-#### 2. 配置API Key
+#### 2. Configure API Key
 
-有两种方式设置API key：
+There are two ways to set the API key:
 
-**方式1：直接在config.yaml中设置**
+**Method 1: Directly in config.yaml**
 ```yaml
 llm:
-  api_key: "sk-ant-api03-..."  # 你的Anthropic API key
+  api_key: "sk-ant-api03-..."  # Your Anthropic API key
 ```
 
-**方式2：使用环境变量（推荐）**
+**Method 2: Use environment variable (recommended)**
 ```bash
-# 在终端中设置
+# Set in terminal
 export ANTHROPIC_API_KEY=sk-ant-api03-...
 
-# 或在~/.bashrc/~/.zshrc中添加
+# Or add to ~/.bashrc or ~/.zshrc
 echo 'export ANTHROPIC_API_KEY=sk-ant-api03-...' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-然后在config.yaml中使用：
+Then use in config.yaml:
 ```yaml
 llm:
   api_key: "${ANTHROPIC_API_KEY}"
 ```
 
-#### 3. 启用LLM
+#### 3. Enable LLM
 
-编辑config.yaml：
+Edit config.yaml:
 ```yaml
 llm:
-  enabled: true        # 启用LLM
-  mock_mode: false     # 关闭mock模式
-  model: "claude-3-5-sonnet-20241022"  # 选择模型
+  enabled: true        # Enable LLM
+  mock_mode: false     # Disable mock mode
+  model: "claude-3-5-sonnet-20241022"  # Select model
 ```
 
-#### 4. 运行测试
+#### 4. Run Tests
 
 ```bash
-# 使用配置文件中的设置
-python test_perception_agent_with_api.py
+# Use settings from config file
+python tests/province/test_perception_agent_with_api.py
 
-# 或直接指定API key（覆盖配置文件）
-python test_perception_agent_with_api.py --api-key sk-ant-api03-...
+# Or directly specify API key (overrides config file)
+python tests/province/test_perception_agent_with_api.py --api-key sk-ant-api03-...
 
-# 强制使用mock模式（不调用API）
-python test_perception_agent_with_api.py --mock
+# Force mock mode (no API calls)
+python tests/province/test_perception_agent_with_api.py --mock
 ```
 
-## 配置选项详解
+## Configuration Options
 
-### LLM配置
+### LLM Configuration
 
 ```yaml
 llm:
-  enabled: true                          # 是否启用LLM
-  api_key: "${ANTHROPIC_API_KEY}"        # API密钥
-  model: "claude-3-5-sonnet-20241022"   # 模型选择
-  max_tokens: 4096                       # 最大token数
-  temperature: 0.3                       # 温度（0-1）
-  mock_mode: false                       # mock模式
+  enabled: true                          # Enable LLM
+  api_key: "${ANTHROPIC_API_KEY}"        # API key
+  model: "claude-3-5-sonnet-20241022"   # Model selection
+  max_tokens: 4096                       # Max tokens
+  temperature: 0.3                       # Temperature (0-1)
+  mock_mode: false                       # Mock mode
 ```
 
-**可用模型：**
-- `claude-3-5-sonnet-20241022` - 最强，较慢，较贵
-- `claude-3-5-haiku-20241022` - 快速，便宜，适合测试
-- `claude-3-opus-20240229` - 旧版最强模型
-- `claude-3-haiku-20240307` - 旧版快速模型
+**Available models:**
+- `claude-3-5-sonnet-20241022` - Strongest, slower, more expensive
+- `claude-3-5-haiku-20241022` - Fast, inexpensive, good for testing
+- `claude-3-opus-20240229` - Previous strongest model
+- `claude-3-haiku-20240307` - Previous fast model
 
-### Province Agent配置
+### Province Agent Configuration
 
 ```yaml
 province_agent:
-  enabled: true              # 启用Province Agent系统
-  mode: "llm_assisted"       # 运行模式
+  enabled: true              # Enable Province Agent system
+  mode: "llm_assisted"       # Operation mode
   behavior:
-    auto_execute: true       # 自动执行行为
-    max_behaviors: 3         # 最大并行行为数
-    risk_threshold: "medium"  # 风险阈值
+    auto_execute: true       # Auto-execute behaviors
+    max_behaviors: 3         # Max parallel behaviors
+    risk_threshold: "medium"  # Risk threshold
 ```
 
-**运行模式：**
-- `rule_based` - 纯规则驱动（最快）
-- `llm_assisted` - LLM辅助决策（需要API）
+**Operation modes:**
+- `rule_based` - Pure rule-driven (fastest)
+- `llm_assisted` - LLM-assisted decision making (requires API)
 
-### PerceptionAgent配置
+### PerceptionAgent Configuration
 
 ```yaml
 perception_agent:
   history:
-    monthly_months: 1        # 月度详细数据月数
-    quarterly_quarters: 4    # 季度摘要季度数
-    annual_years: 3          # 年度摘要年数
+    monthly_months: 1        # Monthly detailed data months
+    quarterly_quarters: 4    # Quarterly summary quarters
+    annual_years: 3          # Annual summary years
 
   critical_events:
-    categories:              # 关键事件类别
+    categories:              # Critical event categories
       - rebellion
       - war
       - disaster
       - crisis
-    max_events: 8            # 最大索引事件数
+    max_events: 8            # Max indexed events
 
   summary:
-    use_llm: true            # 使用LLM生成摘要
-    max_length: 100          # 摘要长度限制
+    use_llm: true            # Use LLM to generate summaries
+    max_length: 100          # Summary length limit
 ```
 
-## 测试脚本说明
+## Test Script Description
 
-### test_perception_agent_with_api.py
+### tests/province/test_perception_agent_with_api.py
 
-使用真实LLM API测试PerceptionAgent的所有功能。
+Test PerceptionAgent with real LLM API.
 
-**功能：**
-- 生成12个月测试数据
-- 运行PerceptionAgent分析
-- 调用LLM生成季度和年度摘要
-- 输出趋势分析和风险评估
-- 保存完整JSON结果
+**Features:**
+- Generate 12 months of test data
+- Run PerceptionAgent analysis
+- Call LLM to generate quarterly and annual summaries
+- Output trend analysis and risk assessment
+- Save full JSON results
 
-**输出：**
-- 控制台：人类可读的结果摘要
-- JSON文件：完整的PerceptionContext数据
+**Output:**
+- Console: Human-readable result summary
+- JSON file: Complete PerceptionContext data
 
-**命令行参数：**
+**Command-line arguments:**
 ```bash
---config <path>      # 指定配置文件
---api-key <key>      # 直接提供API key
---mock               # 强制mock模式
+--config <path>      # Specify config file
+--api-key <key>      # Directly provide API key
+--mock               # Force mock mode
 ```
 
-## 配置加载示例
+## Configuration Loading Examples
 
-### Python代码中使用
+### Using in Python Code
 
 ```python
 from config_loader import get_config, init_config
 
-# 方式1：使用默认配置文件
+# Method 1: Use default config file
 config = get_config()
 
-# 方式2：指定配置文件
+# Method 2: Specify config file
 config = init_config("my_config.yaml")
 
-# 方式3：从命令行参数初始化
+# Method 3: Initialize from command line args
 from config_loader import setup_config_from_args
 config = setup_config_from_args()
 
-# 获取配置值
+# Get configuration values
 llm_enabled = config.get('llm.enabled', False)
 model = config.get('llm.model', 'claude-3-5-sonnet-20241022')
 
-# 获取LLM配置（用于Agent）
+# Get LLM config (for Agents)
 llm_config = config.get_llm_config()
 
-# 获取Province Agent配置
+# Get Province Agent config
 agent_config = config.get_province_agent_config(province_id=1)
 
-# 检查LLM是否启用
+# Check if LLM is enabled
 if config.is_llm_enabled():
     print("LLM is enabled and configured")
 else:
     print("Using mock mode")
 
-# 修改配置
+# Modify configuration
 config.set('llm.enabled', True)
 config.set('llm.temperature', 0.5)
 
-# 保存配置
+# Save configuration
 config.save("new_config.yaml")
 ```
 
-## 安全最佳实践
+## Security Best Practices
 
-### 1. 永远不要提交API Key
+### 1. Never Commit API Keys
 
-✅ **正确做法：**
+✅ **Correct:**
 ```yaml
 # config.yaml
-api_key: "${ANTHROPIC_API_KEY}"  # 从环境变量读取
+api_key: "${ANTHROPIC_API_KEY}"  # Read from environment variable
 ```
 
 ```bash
-# 在终端或脚本中设置
+# Set in terminal or script
 export ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-❌ **错误做法：**
+❌ **Wrong:**
 ```yaml
 # config.yaml
-api_key: "sk-ant-api03-ABC123..."  # 永远不要直接写入
+api_key: "sk-ant-api03-ABC123..."  # Never write directly
 ```
 
-### 2. 使用环境变量
+### 2. Use Environment Variables
 
-创建`.env`文件（已加入.gitignore）：
+Create `.env` file (already in .gitignore):
 ```bash
 # .env
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-加载环境变量：
+Load environment variables:
 ```python
 from dotenv import load_dotenv
-load_dotenv()  # 自动加载.env文件
+load_dotenv()  # Auto-load .env file
 ```
 
-### 3. 限制API Key权限
+### 3. Limit API Key Permissions
 
-- 为测试创建专用的API key
-- 设置使用限额（spending limit）
-- 定期轮换API key
+- Create dedicated API key for testing
+- Set spending limit
+- Rotate API key regularly
 
-### 4. 日志安全
+### 4. Log Security
 
-配置文件已设置`.gitignore`忽略：
-- `config.yaml` - 包含API key的配置文件
-- `*.log` - 日志文件可能包含敏感数据
-- `test_*.db` - 测试数据库
+Configured .gitignore to ignore:
+- `config.yaml` - Configuration file with API keys
+- `*.log` - Log files may contain sensitive data
+- `test_*.db` - Test databases
 
-## 常见问题
+## Common Issues
 
-### Q: 如何获取API Key？
+### Q: How to get API Key?
 
-A: 访问 https://console.anthropic.com/ 登录后获取
+A: Visit https://console.anthropic.com/ and get one after logging in
 
-### Q: 测试时遇到API错误？
+### Q: API error during testing?
 
-A: 检查：
-1. API key是否正确
-2. 账户是否有余额
-3. 模型名称是否正确
-4. 网络连接是否正常
+A: Check:
+1. API key is correct
+2. Account has balance
+3. Model name is correct
+4. Network connection is working
 
-### Q: 如何在mock模式和真实API之间切换？
+### Q: How to switch between mock and real API?
 
 A:
 ```yaml
-# 方式1：修改配置文件
+# Method 1: Modify configuration file
 llm:
-  mock_mode: true   # mock模式
-  # mock_mode: false  # 真实API
+  mock_mode: true   # Mock mode
+  # mock_mode: false  # Real API
 
-# 方式2：命令行参数
-python test_perception_agent_with_api.py --mock
+# Method 2: Command line argument
+python tests/province/test_perception_agent_with_api.py --mock
 ```
 
-### Q: 如何查看API调用详情？
+### Q: How to view API call details?
 
-A: 启用详细日志：
+A: Enable verbose logging:
 ```yaml
 logging:
   level: "DEBUG"
   verbose: true
 ```
 
-### Q: 测试费用大约多少？
+### Q: Approximate testing costs?
 
 A:
-- Mock模式：免费
-- Haiku模型：约 $0.25/1M tokens（测试推荐）
-- Sonnet模型：约 $3/1M tokens
-- 单次测试约消耗 1000-2000 tokens，成本约 $0.001-0.01
+- Mock mode: Free
+- Haiku model: ~$0.25/1M tokens (recommended for testing)
+- Sonnet model: ~$3/1M tokens
+- Single test consumes ~1000-2000 tokens, cost ~$0.001-0.01
 
-## 下一步
+## Next Steps
 
-1. **配置API Key**
+1. **Configure API Key**
    ```bash
    export ANTHROPIC_API_KEY=your-key-here
    ```
 
-2. **编辑config.yaml启用LLM**
+2. **Enable LLM in config.yaml**
    ```yaml
    llm:
      enabled: true
      mock_mode: false
    ```
 
-3. **运行测试**
+3. **Run Tests**
    ```bash
-   python test_perception_agent_with_api.py
+   python tests/province/test_perception_agent_with_api.py
    ```
 
-4. **查看结果**
-   - 控制台输出
+4. **View Results**
+   - Console output
    - `perception_context_api_test.json`
 
-5. **调整配置**
-   - 尝试不同模型
-   - 调整temperature
-   - 修改history窗口大小
+5. **Adjust Configuration**
+   - Try different models
+   - Adjust temperature
+   - Modify history window size
 
-祝测试顺利！🚀
+Happy testing! 🚀
