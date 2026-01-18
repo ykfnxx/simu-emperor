@@ -5,7 +5,7 @@ Uses SQLite to store game state
 
 import sqlite3
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .event_database import save_event, get_active_events, update_event
 
 
