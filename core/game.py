@@ -203,6 +203,7 @@ class Game:
         # === Phase 0: Agent generates events (proactive behavior) ===
         print("\n[Event Generation Phase]")
         current_month = self.state['current_month']
+        current_year = (current_month - 1) // 12 + 1  # Calculate current year
 
         # Load last month's active events and clean up expired events
         self.event_manager.load_active_events(current_month)
@@ -351,9 +352,6 @@ class Game:
                 print(f"Central advisor analysis failed: {e}")
 
         # === Phase 4: Budget execution ===
-        current_month = self.state['current_month']
-        current_year = (current_month - 1) // 12 + 1  # Calculate current year
-
         print("\n[Budget Execution Phase]")
 
         # Execute monthly budget (provincial level)
