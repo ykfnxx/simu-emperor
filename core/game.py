@@ -56,6 +56,9 @@ class Game:
         # Initialize Governor Agents (with personality system)
         self._initialize_governor_agents()
 
+        # Initialize Province Agents (Perception, Decision, Execution)
+        self._initialize_province_agents()
+
         # Initialize Central Advisor (if needed)
         if enable_central_advisor:
             self._initialize_central_advisor()
@@ -110,6 +113,58 @@ class Game:
 
         print(f"✓ Initialized {len(self.agents)} Governor Agents")
 
+    def _initialize_province_agents(self) -> None:
+        """Initialize Province Agents (Perception, Decision, Execution) for each province"""
+        from agents.province.perception_agent import PerceptionAgent
+        from agents.province.decision_agent import DecisionAgent
+        from agents.province.execution_agent import ExecutionAgent
+
+        print("Initializing Province Agents...")
+
+        self.province_agents = {}
+
+        for province in self.provinces:
+            # Create Perception Agent
+            perception_agent = PerceptionAgent(
+                agent_id=f"perception_{province.province_id}",
+                config={
+                    'province_id': province.province_id,
+                    'llm_config': {
+                        'enabled': False,
+                        'mock_mode': True
+                    }
+                },
+                db=self.db
+            )
+
+            # Create Decision Agent
+            decision_agent = DecisionAgent(
+                agent_id=f"decision_{province.province_id}",
+                config={
+                    'province_id': province.province_id,
+                    'llm_config': {
+                        'enabled': False,
+                        'mock_mode': True
+                    }
+                }
+            )
+
+            # Create Execution Agent
+            execution_agent = ExecutionAgent(
+                agent_id=f"execution_{province.province_id}",
+                config={
+                    'province_id': province.province_id
+                }
+            )
+
+            self.province_agents[province.province_id] = {
+                'perception': perception_agent,
+                'decision': decision_agent,
+                'execution': execution_agent
+            }
+
+        print(f"✓ Initialized {len(self.province_agents)} Province Agent sets")
+
     def _initialize_central_advisor(self) -> None:
         """Initialize Central Advisor Agent"""
         print("Initializing Central Advisor Agent...")
@@ -148,6 +203,7 @@ class Game:
         # === Phase 0: Agent generates events (proactive behavior) ===
         print("\n[Event Generation Phase]")
         current_month = self.state['current_month']
+        current_year = (current_month - 1) // 12 + 1  # Calculate current year
 
         # Load last month's active events and clean up expired events
         self.event_manager.load_active_events(current_month)
@@ -265,6 +321,10 @@ class Game:
                 else:
                     print(f"  ✓ {province.name}: Honest reporting")
 
+        # === Phase 2.5: Province Agent Execution ===
+        print("\n[Province Agent Execution Phase]")
+        await self._run_province_agents(current_month, current_year)
+
         # 4. Central advisor analysis (if available)
         if self.central_advisor:
             print("\n[Central Advisor Analysis Phase]")
@@ -292,9 +352,6 @@ class Game:
                 print(f"Central advisor analysis failed: {e}")
 
         # === Phase 4: Budget execution ===
-        current_month = self.state['current_month']
-        current_year = (current_month - 1) // 12 + 1  # Calculate current year
-
         print("\n[Budget Execution Phase]")
 
         # Execute monthly budget (provincial level)
@@ -412,6 +469,115 @@ class Game:
                 'last_month_corrupted': False,
                 'reasoning': 'Agent execution failed, default to honest reporting'
             }
+
+    async def _run_province_agents(self, current_month: int, current_year: int) -> None:
+        """Run Province Agents (Perception, Decision, Execution) for all provinces
+
+        Args:
+            current_month: Current month number
+            current_year: Current year
+        """
+        for province in self.provinces:
+            try:
+                # Get province agents
+                agents = self.province_agents.get(province.province_id)
+                if not agents:
+                    continue
+
+                perception_agent = agents['perception']
+                decision_agent = agents['decision']
+                execution_agent = agents['execution']
+
+                # === Stage 1: Perception ===
+                perception_context = await perception_agent.perceive(
+                    province_id=province.province_id,
+                    current_month=current_month,
+                    current_year=current_year
+                )
+
+                # === Stage 2: Decision ===
+                # Get current province state
+                province_state = {
+                    'actual_income': province.actual_income,
+                    'actual_expenditure': province.actual_expenditure,
+                    'reported_income': province.reported_income,
+                    'reported_expenditure': province.reported_expenditure,
+                    'actual_surplus': province.actual_income - province.actual_expenditure,
+                    'loyalty': province.loyalty,
+                    'stability': province.stability,
+                    'development_level': province.development_level,
+                    'population': province.population
+                }
+
+                # Make decision (no player instruction for now)
+                decision = await decision_agent.make_decision(
+                    perception=perception_context,
+                    instruction=None,  # No player instruction in autonomous mode
+                    province_state=province_state
+                )
+
+                # === Stage 3: Execution ===
+                execution_result = await execution_agent.execute(
+                    decision=decision,
+                    province_state=province_state,
+                    month=current_month,
+                    year=current_year
+                )
+
+                # Apply execution results to province
+                if execution_result.executed_behaviors:
+                    print(f"  {province.name}: Executed {len(execution_result.executed_behaviors)} behavior(s)")
+
+                    # Apply effects
+                    for behavior in execution_result.executed_behaviors:
+                        effect = behavior.effects
+                        province.actual_income += effect.income_change
+                        province.actual_expenditure += effect.expenditure_change
+                        province.loyalty = max(0, min(100, province.loyalty + effect.loyalty_change))
+                        province.stability = max(0, min(100, province.stability + effect.stability_change))
+                        province.development_level = max(0, min(10, province.development_level + effect.development_change))
+
+                        print(f"    - {behavior.behavior_name}: loyalty {effect.loyalty_change:+.1f}, stability {effect.stability_change:+.1f}")
+
+                    # Generate and save events
+                    for event in execution_result.generated_events:
+                        # Convert BehaviorEvent to dict and save
+                        event_dict = {
+                            'event_id': event.event_id,
+                            'province_id': province.province_id,
+                            'name': event.name,
+                            'description': event.description,
+                            'event_type': event.event_type,
+                            'severity': event.severity,
+                            'start_month': current_month,
+                            'end_month': current_month,
+                            'is_active': True,
+                            'visibility': event.visibility,
+                            'is_agent_generated': event.is_agent_generated
+                        }
+
+                        # Parse effects into event format
+                        instant_effects = {}
+                        if abs(event.effects.get('income_change', 0)) > 0:
+                            instant_effects['income'] = event.effects['income_change']
+                        if abs(event.effects.get('expenditure_change', 0)) > 0:
+                            instant_effects['expenditure'] = event.effects['expenditure_change']
+                        if abs(event.effects.get('loyalty_change', 0)) > 0:
+                            instant_effects['loyalty'] = event.effects['loyalty_change']
+                        if abs(event.effects.get('stability_change', 0)) > 0:
+                            instant_effects['stability'] = event.effects['stability_change']
+
+                        import json
+                        event_dict['instant_effects'] = json.dumps(instant_effects)
+                        event_dict['continuous_effects'] = json.dumps({})
+
+                        # Save to database
+                        self.db.save_event(event_dict)
+
+                        print(f"    Generated event: {event.name}")
+
+            except Exception as e:
+                print(f"  ⚠️ {province.name}: Province Agent execution failed: {e}")
 
     def _process_active_projects(self) -> None:
         """Process effects of active projects"""

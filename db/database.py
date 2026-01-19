@@ -5,7 +5,7 @@ Uses SQLite to store game state
 
 import sqlite3
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .event_database import save_event, get_active_events, update_event
 
 
@@ -401,3 +401,170 @@ class Database:
 
         conn.commit()
         conn.close()
+
+    # ========== Province Agent Methods ==========
+
+    def get_monthly_report(self, province_id: int, month: int, year: int) -> Optional[Dict[str, Any]]:
+        """Get monthly report for a specific month"""
+        import json
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM monthly_reports
+            WHERE province_id = ? AND month = ? AND (year = ? OR year IS NULL)
+        """, (province_id, month, year))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        return None
+
+    def get_province(self, province_id: int) -> Optional[Dict[str, Any]]:
+        """Get province data"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM provinces WHERE province_id = ?", (province_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        return None
+
+    def get_events_for_month(self, province_id: int, month: int, year: int) -> List[Dict[str, Any]]:
+        """Get all events for a specific month"""
+        import json
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM events
+            WHERE province_id = ? AND start_month = ? AND end_month = ?
+        """, (province_id, month, month))
+        rows = cursor.fetchall()
+        conn.close()
+
+        if rows:
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        return []
+
+    def get_quarterly_summary(self, province_id: int, quarter: int, year: int) -> Optional[Dict[str, Any]]:
+        """Get quarterly summary from database or None if not exists"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM province_quarterly_summaries
+            WHERE province_id = ? AND quarter = ? AND year = ?
+        """, (province_id, quarter, year))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        return None
+
+    def save_quarterly_summary(self, province_id: int, quarter: int, year: int,
+                               avg_income: float, median_income: float,
+                               avg_expenditure: float, median_expenditure: float,
+                               total_surplus: float, income_trend: str,
+                               expenditure_trend: str, loyalty_change: float,
+                               stability_change: float, major_events: List[str],
+                               special_event_types: List[str], summary: str) -> int:
+        """Save quarterly summary to database, returns summary_id"""
+        import json
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO province_quarterly_summaries
+            (province_id, quarter, year, avg_income, median_income, avg_expenditure,
+             median_expenditure, total_surplus, income_trend, expenditure_trend,
+             loyalty_change, stability_change, major_events, special_event_types, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            province_id, quarter, year,
+            avg_income, median_income, avg_expenditure,
+            median_expenditure, total_surplus,
+            income_trend, expenditure_trend,
+            loyalty_change, stability_change,
+            json.dumps(major_events),
+            json.dumps(special_event_types),
+            summary
+        ))
+        summary_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return summary_id
+
+    def get_annual_summary(self, province_id: int, year: int) -> Optional[Dict[str, Any]]:
+        """Get annual summary from database or None if not exists"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM province_annual_summaries
+            WHERE province_id = ? AND year = ?
+        """, (province_id, year))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        return None
+
+    def save_annual_summary(self, province_id: int, year: int,
+                           total_income: float, total_expenditure: float,
+                           avg_monthly_income: float, avg_monthly_expenditure: float,
+                           total_surplus: float, population_change: int,
+                           development_change: float, loyalty_start: float,
+                           loyalty_end: float, loyalty_change: float,
+                           major_events: List[str], disaster_count: int,
+                           rebellion_count: int, performance_rating: str,
+                           summary: str) -> int:
+        """Save annual summary to database, returns summary_id"""
+        import json
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO province_annual_summaries
+            (province_id, year, total_income, total_expenditure, avg_monthly_income,
+             avg_monthly_expenditure, total_surplus, population_change, development_change,
+             loyalty_start, loyalty_end, loyalty_change, major_events,
+             disaster_count, rebellion_count, performance_rating, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            province_id, year,
+            total_income, total_expenditure,
+            avg_monthly_income, avg_monthly_expenditure,
+            total_surplus, population_change, development_change,
+            loyalty_start, loyalty_end, loyalty_change,
+            json.dumps(major_events),
+            disaster_count, rebellion_count,
+            performance_rating, summary
+        ))
+        summary_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return summary_id
+
+    def get_special_events(self, province_id: int, categories: List[str], limit: int = 8) -> List[Dict[str, Any]]:
+        """Get special events from index, ordered by severity desc"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        placeholders = ','.join(['?' for _ in categories])
+        cursor.execute(f"""
+            SELECT * FROM special_events_index
+            WHERE province_id = ? AND event_category IN ({placeholders})
+            ORDER BY severity DESC, month DESC
+            LIMIT ?
+        """, [province_id] + categories + [limit])
+        rows = cursor.fetchall()
+        conn.close()
+
+        if rows:
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        return []

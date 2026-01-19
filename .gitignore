@@ -3,3 +3,40 @@ __pycache__/
 *$py.class
 .scripts/
 *.db
+
+# Configuration files with sensitive data
+config.yaml
+
+# Logs
+*.log
+
+# Test databases
+test_*.db
+*.db.test
+
+# Test outputs
+perception_context_api_test.json
+province_agent.log
+
+# Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.venv/
+venv/
+ENV/

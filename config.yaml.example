@@ -1,0 +1,172 @@
+# Province Agent Configuration
+# provinceAgentsystemconfig file
+
+# ============================================
+# LLM配置
+# ============================================
+llm:
+  # 是否启用LLM（false则使用mock模式）
+  enabled: true
+
+  # API密钥（可以从environment variable读取：${ANTHROPIC_API_KEY}）
+  api_key: "${ANTHROPIC_API_KEY}"
+
+  # 使用的model
+  model: "claude-3-5-sonnet-20241022"
+  # 可选model：
+  # - claude-3-5-sonnet-20241022 (最强，较慢)
+  # - claude-3-5-haiku-20241022 (快速，便宜)
+  # - claude-3-opus-20240229 (旧版最强)
+  # - claude-3-haiku-20240307 (旧版快速)
+
+  # 最大token数
+  max_tokens: 4096
+
+  # 温度（0.0-1.0，越低越确定）
+  temperature: 0.3
+
+  # 是否使用mock模式（Test用，不调用真实API）
+  mock_mode: false
+
+# ============================================
+# Province Agentsettings
+# ============================================
+province_agent:
+  # 是否启用Province Agentsystem
+  enabled: true
+
+  # AgentRun模式
+  # - rule_based: 纯规则驱动
+  # - llm_assisted: LLM辅助decision
+  mode: "llm_assisted"
+
+  # behaviorexecution配置
+  behavior:
+    # 是否允许behavior自动execution
+    auto_execute: true
+
+    # 最大并行behavior数
+    max_behaviors: 3
+
+    # risk阈值
+    risk_threshold: "medium"  # low, medium, high
+
+# ============================================
+# PerceptionAgent配置
+# ============================================
+perception_agent:
+  # historical数据窗口
+  history:
+    # monthly详细数据月数
+    monthly_months: 1
+
+    # quartersummaryquarter数
+    quarterly_quarters: 4
+
+    # annualsummary年数
+    annual_years: 3
+
+  # 关键event索引
+  critical_events:
+    # event类别
+    categories:
+      - "rebellion"
+      - "war"
+      - "disaster"
+      - "crisis"
+
+    # 最大索引event数
+    max_events: 8
+
+  # summarygenerate
+  summary:
+    # 是否使用LLMgeneratesummary
+    use_llm: true
+
+    # summary长度限制
+    max_length: 100
+
+# ============================================
+# DecisionAgent配置
+# ============================================
+decision_agent:
+  # 指令evaluate
+  instruction:
+    # 是否允许玩家指令
+    allow_instructions: true
+
+    # 指令超时时间（月）
+    timeout_months: 3
+
+  # 自主decision
+  autonomous:
+    # 是否启用自主decision
+    enabled: true
+
+    # decision策略
+    # - balanced: 平衡策略
+    # - aggressive: 激进策略
+    # - conservative: 保守策略
+    strategy: "balanced"
+
+# ============================================
+# ExecutionAgent配置
+# ============================================
+execution_agent:
+  # behaviorexecution
+  execution:
+    # 是否validatebehaviorparameter
+    validate_params: true
+
+    # 是否generateevent
+    generate_events: true
+
+  # eventgenerate
+  events:
+    # 默认event可见性
+    default_visibility: "provincial"  # public, provincial, hidden
+
+    # 是否记录behaviorhistorical
+    log_history: true
+
+# ============================================
+# 日志配置
+# ============================================
+logging:
+  # 日志级别
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+  # 是否Output详细日志
+  verbose: true
+
+  # 日志文件路径
+  file: "province_agent.log"
+
+  # 是否控制台Output
+  console: true
+
+# ============================================
+# database配置
+# ============================================
+database:
+  # database路径
+  path: "game.db"
+
+  # 是否启用WAL模式（提高并发性能）
+  wal_mode: true
+
+  # 连接池大小
+  pool_size: 5
+
+# ============================================
+# Test配置
+# ============================================
+testing:
+  # 是否使用Testdatabase
+  use_test_db: false
+
+  # Testdatabase路径
+  test_db_path: "test_province_agent.db"
+
+  # 是否在Test后清理
+  cleanup_after_test: true
