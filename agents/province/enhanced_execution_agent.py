@@ -13,6 +13,7 @@ import uuid
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import logging
 from agents.base import BaseAgent
 from agents.province.models import (
     Decision, ExecutedBehavior, BehaviorEvent, ExecutionResult,
@@ -45,10 +46,13 @@ class EnhancedExecutionAgent(BaseAgent):
             agent_id: Unique agent identifier
             config: Configuration dict with execution mode and settings
         """
-        # Handle execution mode - map hybrid to llm_assisted for BaseAgent compatibility
+        # Handle execution mode - map to BaseAgent mode
         base_config = config.copy()
-        if base_config.get('mode') == 'hybrid':
+        execution_mode = base_config.get('execution_mode', 'standard')
+        if execution_mode == 'llm_enhanced' or execution_mode == 'hybrid':
             base_config['mode'] = 'llm_assisted'
+        else:
+            base_config['mode'] = 'rule_based'
         
         super().__init__(agent_id, base_config)
         self.province_id = config.get('province_id')
@@ -58,11 +62,33 @@ class EnhancedExecutionAgent(BaseAgent):
         self.enable_learning = config.get('enable_learning', True)
         self.execution_history: List[ExecutionRecord] = []
         
+        # Initialize logger
+        self.logger = logging.getLogger(f"EnhancedExecutionAgent.{agent_id}")
+        
     async def initialize(self, config: Dict[str, Any]) -> None:
         """Initialize agent with enhanced configuration"""
         # Load historical execution data if available
         if 'historical_data' in config:
             self._load_historical_data(config['historical_data'])
+    
+    async def on_month_start(self, game_state: Dict[str, Any], provinces: List[Dict[str, Any]]) -> None:
+        """Called at month start - execution agent doesn't need monthly initialization"""
+        pass
+    
+    async def take_action(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Execute action - execution agent uses specialized execute methods"""
+        return None
+    
+    def get_state(self) -> Dict[str, Any]:
+        """Get agent state"""
+        return {
+            'agent_id': self.agent_id,
+            'province_id': self.province_id,
+            'execution_mode': self.execution_mode.value,
+            'execution_history_count': len(self.execution_history),
+            'quality_threshold': self.quality_threshold,
+            'enable_learning': self.enable_learning
+        }
             
     def _load_historical_data(self, historical_data: List[Dict[str, Any]]) -> None:
         """Load historical execution data for learning"""
@@ -73,6 +99,39 @@ class EnhancedExecutionAgent(BaseAgent):
                 self.execution_history.append(execution_record)
             except Exception as e:
                 self.logger.warning(f"Failed to load historical record: {e}")
+
+    def _apply_effect_to_province(self, effect: BehaviorEffect, province_state: Dict[str, Any]) -> None:
+        """Apply behavior effect to province state"""
+        # Apply income/expenditure changes to actual values
+        if 'actual_income' in province_state:
+            province_state['actual_income'] += effect.income_change
+        if 'actual_expenditure' in province_state:
+            province_state['actual_expenditure'] += effect.expenditure_change
+
+        # Apply loyalty change
+        if 'loyalty' in province_state:
+            province_state['loyalty'] = max(0, min(100, province_state['loyalty'] + effect.loyalty_change))
+
+        # Apply stability change
+        if 'stability' in province_state:
+            province_state['stability'] = max(0, min(100, province_state['stability'] + effect.stability_change))
+
+        # Apply development change
+        if 'development_level' in province_state:
+            province_state['development_level'] = max(0, min(10, province_state['development_level'] + effect.development_change))
+
+        # Apply population change
+        if 'population' in province_state:
+            province_state['population'] = max(0, province_state['population'] + effect.population_change)
+
+        # Store other effects
+        if 'other_effects' not in province_state:
+            province_state['other_effects'] = {}
+        for key, value in effect.other_effects.items():
+            if key in province_state['other_effects']:
+                province_state['other_effects'][key] += value
+            else:
+                province_state['other_effects'][key] = value
 
     async def execute_with_llm(
         self,
