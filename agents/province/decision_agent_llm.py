@@ -254,7 +254,12 @@ class EnhancedDecisionAgent(BaseAgent):
             # Convert to behaviors and validate with rules
             behaviors = []
             for llm_behavior in llm_output.primary_behaviors + llm_output.supporting_behaviors:
-                behavior_type = BehaviorType(llm_behavior.behavior_type)
+                # Normalize behavior type string
+                normalized_type = self._normalize_behavior_type(llm_behavior.behavior_type)
+                if not normalized_type:
+                    continue
+
+                behavior_type = BehaviorType(normalized_type)
                 
                 # Validate with rules
                 is_valid, error_msg = validate_behavior_parameters(
@@ -272,7 +277,8 @@ class EnhancedDecisionAgent(BaseAgent):
             
             # Calculate effects and risk
             estimated_effects = self._calculate_estimated_effects(behaviors, province_state)
-            risk_level = RiskLevel(llm_output.overall_risk_level)
+            normalized_risk = self._normalize_risk_level(llm_output.overall_risk_level)
+            risk_level = RiskLevel(normalized_risk)
             
             return Decision(
                 province_id=perception.province_id,
@@ -524,6 +530,52 @@ Be specific and practical in your assessment."""
 
     # ========== Conversion Methods ==========
 
+    def _normalize_risk_level(self, risk_level_str: str) -> str:
+        """Normalize LLM risk level string to enum format
+
+        Examples:
+            "LOW" -> "low"
+            "Medium" -> "medium"
+            "high" -> "high"
+        """
+        if not risk_level_str:
+            return "low"
+
+        return risk_level_str.lower()
+
+    def _normalize_behavior_type(self, behavior_type_str: str) -> Optional[str]:
+        """Normalize LLM behavior type string to enum format
+
+        Examples:
+            "Loyalty Campaign" -> "loyalty_campaign"
+            "Infrastructure Investment" -> "infrastructure_investment"
+            "loyalty_campaign" -> "loyalty_campaign" (already normalized)
+        """
+        if not behavior_type_str:
+            return None
+
+        # If already in correct format (lowercase with underscores)
+        if '_' in behavior_type_str and behavior_type_str.islower():
+            return behavior_type_str
+
+        # Convert from title case or mixed case to lowercase with underscores
+        # "Loyalty Campaign" -> "loyalty_campaign"
+        normalized = behavior_type_str.lower().replace(' ', '_').replace('-', '_')
+
+        # Map common variations to correct enum values
+        mapping = {
+            'loyaltycampaign': 'loyalty_campaign',
+            'stabilitymeasure': 'stability_measure',
+            'emergencyrelief': 'emergency_relief',
+            'infrastructureinvestment': 'infrastructure_investment',
+            'taxadjustment': 'tax_adjustment',
+            'corruptioncrackdown': 'corruption_crackdown',
+            'economicstimulus': 'economic_stimulus',
+            'austeritymeasure': 'austerity_measure'
+        }
+
+        return mapping.get(normalized, normalized)
+
     def _convert_llm_output_to_decision(
         self,
         llm_output: LLMDecisionOutput,
@@ -531,13 +583,19 @@ Be specific and practical in your assessment."""
         instruction: Optional[PlayerInstruction]
     ) -> Decision:
         """Convert LLM output to Decision model"""
-        
+
         behaviors = []
-        
+
         # Convert primary behaviors
         for llm_behavior in llm_output.primary_behaviors:
             try:
-                behavior_type = BehaviorType(llm_behavior.behavior_type)
+                # Normalize behavior type string
+                normalized_type = self._normalize_behavior_type(llm_behavior.behavior_type)
+                if not normalized_type:
+                    print(f"Warning: Empty behavior type from LLM")
+                    continue
+
+                behavior_type = BehaviorType(normalized_type)
                 behavior = BehaviorDefinition(
                     behavior_type=behavior_type,
                     behavior_name=llm_behavior.behavior_type.replace('_', ' ').title(),
@@ -553,7 +611,13 @@ Be specific and practical in your assessment."""
         # Convert supporting behaviors
         for llm_behavior in llm_output.supporting_behaviors:
             try:
-                behavior_type = BehaviorType(llm_behavior.behavior_type)
+                # Normalize behavior type string
+                normalized_type = self._normalize_behavior_type(llm_behavior.behavior_type)
+                if not normalized_type:
+                    print(f"Warning: Empty behavior type from LLM")
+                    continue
+
+                behavior_type = BehaviorType(normalized_type)
                 behavior = BehaviorDefinition(
                     behavior_type=behavior_type,
                     behavior_name=llm_behavior.behavior_type.replace('_', ' ').title(),
@@ -583,7 +647,10 @@ Be specific and practical in your assessment."""
             'actual_surplus': perception.recent_data.actual_surplus
         }
         estimated_effects = self._calculate_estimated_effects(valid_behaviors, province_state)
-        
+
+        # Normalize risk level
+        normalized_risk = self._normalize_risk_level(llm_output.overall_risk_level)
+
         return Decision(
             province_id=perception.province_id,
             month=perception.current_month,
@@ -591,7 +658,7 @@ Be specific and practical in your assessment."""
             behaviors=valid_behaviors,
             in_response_to_instruction=instruction.instruction_id if instruction else None,
             reasoning=llm_output.reasoning,
-            risk_level=RiskLevel(llm_output.overall_risk_level),
+            risk_level=RiskLevel(normalized_risk),
             estimated_effects=estimated_effects
         )
 
