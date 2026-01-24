@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "anthropic>=0.75.0",
     "instructor>=1.13.0",
+    "openai>=1.0.0",  # For OpenAI-compatible APIs
     # 本项目仅使用Python标准库
     # SQLite3（内置）
     # random（内置）
