@@ -1,7 +1,7 @@
 """
-简单的配置使用示例
+Simple configuration usage examples
 
-演示如何使用配置system和TestPerceptionAgent
+Demonstrates how to use the configuration system and test PerceptionAgent
 """
 
 import asyncio
@@ -10,44 +10,44 @@ from config_loader import get_config, init_config, setup_config_from_args
 
 
 def example_basic_usage():
-    """基础配置使用示例"""
+    """Basic configuration usage example"""
     print("="*70)
-    print("示例1: 基础配置使用")
+    print("Example 1: Basic configuration usage")
     print("="*70)
 
-    # Load配置
+    # Load configuration
     config = get_config()
 
-    # 读取配置值
+    # Read configuration values
     print(f"\nconfig file: {config.config_path}")
-    print(f"LLM 启用: {config.get('llm.enabled')}")
+    print(f"LLM enabled: {config.get('llm.enabled')}")
     print(f"LLM model: {config.get('llm.model')}")
-    print(f"Mock 模式: {config.get('llm.mock_mode')}")
+    print(f"Mock mode: {config.get('llm.mock_mode')}")
 
     # 检查LLM状态
     if config.is_llm_enabled():
-        print("\n✓ LLM已启用并配置")
+        print("\n✓ LLM enabled and configured")
     else:
-        print("\nℹ LLM未启用或使用mock模式")
+        print("\nℹ LLM not enabled or using mock mode")
 
-    # 修改配置
+    # Modify configuration
     print("\n修改配置...")
     config.set('llm.temperature', 0.7)
-    print(f"温度settings为: {config.get('llm.temperature')}")
+    print(f"Temperature set to: {config.get('llm.temperature')}")
 
     # GetAgent配置
-    print("\nGetAgent配置:")
+    print("\nGet Agent configuration:")
     llm_config = config.get_llm_config()
     print(f"  LLM配置: {llm_config}")
 
     agent_config = config.get_province_agent_config(province_id=1)
-    print(f"  Agent配置: mode={agent_config['mode']}")
+    print(f"  Agent configuration: mode={agent_config['mode']}")
 
 
 def example_from_args():
-    """从command lineparameterLoad配置"""
+    """Load configuration from command line parameters"""
     print("\n" + "="*70)
-    print("示例2: 从command lineparameterLoad配置")
+    print("Example 2: Load configuration from command line parameters")
     print("="*70)
 
     print("\nUsage:")
@@ -58,116 +58,116 @@ def example_from_args():
     import sys
     if len(sys.argv) > 1:
         config = setup_config_from_args()
-        print(f"\n从command lineLoad配置: {config.config_path}")
+        print(f"\nLoaded configuration from command line: {config.config_path}")
     else:
-        print("\n(无command lineparameter，使用默认配置)")
+        print("\n(No command line parameters, using default configuration)")
 
 
 def example_environment_variable():
-    """environment variable使用示例"""
+    """Environment variable usage example"""
     print("\n" + "="*70)
-    print("示例3: 使用environment variable")
+    print("Example 3: Use environment variables")
     print("="*70)
 
-    print("\n方式1: settingsenvironment variable")
+    print("\nMethod 1: Set environment variable")
     print("  export ANTHROPIC_API_KEY=sk-ant-api03-...")
     print("  python your_script.py")
 
-    print("\n方式2: 在config.yaml中使用environment variable")
+    print("\nMethod 2: Use environment variable in config.yaml")
     print("  llm:")
     print("    api_key: \"${ANTHROPIC_API_KEY}\"")
 
-    print("\n方式3: 在Python中settings")
+    print("\nMethod 3: Set in Python")
     print("  os.environ['ANTHROPIC_API_KEY'] = 'sk-ant-api03-...'")
 
     # 演示读取environment variable
     api_key = os.getenv('ANTHROPIC_API_KEY')
     if api_key:
-        print(f"\n✓ environment variable已settings: {api_key[:20]}...")
+        print(f"\n✓ Environment variable set: {api_key[:20]}...")
     else:
-        print("\nℹ environment variable未settings")
+        print("\nℹ Environment variable not set")
 
 
 def example_with_agent():
-    """在Agent中使用配置"""
+    """Use configuration in Agent"""
     print("\n" + "="*70)
-    print("示例4: 在Agent中使用配置")
+    print("Example 4: Use configuration in Agent")
     print("="*70)
 
     config = get_config()
 
     # GetPerceptionAgent配置
     perception_config = config.get_perception_config()
-    print("\nPerceptionAgent配置:")
-    print(f"  historical月数: {perception_config['history_months']}")
-    print(f"  quarter数: {perception_config['quarterly_quarters']}")
-    print(f"  年数: {perception_config['annual_years']}")
-    print(f"  使用LLMsummary: {perception_config['use_llm_summary']}")
+    print("\nPerceptionAgent configuration:")
+    print(f"  Historical months: {perception_config['history_months']}")
+    print(f"  Quarterly quarters: {perception_config['quarterly_quarters']}")
+    print(f"  Annual years: {perception_config['annual_years']}")
+    print(f"  Use LLM summary: {perception_config['use_llm_summary']}")
 
     # GetDecisionAgent配置
     decision_config = config.get_decision_config()
-    print("\nDecisionAgent配置:")
-    print(f"  允许指令: {decision_config['allow_instructions']}")
-    print(f"  自主decision: {decision_config['autonomous_enabled']}")
-    print(f"  策略: {decision_config['strategy']}")
+    print("\nDecisionAgent configuration:")
+    print(f"  Allow instructions: {decision_config['allow_instructions']}")
+    print(f"  Autonomous decision: {decision_config['autonomous_enabled']}")
+    print(f"  Strategy: {decision_config['strategy']}")
 
     # GetExecutionAgent配置
     execution_config = config.get_execution_config()
     print("\nExecutionAgent配置:")
-    print(f"  validateparameter: {execution_config['validate_params']}")
-    print(f"  generateevent: {execution_config['generate_events']}")
+    print(f"  Validate parameters: {execution_config['validate_params']}")
+    print(f"  Generate events: {execution_config['generate_events']}")
 
 
 def example_check_llm_status():
-    """检查LLM配置状态"""
+    """Check LLM configuration status"""
     print("\n" + "="*70)
-    print("示例5: 检查LLM配置状态")
+    print("Example 5: Check LLM configuration status")
     print("="*70)
 
     config = get_config()
 
     print("\nLLM配置检查:")
     print(f"  ✓ enabled: {config.get('llm.enabled')}")
-    print(f"  ✓ api_key: {'已settings' if config.get('llm.api_key') else '未settings'}")
+    print(f"  ✓ api_key: {'Set' if config.get('llm.api_key') else 'Not set'}")
     print(f"  ✓ model: {config.get('llm.model')}")
     print(f"  ✓ mock_mode: {config.get('llm.mock_mode')}")
 
     if config.is_llm_enabled():
-        print("\n✓ LLM已完全配置，可以使用真实API")
-        print("\nRun真实APITest:")
+        print("\n✓ LLM fully configured, can use real API")
+        print("\nRun real API test:")
         print("  python test_perception_agent_with_api.py")
     else:
-        print("\n⚠️  LLM未完全配置:")
+        print("\n⚠️  LLM not fully configured:")
         if not config.get('llm.enabled'):
-            print("  - 在config.yaml中settings llm.enabled: true")
+            print("  - Set llm.enabled: true in config.yaml")
         if not config.get('llm.api_key'):
-            print("  - settingsANTHROPIC_API_KEYenvironment variable")
-            print("  - 或在config.yaml中settingsllm.api_key")
+            print("  - Set ANTHROPIC_API_KEY environment variable")
+            print("  - Or set llm.api_key in config.yaml")
         if config.get('llm.mock_mode'):
-            print("  - 在config.yaml中settingsllm.mock_mode: false")
+            print("  - Set llm.mock_mode: false in config.yaml")
 
 
 def example_test_with_mock():
-    """使用mock模式Test"""
+    """Test with mock mode"""
     print("\n" + "="*70)
-    print("示例6: 使用Mock模式Test")
+    print("Example 6: Test with Mock mode")
     print("="*70)
 
-    print("\nMock模式不需要API key，适合开发Test")
+    print("\nMock mode doesn't need API key, suitable for development testing")
 
-    print("\n确保config.yaml中:")
+    print("\nEnsure in config.yaml:")
     print("  llm:")
     print("    mock_mode: true")
-    print("    enabled: true  # 可选")
+    print("    enabled: true  # Optional")
 
-    print("\n然后Run:")
+    print("\nThen run:")
     print("  python test_perception_agent.py")
     print("  python test_perception_agent_with_api.py --mock")
 
 
 if __name__ == "__main__":
     print("\n" + "="*70)
-    print("Province Agent 配置system使用示例")
+    print("Province Agent Configuration System Usage Examples")
     print("="*70)
 
     # Run所有示例

@@ -35,7 +35,9 @@ class Config:
         return {
             'llm': {
                 'enabled': False,
+                'provider': 'anthropic',  # anthropic, openai, custom
                 'api_key': None,
+                'base_url': None,  # For custom API endpoints
                 'model': 'claude-3-5-sonnet-20241022',
                 'max_tokens': 4096,
                 'temperature': 0.3,
@@ -191,7 +193,9 @@ class Config:
         """Get LLM configuration for agents"""
         return {
             'enabled': self.get('llm.enabled', False),
+            'provider': self.get('llm.provider', 'anthropic'),
             'api_key': self.get('llm.api_key'),
+            'base_url': self.get('llm.base_url'),
             'model': self.get('llm.model', 'claude-3-5-sonnet-20241022'),
             'max_tokens': self.get('llm.max_tokens', 4096),
             'temperature': self.get('llm.temperature', 0.3),
