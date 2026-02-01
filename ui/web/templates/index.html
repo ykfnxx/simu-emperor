@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EU4 Strategy Game</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>EU4 Strategy Game</h1>
+            </div>
+            <div class="header-right">
+                <span class="month">Month: {{ month }}</span>
+                <label class="debug-toggle">
+                    Debug:
+                    <input type="checkbox" id="debug-toggle" {% if debug_mode %}checked{% endif %}>
+                </label>
+            </div>
+        </header>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="treasury">
+                Treasury: <span class="gold">{{ "%.2f"|format(treasury) }}</span> gold
+            </div>
+            <div class="events">
+                Active Events: {{ national_event_count }} national, {{ province_event_count }} provincial
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <main class="main-content" id="main-content">
+            <!-- Province List View (Default) -->
+            <div class="province-list" id="province-list">
+                {% for province in provinces %}
+                <div class="province-card" data-province-id="{{ province.province_id }}">
+                    <div class="province-header" onclick="toggleProvince({{ province.province_id }})">
+                        <span class="province-name">{{ province.name }}</span>
+                        <span class="toggle-icon" id="toggle-{{ province.province_id }}">▼</span>
+                    </div>
+                    <div class="province-body" id="province-body-{{ province.province_id }}" style="display: none;">
+                        <div class="province-stats">
+                            <div class="stat">
+                                <span class="stat-label">Population:</span>
+                                <span class="stat-value">{{ "{:,}".format(province.population) }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Development:</span>
+                                <span class="stat-value">{{ province.development_level }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Loyalty:</span>
+                                <span class="stat-value">{{ province.loyalty }}</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Stability:</span>
+                                <span class="stat-value">{{ province.stability }}</span>
+                            </div>
+                        </div>
+                        
+                        {% if debug_mode %}
+                        <div class="finance-debug">
+                            <h4>Financial Data (Reported / Actual)</h4>
+                            <div class="finance-row">
+                                <span>Income:</span>
+                                <span>{{ "%.2f"|format(province.reported_income) }} / {{ "%.2f"|format(province.actual_income) }}</span>
+                            </div>
+                            <div class="finance-row">
+                                <span>Expenditure:</span>
+                                <span>{{ "%.2f"|format(province.reported_expenditure) }} / {{ "%.2f"|format(province.actual_expenditure) }}</span>
+                            </div>
+                            <div class="finance-row">
+                                <span>Surplus:</span>
+                                <span>{{ "%.2f"|format(province.reported_surplus) }} / {{ "%.2f"|format(province.actual_surplus) }}</span>
+                            </div>
+                            {% if province.last_month_corrupted %}
+                            <div class="corruption-warning">
+                                ⚠️ Officials concealed {{ "%.2f"|format(province.actual_income - province.reported_income) }} gold!
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        <div class="finance">
+                            <div class="finance-row">
+                                <span>Income:</span>
+                                <span>{{ "%.2f"|format(province.reported_income) }} gold</span>
+                            </div>
+                            <div class="finance-row">
+                                <span>Expenditure:</span>
+                                <span>{{ "%.2f"|format(province.reported_expenditure) }} gold</span>
+                            </div>
+                            <div class="finance-row">
+                                <span>Surplus:</span>
+                                <span class="{% if province.last_month_corrupted %}abnormal{% endif %}">
+                                    {{ "%.2f"|format(province.reported_surplus) }} gold
+                                    {% if province.last_month_corrupted %}[Abnormal]{% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="province-actions">
+                            <button onclick="showProjectModal({{ province.province_id }})">Initiate Project</button>
+                            <button onclick="showProvinceEvents({{ province.province_id }})">View Events</button>
+                            <button onclick="showTransferModal({{ province.province_id }})">Fund Transfer</button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Other Views (Hidden by default) -->
+            <div class="view-container" id="financial-report-view" style="display: none;">
+                <h2>Financial Report</h2>
+                <div class="view-content"></div>
+            </div>
+
+            <div class="view-container" id="national-status-view" style="display: none;">
+                <h2>National Status</h2>
+                <div class="view-content"></div>
+            </div>
+
+            <div class="view-container" id="budget-execution-view" style="display: none;">
+                <h2>Budget Execution</h2>
+                <div class="view-content"></div>
+            </div>
+
+            <div class="view-container" id="fund-management-view" style="display: none;">
+                <h2>Fund Management</h2>
+                <div class="view-content"></div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button onclick="nextMonth()" class="btn-primary">Next Month</button>
+            <button onclick="showView('financial-report')">Financial Report</button>
+            <button onclick="showView('national-status')">National Status</button>
+            <button onclick="showView('budget-execution')">Budget Execution</button>
+            <button onclick="showView('fund-management')">Fund Management</button>
+        </nav>
+    </div>
+
+    <!-- Project Modal -->
+    <div class="modal" id="project-modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Initiate Project</h3>
+                <button class="close-btn" onclick="closeModal('project-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Province: <span id="project-province-name"></span></p>
+                <div class="project-options">
+                    <label class="project-option">
+                        <input type="radio" name="project-type" value="agriculture">
+                        <span>Agricultural Reform (50 gold) - Base Income +8%</span>
+                    </label>
+                    <label class="project-option">
+                        <input type="radio" name="project-type" value="infrastructure">
+                        <span>Infrastructure Development (80 gold) - Development +0.5</span>
+                    </label>
+                    <label class="project-option">
+                        <input type="radio" name="project-type" value="tax_relief">
+                        <span>Tax Relief (30 gold) - Loyalty +15</span>
+                    </label>
+                    <label class="project-option">
+                        <input type="radio" name="project-type" value="security">
+                        <span>Security Enhancement (60 gold) - Stability +12</span>
+                    </label>
+                </div>
+                <p class="treasury-info">Current Treasury: <span id="project-treasury"></span> gold</p>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeModal('project-modal')">Cancel</button>
+                <button onclick="submitProject()" class="btn-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/game.js"></script>
+</body>
+</html>
