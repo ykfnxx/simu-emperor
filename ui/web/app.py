@@ -148,3 +148,51 @@ async def get_provinces():
         result.append(province_data)
     
     return result
+
+
+@app.post("/api/provinces/{province_id}/projects")
+async def create_project(province_id: int, request: dict):
+    """Create a new project in a province"""
+    global game_instance
+    
+    project_type = request.get("project_type")
+    if not project_type:
+        return {"detail": "Project type is required"}, 400
+    
+    # Validate project type
+    valid_types = ["agriculture", "infrastructure", "tax_relief", "security"]
+    if project_type not in valid_types:
+        return {"detail": f"Invalid project type. Must be one of: {valid_types}"}, 400
+    
+    # Find province
+    province = None
+    for p in game_instance.provinces:
+        if p.province_id == province_id:
+            province = p
+            break
+    
+    if not province:
+        return {"detail": "Province not found"}, 404
+    
+    # Check treasury
+    from core.project import Project
+    project_costs = {
+        "agriculture": 50,
+        "infrastructure": 80,
+        "tax_relief": 30,
+        "security": 60
+    }
+    
+    if game_instance.state["treasury"] < project_costs[project_type]:
+        return {"detail": "Insufficient treasury"}, 400
+    
+    # Create and add project
+    project = Project(province_id, project_type, game_instance.state["current_month"])
+    game_instance.add_project(project)
+    
+    return {
+        "success": True,
+        "project_type": project_type,
+        "cost": project.cost,
+        "province_name": province.name
+    }
