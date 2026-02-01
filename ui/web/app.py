@@ -110,3 +110,41 @@ async def toggle_debug_mode():
         "treasury": state['treasury'],
         "debug_mode": state['debug_mode'],
     }
+
+
+@app.get("/api/provinces")
+async def get_provinces():
+    """Get all provinces data"""
+    global game_instance
+    state = game_instance.state
+    provinces = game_instance.provinces
+    
+    result = []
+    for province in provinces:
+        province_data = {
+            "province_id": province.province_id,
+            "name": province.name,
+            "population": province.population,
+            "development_level": province.development_level,
+            "loyalty": province.loyalty,
+            "stability": province.stability,
+            "base_income": province.base_income,
+            "reported_income": province.reported_income,
+            "reported_expenditure": province.reported_expenditure,
+            "reported_surplus": province.reported_surplus,
+            "last_month_corrupted": province.last_month_corrupted,
+        }
+        
+        # Include actual values only in debug mode
+        if state['debug_mode']:
+            province_data.update({
+                "actual_income": province.actual_income,
+                "actual_expenditure": province.actual_expenditure,
+                "actual_surplus": province.actual_surplus,
+                "adjusted_income": province.adjusted_income,
+                "adjusted_expenditure": province.adjusted_expenditure,
+            })
+        
+        result.append(province_data)
+    
+    return result
