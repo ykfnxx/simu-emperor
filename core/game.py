@@ -118,44 +118,71 @@ class Game:
         from agents.province.perception_agent import PerceptionAgent
         from agents.province.decision_agent import DecisionAgent
         from agents.province.execution_agent import ExecutionAgent
+        from agents.province.decision_agent_llm import EnhancedDecisionAgent
+        from agents.province.enhanced_execution_agent import EnhancedExecutionAgent
+        from config_loader import get_config
 
         print("Initializing Province Agents...")
 
+        config = get_config()
+        use_enhanced_pipeline = config.get('province_agent.use_enhanced_pipeline', False)
+
         self.province_agents = {}
+        self.use_enhanced_pipeline = use_enhanced_pipeline
 
         for province in self.provinces:
+            # Get LLM configuration
+            llm_config = config.get_llm_config()
+
             # Create Perception Agent
             perception_agent = PerceptionAgent(
                 agent_id=f"perception_{province.province_id}",
                 config={
                     'province_id': province.province_id,
-                    'llm_config': {
-                        'enabled': False,
-                        'mock_mode': True
-                    }
+                    'llm_config': llm_config
                 },
                 db=self.db
             )
 
-            # Create Decision Agent
-            decision_agent = DecisionAgent(
-                agent_id=f"decision_{province.province_id}",
-                config={
+            # Create Decision Agent (enhanced or standard)
+            if use_enhanced_pipeline:
+                decision_config = {
                     'province_id': province.province_id,
-                    'llm_config': {
-                        'enabled': False,
-                        'mock_mode': True
+                    'llm_config': llm_config,
+                    'mode': config.get('province_agent.mode', 'llm_assisted'),
+                    'interaction_rounds': config.get('province_agent.interaction_rounds', 0),
+                    'risk_tolerance': config.get('province_agent.risk_tolerance', 'moderate')
+                }
+                decision_agent = EnhancedDecisionAgent(
+                    agent_id=f"decision_{province.province_id}",
+                    config=decision_config
+                )
+            else:
+                decision_agent = DecisionAgent(
+                    agent_id=f"decision_{province.province_id}",
+                    config={
+                        'province_id': province.province_id,
+                        'llm_config': llm_config
                     }
-                }
-            )
+                )
 
-            # Create Execution Agent
-            execution_agent = ExecutionAgent(
-                agent_id=f"execution_{province.province_id}",
-                config={
-                    'province_id': province.province_id
+            # Create Execution Agent (enhanced or standard)
+            if use_enhanced_pipeline:
+                execution_config = {
+                    'province_id': province.province_id,
+                    'llm_config': llm_config,
+                    'execution_mode': config.get('province_agent.execution_mode', 'llm_enhanced'),
+                    'quality_threshold': config.get('province_agent.quality_threshold', 0.7)
                 }
-            )
+                execution_agent = EnhancedExecutionAgent(
+                    agent_id=f"execution_{province.province_id}",
+                    config=execution_config
+                )
+            else:
+                execution_agent = ExecutionAgent(
+                    agent_id=f"execution_{province.province_id}",
+                    config={'province_id': province.province_id}
+                )
 
             self.province_agents[province.province_id] = {
                 'perception': perception_agent,
@@ -163,7 +190,8 @@ class Game:
                 'execution': execution_agent
             }
 
-        print(f"✓ Initialized {len(self.province_agents)} Province Agent sets")
+        pipeline_mode = "enhanced" if use_enhanced_pipeline else "standard"
+        print(f"✓ Initialized {len(self.province_agents)} Province Agent sets ({pipeline_mode} mode)")
 
     def _initialize_central_advisor(self) -> None:
         """Initialize Central Advisor Agent"""
@@ -488,96 +516,255 @@ class Game:
                 decision_agent = agents['decision']
                 execution_agent = agents['execution']
 
-                # === Stage 1: Perception ===
-                perception_context = await perception_agent.perceive(
-                    province_id=province.province_id,
-                    current_month=current_month,
-                    current_year=current_year
-                )
-
-                # === Stage 2: Decision ===
-                # Get current province state
-                province_state = {
-                    'actual_income': province.actual_income,
-                    'actual_expenditure': province.actual_expenditure,
-                    'reported_income': province.reported_income,
-                    'reported_expenditure': province.reported_expenditure,
-                    'actual_surplus': province.actual_income - province.actual_expenditure,
-                    'loyalty': province.loyalty,
-                    'stability': province.stability,
-                    'development_level': province.development_level,
-                    'population': province.population
-                }
-
-                # Make decision (no player instruction for now)
-                decision = await decision_agent.make_decision(
-                    perception=perception_context,
-                    instruction=None,  # No player instruction in autonomous mode
-                    province_state=province_state
-                )
-
-                # === Stage 3: Execution ===
-                execution_result = await execution_agent.execute(
-                    decision=decision,
-                    province_state=province_state,
-                    month=current_month,
-                    year=current_year
-                )
-
-                # Apply execution results to province
-                if execution_result.executed_behaviors:
-                    print(f"  {province.name}: Executed {len(execution_result.executed_behaviors)} behavior(s)")
-
-                    # Apply effects
-                    for behavior in execution_result.executed_behaviors:
-                        effect = behavior.effects
-                        province.actual_income += effect.income_change
-                        province.actual_expenditure += effect.expenditure_change
-                        province.loyalty = max(0, min(100, province.loyalty + effect.loyalty_change))
-                        province.stability = max(0, min(100, province.stability + effect.stability_change))
-                        province.development_level = max(0, min(10, province.development_level + effect.development_change))
-
-                        print(f"    - {behavior.behavior_name}: loyalty {effect.loyalty_change:+.1f}, stability {effect.stability_change:+.1f}")
-
-                    # Generate and save events
-                    for event in execution_result.generated_events:
-                        # Convert BehaviorEvent to dict and save
-                        event_dict = {
-                            'event_id': event.event_id,
-                            'province_id': province.province_id,
-                            'name': event.name,
-                            'description': event.description,
-                            'event_type': event.event_type,
-                            'severity': event.severity,
-                            'start_month': current_month,
-                            'end_month': current_month,
-                            'is_active': True,
-                            'visibility': event.visibility,
-                            'is_agent_generated': event.is_agent_generated
-                        }
-
-                        # Parse effects into event format
-                        instant_effects = {}
-                        if abs(event.effects.get('income_change', 0)) > 0:
-                            instant_effects['income'] = event.effects['income_change']
-                        if abs(event.effects.get('expenditure_change', 0)) > 0:
-                            instant_effects['expenditure'] = event.effects['expenditure_change']
-                        if abs(event.effects.get('loyalty_change', 0)) > 0:
-                            instant_effects['loyalty'] = event.effects['loyalty_change']
-                        if abs(event.effects.get('stability_change', 0)) > 0:
-                            instant_effects['stability'] = event.effects['stability_change']
-
-                        import json
-                        event_dict['instant_effects'] = json.dumps(instant_effects)
-                        event_dict['continuous_effects'] = json.dumps({})
-
-                        # Save to database
-                        self.db.save_event(event_dict)
-
-                        print(f"    Generated event: {event.name}")
+                # Route to enhanced or standard pipeline
+                if self.use_enhanced_pipeline:
+                    await self._run_enhanced_pipeline(
+                        province, perception_agent, decision_agent, execution_agent,
+                        current_month, current_year
+                    )
+                else:
+                    await self._run_standard_pipeline(
+                        province, perception_agent, decision_agent, execution_agent,
+                        current_month, current_year
+                    )
 
             except Exception as e:
                 print(f"  ⚠️ {province.name}: Province Agent execution failed: {e}")
+
+    async def _run_standard_pipeline(
+        self,
+        province,
+        perception_agent,
+        decision_agent,
+        execution_agent,
+        current_month: int,
+        current_year: int
+    ) -> None:
+        """Run standard pipeline (rule-based)"""
+        # === Stage 1: Perception ===
+        perception_context = await perception_agent.perceive(
+            province_id=province.province_id,
+            current_month=current_month,
+            current_year=current_year
+        )
+
+        # === Stage 2: Decision ===
+        province_state = self._build_province_state(province)
+
+        decision = await decision_agent.make_decision(
+            perception=perception_context,
+            instruction=None,
+            province_state=province_state
+        )
+
+        # === Stage 3: Execution ===
+        execution_result = await execution_agent.execute(
+            decision=decision,
+            province_state=province_state,
+            month=current_month,
+            year=current_year
+        )
+
+        # Apply results
+        self._apply_pipeline_results(
+            province, execution_result.executed_behaviors,
+            execution_result.generated_events, current_month
+        )
+
+    async def _run_enhanced_pipeline(
+        self,
+        province,
+        perception_agent,
+        decision_agent,
+        execution_agent,
+        current_month: int,
+        current_year: int
+    ) -> None:
+        """Run enhanced pipeline (LLM-powered)"""
+        # === Stage 1: Perception ===
+        perception_context = await perception_agent.perceive(
+            province_id=province.province_id,
+            current_month=current_month,
+            current_year=current_year
+        )
+
+        # === Stage 2: Decision ===
+        province_state = self._build_province_state(province)
+
+        decision = await decision_agent.make_decision(
+            perception=perception_context,
+            instruction=None,
+            province_state=province_state
+        )
+
+        # === Stage 3: Enhanced Execution ===
+        execution_context = self._build_execution_context(province, current_month)
+
+        execution_result = await execution_agent.execute_with_llm(
+            decision=decision,
+            province_state=province_state.copy(),
+            execution_context=execution_context
+        )
+
+        # Extract execution data from enhanced result
+        execution_data = execution_result.execution_result
+
+        # Apply results
+        executed_behaviors = []
+        for behavior_dict in execution_data.get('executed_behaviors', []):
+            # Convert dict back to ExecutedBehavior
+            from agents.province.models import ExecutedBehavior, BehaviorEffect
+            effect_dict = behavior_dict.get('effects', {})
+            effect = BehaviorEffect(**effect_dict)
+            executed_behaviors.append(ExecutedBehavior(
+                behavior_type=behavior_dict['behavior_type'],
+                behavior_name=behavior_dict['behavior_name'],
+                parameters=behavior_dict.get('parameters', {}),
+                effects=effect,
+                reasoning=behavior_dict.get('reasoning'),
+                execution_success=behavior_dict.get('execution_success', True),
+                execution_message=behavior_dict.get('execution_message')
+            ))
+
+        generated_events = []
+        for event_dict in execution_data.get('generated_events', []):
+            # Convert dict back to BehaviorEvent
+            from agents.province.models import BehaviorEvent
+            generated_events.append(BehaviorEvent(**event_dict))
+
+        # Print quality info if available
+        if execution_result.quality_report:
+            quality = execution_result.quality_report
+            if quality.overall_score > 0.8:
+                print(f"  {province.name}: High-quality execution ({quality.overall_score * 100:.0f}%)")
+            elif quality.overall_score > 0.6:
+                print(f"  {province.name}: Good execution quality ({quality.overall_score * 100:.0f}%)")
+
+        self._apply_pipeline_results(
+            province, executed_behaviors, generated_events, current_month
+        )
+
+    def _build_province_state(self, province) -> Dict[str, Any]:
+        """Build province state dictionary"""
+        return {
+            'actual_income': province.actual_income,
+            'actual_expenditure': province.actual_expenditure,
+            'reported_income': province.reported_income,
+            'reported_expenditure': province.reported_expenditure,
+            'actual_surplus': province.actual_income - province.actual_expenditure,
+            'loyalty': province.loyalty,
+            'stability': province.stability,
+            'development_level': province.development_level,
+            'population': province.population
+        }
+
+    def _build_execution_context(self, province, current_month: int):
+        """Build execution context for enhanced pipeline"""
+        from agents.province.enhanced_execution_models import ExecutionContext
+
+        # Determine season
+        if current_month in [12, 1, 2]:
+            season = "winter"
+        elif current_month in [3, 4, 5]:
+            season = "spring"
+        elif current_month in [6, 7, 8]:
+            season = "summer"
+        else:
+            season = "autumn"
+
+        # Determine population mood
+        if province.loyalty > 70:
+            mood = "positive"
+        elif province.loyalty < 30:
+            mood = "negative"
+        else:
+            mood = "neutral"
+
+        # Determine economic conditions
+        if province.actual_income > 1000:
+            economic = "booming"
+        elif province.actual_income > 500:
+            economic = "stable"
+        elif province.actual_income > 200:
+            economic = "struggling"
+        else:
+            economic = "crisis"
+
+        # Determine political stability
+        if province.stability > 70:
+            stability = "stable"
+        elif province.stability < 30:
+            stability = "unstable"
+        else:
+            stability = "tense"
+
+        return ExecutionContext(
+            season=season,
+            recent_events=[],  # Could be populated from recent events if needed
+            population_mood=mood,
+            economic_conditions=economic,
+            political_stability=stability
+        )
+
+    def _apply_pipeline_results(
+        self,
+        province,
+        executed_behaviors,
+        generated_events,
+        current_month: int
+    ) -> None:
+        """Apply pipeline results to province"""
+        if not executed_behaviors:
+            return
+
+        print(f"  {province.name}: Executed {len(executed_behaviors)} behavior(s)")
+
+        # Apply effects
+        for behavior in executed_behaviors:
+            effect = behavior.effects
+            province.actual_income += effect.income_change
+            province.actual_expenditure += effect.expenditure_change
+            province.loyalty = max(0, min(100, province.loyalty + effect.loyalty_change))
+            province.stability = max(0, min(100, province.stability + effect.stability_change))
+            province.development_level = max(0, min(10, province.development_level + effect.development_change))
+
+            print(f"    - {behavior.behavior_name}: loyalty {effect.loyalty_change:+.1f}, stability {effect.stability_change:+.1f}")
+
+        # Generate and save events
+        for event in generated_events:
+            event_dict = {
+                'event_id': event.event_id,
+                'province_id': province.province_id,
+                'name': event.name,
+                'description': event.description,
+                'event_type': event.event_type,
+                'severity': event.severity,
+                'start_month': current_month,
+                'end_month': current_month,
+                'is_active': True,
+                'visibility': event.visibility,
+                'is_agent_generated': event.is_agent_generated
+            }
+
+            # Parse effects into event format
+            instant_effects = {}
+            if abs(event.effects.get('income_change', 0)) > 0:
+                instant_effects['income'] = event.effects['income_change']
+            if abs(event.effects.get('expenditure_change', 0)) > 0:
+                instant_effects['expenditure'] = event.effects['expenditure_change']
+            if abs(event.effects.get('loyalty_change', 0)) > 0:
+                instant_effects['loyalty'] = event.effects['loyalty_change']
+            if abs(event.effects.get('stability_change', 0)) > 0:
+                instant_effects['stability'] = event.effects['stability_change']
+
+            import json
+            event_dict['instant_effects'] = json.dumps(instant_effects)
+            event_dict['continuous_effects'] = json.dumps({})
+
+            # Save to database
+            self.db.save_event(event_dict)
+
+            print(f"    Generated event: {event.name}")
 
     def _process_active_projects(self) -> None:
         """Process effects of active projects"""

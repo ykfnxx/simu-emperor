@@ -298,6 +298,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "instructor" },
+    { name = "openai" },
     { name = "pydantic" },
 ]
 
@@ -305,6 +306,7 @@ dependencies = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.75.0" },
     { name = "instructor", specifier = ">=1.13.0" },
+    { name = "openai", specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
 ]
 provides-extras = ["dev"]
