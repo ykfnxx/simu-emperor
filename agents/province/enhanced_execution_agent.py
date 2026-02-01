@@ -389,8 +389,8 @@ class EnhancedExecutionAgent(BaseAgent):
             Enhanced BehaviorEffect
         """
         # Start with base effect
-        enhanced_effect = base_effect.copy()
-        
+        enhanced_effect = base_effect.model_copy()
+
         # Apply context-based modifications
         enhanced_effect = self._apply_contextual_modifications(
             enhanced_effect, province_state, execution_context
