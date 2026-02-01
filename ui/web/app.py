@@ -76,3 +76,37 @@ async def get_state():
         "national_event_count": len(national_events),
         "province_event_count": len(province_events),
     }
+
+
+@app.post("/api/next-month")
+async def next_month():
+    """Advance to next month"""
+    global game_instance
+    await game_instance.next_month()
+    
+    state = game_instance.state
+    active_events = game_instance.event_manager.get_active_events(state['current_month'])
+    national_events = [e for e in active_events if e.event_type == 'national']
+    province_events = [e for e in active_events if e.event_type == 'province']
+    
+    return {
+        "month": state['current_month'],
+        "treasury": state['treasury'],
+        "debug_mode": state['debug_mode'],
+        "national_event_count": len(national_events),
+        "province_event_count": len(province_events),
+    }
+
+
+@app.post("/api/debug-mode")
+async def toggle_debug_mode():
+    """Toggle debug mode"""
+    global game_instance
+    game_instance.toggle_debug_mode()
+    
+    state = game_instance.state
+    return {
+        "month": state['current_month'],
+        "treasury": state['treasury'],
+        "debug_mode": state['debug_mode'],
+    }
