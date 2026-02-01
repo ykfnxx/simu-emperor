@@ -112,6 +112,53 @@ async def toggle_debug_mode():
     }
 
 
+@app.get("/api/budget")
+async def get_budget_execution():
+    """Get budget execution data"""
+    global game_instance
+    state = game_instance.state
+    current_month = state['current_month']
+    current_year = (current_month - 1) // 12 + 1
+    
+    # Get national budget
+    national_budget = game_instance.budget_system.get_national_budget(current_year)
+    
+    national_data = None
+    if national_budget:
+        allocated = national_budget['allocated_budget']
+        spent = national_budget['actual_spent']
+        national_data = {
+            "allocated": allocated,
+            "spent": spent,
+            "remaining": allocated - spent,
+            "execution_rate": (spent / allocated * 100) if allocated > 0 else 0,
+        }
+    
+    # Get provincial budgets
+    budgets = game_instance.budget_system.get_current_budgets(current_year)
+    provincial_data = []
+    
+    if budgets['provinces']:
+        for province_id, budget in budgets['provinces'].items():
+            allocated = budget['allocated_budget']
+            spent = budget['actual_spent']
+            provincial_data.append({
+                "province_id": province_id,
+                "name": budget['name'],
+                "allocated": allocated,
+                "spent": spent,
+                "remaining": allocated - spent,
+                "execution_rate": (spent / allocated * 100) if allocated > 0 else 0,
+            })
+    
+    return {
+        "year": current_year,
+        "month": current_month,
+        "national": national_data,
+        "provinces": provincial_data,
+    }
+
+
 @app.get("/api/national-status")
 async def get_national_status():
     """Get comprehensive national status"""
