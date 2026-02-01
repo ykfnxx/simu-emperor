@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 Web UI Launcher for EU4-Style Strategy Game
-Usage: python run_web_ui.py
+Usage: uv run eu4-web
 """
 
 import uvicorn
 
-if __name__ == "__main__":
+
+def main():
+    """Main entry point for web UI"""
     uvicorn.run(
         "ui.web.app:app",
         host="0.0.0.0",
@@ -14,3 +16,7 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+
+
+if __name__ == "__main__":
+    main()

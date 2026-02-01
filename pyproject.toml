@@ -52,9 +52,8 @@ dev = [
 
 [project.scripts]
 # 定义命令行脚本（可选）
-# eu4-game = "main:main"
-
 eu4-game = "main:main"
+eu4-web = "run_web_ui:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
