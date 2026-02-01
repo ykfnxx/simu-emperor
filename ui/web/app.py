@@ -196,3 +196,46 @@ async def create_project(province_id: int, request: dict):
         "cost": project.cost,
         "province_name": province.name
     }
+
+
+@app.get("/api/events")
+async def get_events(province_id: int = None):
+    """Get active events, optionally filtered by province"""
+    global game_instance
+    state = game_instance.state
+    
+    active_events = game_instance.event_manager.get_active_events(state['current_month'])
+    
+    result = []
+    for event in active_events:
+        # Filter by province if specified
+        if province_id is not None:
+            event_province_id = getattr(event, 'province_id', None)
+            if event_province_id != province_id:
+                continue
+        
+        event_data = {
+            "event_id": getattr(event, 'event_id', None),
+            "name": event.name,
+            "description": event.description,
+            "event_type": event.event_type,
+            "severity": event.severity,
+            "start_month": event.start_month,
+            "duration": event.duration,
+        }
+        
+        # Add province info for provincial events
+        if event.event_type == 'province':
+            event_data["province_id"] = getattr(event, 'province_id', None)
+        
+        # Add debug info
+        if state['debug_mode']:
+            event_data.update({
+                "visibility": getattr(event, 'visibility', 'visible'),
+                "is_hidden_by_governor": getattr(event, 'is_hidden_by_governor', False),
+                "is_fabricated": getattr(event, 'is_fabricated', False),
+            })
+        
+        result.append(event_data)
+    
+    return result
