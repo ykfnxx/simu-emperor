@@ -239,3 +239,44 @@ async def get_events(province_id: int = None):
         result.append(event_data)
     
     return result
+
+
+@app.get("/api/financial-report")
+async def get_financial_report():
+    """Get financial report for current month"""
+    global game_instance
+    
+    summary = game_instance.get_financial_summary()
+    state = game_instance.state
+    
+    # Calculate totals
+    total_income = sum(p.actual_income for p in game_instance.provinces)
+    total_reported_income = sum(p.reported_income for p in game_instance.provinces)
+    total_expenditure = sum(p.actual_expenditure for p in game_instance.provinces)
+    total_reported_expenditure = sum(p.reported_expenditure for p in game_instance.provinces)
+    
+    return {
+        "month": state['current_month'],
+        "treasury": summary['treasury'],
+        "month_starting_treasury": summary['month_starting_treasury'],
+        "monthly_change": summary['treasury'] - summary['month_starting_treasury'],
+        "total_income": total_income,
+        "total_reported_income": total_reported_income,
+        "total_expenditure": total_expenditure,
+        "total_reported_expenditure": total_reported_expenditure,
+        "provinces": [
+            {
+                "province_id": p.province_id,
+                "name": p.name,
+                "actual_income": p.actual_income,
+                "reported_income": p.reported_income,
+                "actual_expenditure": p.actual_expenditure,
+                "reported_expenditure": p.reported_expenditure,
+                "actual_surplus": p.actual_income - p.actual_expenditure,
+                "reported_surplus": p.reported_income - p.reported_expenditure,
+                "last_month_corrupted": p.last_month_corrupted,
+            }
+            for p in game_instance.provinces
+        ],
+        "debug_mode": state['debug_mode'],
+    }
