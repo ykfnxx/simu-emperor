@@ -159,6 +159,174 @@ async def get_budget_execution():
     }
 
 
+@app.get("/api/provinces/{province_id}/balance")
+async def get_province_balance(province_id: int):
+    """Get provincial treasury balance"""
+    global game_instance
+    
+    balance = game_instance.treasury_system.get_provincial_balance(province_id)
+    
+    # Get province name
+    province = None
+    for p in game_instance.provinces:
+        if p.province_id == province_id:
+            province = p
+            break
+    
+    return {
+        "province_id": province_id,
+        "name": province.name if province else "Unknown",
+        "balance": balance,
+    }
+
+
+@app.post("/api/transfer/to-province")
+async def transfer_to_province(request: dict):
+    """Transfer funds from national to provincial treasury"""
+    global game_instance
+    
+    province_id = request.get("province_id")
+    amount = request.get("amount")
+    
+    if not province_id or not amount:
+        return {"detail": "province_id and amount are required"}, 400
+    
+    if amount <= 0:
+        return {"detail": "Amount must be positive"}, 400
+    
+    current_month = game_instance.state['current_month']
+    current_year = (current_month - 1) // 12 + 1
+    
+    success, message = game_instance.treasury_system.transfer_from_national_to_province(
+        province_id, amount, current_month, current_year
+    )
+    
+    if success:
+        return {"success": True, "message": message}
+    else:
+        return {"detail": message}, 400
+
+
+@app.post("/api/transfer/from-province")
+async def transfer_from_province(request: dict):
+    """Transfer funds from provincial to national treasury"""
+    global game_instance
+    
+    province_id = request.get("province_id")
+    amount = request.get("amount")
+    
+    if not province_id or not amount:
+        return {"detail": "province_id and amount are required"}, 400
+    
+    if amount <= 0:
+        return {"detail": "Amount must be positive"}, 400
+    
+    current_month = game_instance.state['current_month']
+    current_year = (current_month - 1) // 12 + 1
+    
+    success, message = game_instance.treasury_system.transfer_from_province_to_national(
+        province_id, amount, current_month, current_year
+    )
+    
+    if success:
+        return {"success": True, "message": message}
+    else:
+        return {"detail": message}, 400
+
+
+@app.get("/api/allocation-ratios")
+async def get_allocation_ratios():
+    """Get surplus allocation ratios for all provinces"""
+    global game_instance
+    
+    result = []
+    for province in game_instance.provinces:
+        # Get ratio from database
+        conn = game_instance.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ratio FROM surplus_allocation_ratios WHERE province_id = ?",
+            (province.province_id,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        
+        ratio = row[0] if row else 0.5
+        
+        result.append({
+            "province_id": province.province_id,
+            "name": province.name,
+            "ratio": ratio,
+            "central_share": ratio * 100,
+            "local_share": (1 - ratio) * 100,
+        })
+    
+    return result
+
+
+@app.post("/api/allocation-ratios/{province_id}")
+async def set_allocation_ratio(province_id: int, request: dict):
+    """Set surplus allocation ratio for a province"""
+    global game_instance
+    
+    ratio = request.get("ratio")
+    
+    if ratio is None:
+        return {"detail": "ratio is required"}, 400
+    
+    if not 0 <= ratio <= 1:
+        return {"detail": "ratio must be between 0.0 and 1.0"}, 400
+    
+    # Update in database
+    conn = game_instance.db.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO surplus_allocation_ratios (province_id, ratio)
+        VALUES (?, ?)
+    """, (province_id, ratio))
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "province_id": province_id, "ratio": ratio}
+
+
+@app.get("/api/transactions/national")
+async def get_national_transactions(limit: int = 10):
+    """Get national treasury transaction history"""
+    global game_instance
+    
+    transactions = game_instance.treasury_system.get_national_transaction_history(limit=limit)
+    
+    return {
+        "transactions": transactions,
+        "count": len(transactions),
+    }
+
+
+@app.get("/api/transactions/provincial/{province_id}")
+async def get_provincial_transactions(province_id: int, limit: int = 10):
+    """Get provincial treasury transaction history"""
+    global game_instance
+    
+    transactions = game_instance.treasury_system.get_provincial_transaction_history(
+        province_id, limit=limit
+    )
+    
+    # Get province name
+    province = None
+    for p in game_instance.provinces:
+        if p.province_id == province_id:
+            province = p
+            break
+    
+    return {
+        "province_id": province_id,
+        "name": province.name if province else "Unknown",
+        "transactions": transactions,
+        "count": len(transactions),
+    }
+
+
 @app.get("/api/national-status")
 async def get_national_status():
     """Get comprehensive national status"""
