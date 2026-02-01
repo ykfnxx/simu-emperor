@@ -112,6 +112,59 @@ async def toggle_debug_mode():
     }
 
 
+@app.get("/api/national-status")
+async def get_national_status():
+    """Get comprehensive national status"""
+    global game_instance
+    state = game_instance.state
+    
+    # Calculate totals
+    total_income = sum(p.actual_income for p in game_instance.provinces)
+    total_reported_income = sum(p.reported_income for p in game_instance.provinces)
+    total_expenditure = sum(p.actual_expenditure for p in game_instance.provinces)
+    total_reported_expenditure = sum(p.reported_expenditure for p in game_instance.provinces)
+    
+    # Get active events
+    active_events = game_instance.event_manager.get_active_events(state['current_month'])
+    
+    return {
+        "month": state['current_month'],
+        "treasury": state['treasury'],
+        "total_actual_income": total_income,
+        "total_reported_income": total_reported_income,
+        "total_actual_expenditure": total_expenditure,
+        "total_reported_expenditure": total_reported_expenditure,
+        "actual_surplus": total_income - total_expenditure,
+        "reported_surplus": total_reported_income - total_reported_expenditure,
+        "province_count": len(game_instance.provinces),
+        "provinces": [
+            {
+                "province_id": p.province_id,
+                "name": p.name,
+                "population": p.population,
+                "development_level": p.development_level,
+                "loyalty": p.loyalty,
+                "stability": p.stability,
+                "reported_income": p.reported_income,
+                "reported_surplus": p.reported_income - p.reported_expenditure,
+                "last_month_corrupted": p.last_month_corrupted,
+            }
+            for p in game_instance.provinces
+        ],
+        "active_events": [
+            {
+                "event_id": getattr(e, 'event_id', None),
+                "name": e.name,
+                "event_type": e.event_type,
+                "severity": e.severity,
+                "province_id": getattr(e, 'province_id', None),
+            }
+            for e in active_events
+        ],
+        "debug_mode": state['debug_mode'],
+    }
+
+
 @app.get("/api/provinces")
 async def get_provinces():
     """Get all provinces data"""
