@@ -3,7 +3,7 @@ FastAPI Web UI Application for EU4-Style Strategy Game
 """
 
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -189,10 +189,10 @@ async def transfer_to_province(request: dict):
     amount = request.get("amount")
     
     if not province_id or not amount:
-        return {"detail": "province_id and amount are required"}, 400
+        raise HTTPException(status_code=400, detail="province_id and amount are required")
     
     if amount <= 0:
-        return {"detail": "Amount must be positive"}, 400
+        raise HTTPException(status_code=400, detail="Amount must be positive")
     
     current_month = game_instance.state['current_month']
     current_year = (current_month - 1) // 12 + 1
@@ -204,7 +204,7 @@ async def transfer_to_province(request: dict):
     if success:
         return {"success": True, "message": message}
     else:
-        return {"detail": message}, 400
+        raise HTTPException(status_code=400, detail=message)
 
 
 @app.post("/api/transfer/from-province")
@@ -216,10 +216,10 @@ async def transfer_from_province(request: dict):
     amount = request.get("amount")
     
     if not province_id or not amount:
-        return {"detail": "province_id and amount are required"}, 400
+        raise HTTPException(status_code=400, detail="province_id and amount are required")
     
     if amount <= 0:
-        return {"detail": "Amount must be positive"}, 400
+        raise HTTPException(status_code=400, detail="Amount must be positive")
     
     current_month = game_instance.state['current_month']
     current_year = (current_month - 1) // 12 + 1
@@ -231,7 +231,7 @@ async def transfer_from_province(request: dict):
     if success:
         return {"success": True, "message": message}
     else:
-        return {"detail": message}, 400
+        raise HTTPException(status_code=400, detail=message)
 
 
 @app.get("/api/allocation-ratios")
@@ -272,10 +272,10 @@ async def set_allocation_ratio(province_id: int, request: dict):
     ratio = request.get("ratio")
     
     if ratio is None:
-        return {"detail": "ratio is required"}, 400
+        raise HTTPException(status_code=400, detail="ratio is required")
     
     if not 0 <= ratio <= 1:
-        return {"detail": "ratio must be between 0.0 and 1.0"}, 400
+        raise HTTPException(status_code=400, detail="ratio must be between 0.0 and 1.0")
     
     # Update in database
     conn = game_instance.db.get_connection()
@@ -425,12 +425,12 @@ async def create_project(province_id: int, request: dict):
     
     project_type = request.get("project_type")
     if not project_type:
-        return {"detail": "Project type is required"}, 400
+        raise HTTPException(status_code=400, detail="Project type is required")
     
     # Validate project type
     valid_types = ["agriculture", "infrastructure", "tax_relief", "security"]
     if project_type not in valid_types:
-        return {"detail": f"Invalid project type. Must be one of: {valid_types}"}, 400
+        raise HTTPException(status_code=400, detail=f"Invalid project type. Must be one of: {valid_types}")
     
     # Find province
     province = None
@@ -440,7 +440,7 @@ async def create_project(province_id: int, request: dict):
             break
     
     if not province:
-        return {"detail": "Province not found"}, 404
+        raise HTTPException(status_code=404, detail="Province not found")
     
     # Check treasury
     from core.project import Project
@@ -452,7 +452,7 @@ async def create_project(province_id: int, request: dict):
     }
     
     if game_instance.state["treasury"] < project_costs[project_type]:
-        return {"detail": "Insufficient treasury"}, 400
+        raise HTTPException(status_code=400, detail="Insufficient treasury")
     
     # Create and add project
     project = Project(province_id, project_type, game_instance.state["current_month"])
