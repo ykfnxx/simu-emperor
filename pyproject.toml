@@ -62,7 +62,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # 自动发现包
 where = ["."]
-include = ["core*", "db*", "ui*"]
+include = ["core*", "db*", "ui*", "run_web_ui*"]
 exclude = ["tests*", "*.tests*"]
 
 [tool.setuptools.package-data]
