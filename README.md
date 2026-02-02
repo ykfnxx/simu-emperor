@@ -128,9 +128,9 @@ Projects take effect on the **next monthly calculation**.
 
 ### Requirements
 
-- Python 3.8+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) for dependency management
 - SQLite3 (built into Python)
-- Required packages: See `requirements.txt`
 
 ### Quick Start
 
@@ -142,18 +142,26 @@ cd eu4-strategy-game
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-3. Run the game:
+3. Run the game (CLI mode):
 ```bash
-python main.py
+uv run eu4-game
+# Or: python main.py
 ```
 
 4. Optional: Use real-time CLI interface:
 ```bash
-python -m ui.cli_realtime
+uv run python -m ui.cli_realtime
 ```
+
+5. Run Web UI (port 6324):
+```bash
+uv run eu4-web
+# Or: uv run python run_web_ui.py
+```
+Then open http://localhost:6324 in your browser
 
 ## Gameplay
 
@@ -305,6 +313,7 @@ Budget tracking and reporting:
 ```
 .
 ├── main.py                      # Game entry point
+├── run_web_ui.py               # Web UI launcher
 ├── core/
 │   ├── __init__.py
 │   ├── game.py                 # Game main loop and state
@@ -334,7 +343,11 @@ Budget tracking and reporting:
 ├── ui/
 │   ├── __init__.py
 │   ├── cli.py                  # Standard CLI interface
-│   └── cli_realtime.py         # Real-time dashboard CLI
+│   ├── cli_realtime.py         # Real-time dashboard CLI
+│   └── web/                    # Web UI (FastAPI)
+│       ├── app.py              # FastAPI application
+│       ├── static/             # CSS/JS files
+│       └── templates/          # HTML templates
 └── game.db                     # SQLite database (auto-generated)
 ```
 
@@ -405,14 +418,17 @@ Key parameters in:
 
 Run tests:
 ```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Run Web UI tests only
+uv run pytest tests/test_web_ui/ -v
+
 # Test event system
-python test_event_system.py
+uv run python test_event_system.py
 
 # Test budget system
-python test_budget_system.py
-
-# Full verification
-python verify_conversion.py
+uv run python test_budget_system.py
 ```
 
 ## Development Roadmap
@@ -429,6 +445,7 @@ python verify_conversion.py
 ✅ AI personality traits
 ✅ Debug mode toggle
 ✅ Real-time CLI interface
+✅ **Web-based GUI** (FastAPI + Jinja2, port 6324)
 
 ### Potential Extensions
 
@@ -437,7 +454,7 @@ python verify_conversion.py
 - Diplomacy system (alliances, trade, treaties)
 - Dynamic province borders and conquest
 - Multiplayer support
-- Web-based GUI
+- ~~Web-based GUI~~ ✅ Implemented
 - AI players for single-player
 - Economic policy system (tax rates, tariffs)
 - Technology/research system
