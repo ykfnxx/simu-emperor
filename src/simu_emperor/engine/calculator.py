@@ -39,11 +39,20 @@ from simu_emperor.engine.formulas import (
 )
 from simu_emperor.engine.models.base_data import NationalBaseData, ProvinceBaseData
 from simu_emperor.engine.models.effects import EventEffect
-from simu_emperor.engine.models.events import GameEvent
+from simu_emperor.engine.models.events import EventSource, GameEvent
 from simu_emperor.engine.models.metrics import NationalTurnMetrics, ProvinceTurnMetrics
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
+
+
+def _sort_events_by_priority(events: list[GameEvent]) -> list[GameEvent]:
+    """按应用优先级排序：RandomEvent → AgentEvent → PlayerEvent。
+
+    后应用的覆盖先应用的（同一字段），皇帝直接命令优先级最高。
+    """
+    order = {EventSource.RANDOM: 0, EventSource.AGENT: 1, EventSource.PLAYER: 2}
+    return sorted(events, key=lambda e: order.get(e.source, 0))
 
 
 def _collect_effects(active_events: list[GameEvent]) -> list[EventEffect]:
@@ -269,8 +278,9 @@ def resolve_turn(
     # 1. 深拷贝
     new_data = current_data.model_copy(deep=True)
 
-    # 2-4. 收集并应用事件效果
-    effects = _collect_effects(active_events)
+    # 2-4. 按优先级排序事件，收集并应用效果
+    sorted_events = _sort_events_by_priority(active_events)
+    effects = _collect_effects(sorted_events)
     if effects:
         _apply_effects(new_data, effects)
 

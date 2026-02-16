@@ -115,6 +115,31 @@ class TestPlayerEvent:
         event = PlayerEvent(turn_created=0, description="a", command_type="x")
         assert event.duration == 1
 
+    def test_direct_default_false(self):
+        event = PlayerEvent(turn_created=0, description="a", command_type="x")
+        assert event.direct is False
+
+    def test_direct_true(self):
+        event = PlayerEvent(
+            turn_created=0, description="皇帝亲自下令", command_type="direct_order", direct=True,
+        )
+        assert event.direct is True
+        assert event.source == EventSource.PLAYER
+
+    def test_direct_serialization_roundtrip(self):
+        event = PlayerEvent(
+            turn_created=1,
+            description="亲政减税",
+            command_type="tax_reduction",
+            direct=True,
+            parameters={"rate": "0.05"},
+        )
+        adapter = TypeAdapter(GameEvent)
+        json_str = adapter.dump_json(event)
+        restored = adapter.validate_json(json_str)
+        assert isinstance(restored, PlayerEvent)
+        assert restored.direct is True
+
 
 class TestAgentEvent:
     def test_creation(self):

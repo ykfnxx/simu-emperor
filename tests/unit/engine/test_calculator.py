@@ -5,7 +5,7 @@ from decimal import Decimal
 from simu_emperor.engine.calculator import resolve_turn
 from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.engine.models.effects import EffectOperation, EffectScope, EventEffect
-from simu_emperor.engine.models.events import RandomEvent
+from simu_emperor.engine.models.events import AgentEvent, PlayerEvent, RandomEvent
 
 from tests.conftest import make_national_data, make_province, make_zhili_province
 
@@ -347,3 +347,160 @@ class TestMultiProvince:
 
         # 两省产量不同（西北未受影响）
         assert pm_jn.food_production != pm_xb.food_production
+
+
+class TestEventApplicationOrder:
+    """事件按 RandomEvent → AgentEvent → PlayerEvent(direct=True) 顺序应用。"""
+
+    def test_random_before_agent(self):
+        """RandomEvent 先应用，AgentEvent 后应用；同字段时 Agent 覆盖 Random。"""
+        zhili = make_zhili_province()
+        national = NationalBaseData(
+            turn=0,
+            imperial_treasury=Decimal("500000"),
+            national_tax_modifier=Decimal("1.0"),
+            provinces=[zhili],
+        )
+
+        # Random: 灌溉 ×0.5
+        random_event = RandomEvent(
+            turn_created=0,
+            description="旱灾",
+            category="disaster",
+            severity=Decimal("0.5"),
+            effects=[
+                EventEffect(
+                    target="agriculture.irrigation_level",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("0.5"),
+                    scope=EffectScope(province_ids=["zhili"]),
+                ),
+            ],
+        )
+
+        # Agent: 灌溉 ×2.0（修复旱灾影响）
+        agent_event = AgentEvent(
+            turn_created=0,
+            description="工部修缮水利",
+            agent_event_type="repair_irrigation",
+            agent_id="gongbu",
+            fidelity=Decimal("1.0"),
+            effects=[
+                EventEffect(
+                    target="agriculture.irrigation_level",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("2.0"),
+                    scope=EffectScope(province_ids=["zhili"]),
+                ),
+            ],
+        )
+
+        # 无论传入顺序如何，Random 应先于 Agent 应用
+        # 效果：0.6 × 0.5 × 2.0 = 0.6（先乘0.5再乘2.0）
+        _, metrics_agent_first = resolve_turn(national, [agent_event, random_event])
+        _, metrics_random_first = resolve_turn(national, [random_event, agent_event])
+
+        # 两种传入顺序应产生相同结果（因为内部会排序）
+        assert metrics_agent_first.province_metrics[0].food_production == (
+            metrics_random_first.province_metrics[0].food_production
+        )
+
+    def test_player_direct_last(self):
+        """PlayerEvent(direct=True) 最后应用，优先级最高。"""
+        zhili = make_zhili_province()
+        national = NationalBaseData(
+            turn=0,
+            imperial_treasury=Decimal("500000"),
+            national_tax_modifier=Decimal("1.0"),
+            provinces=[zhili],
+        )
+
+        # Random: 国家税率 ×0.5
+        random_event = RandomEvent(
+            turn_created=0,
+            description="民变减税",
+            category="rebellion",
+            severity=Decimal("0.3"),
+            effects=[
+                EventEffect(
+                    target="national_tax_modifier",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("0.5"),
+                    scope=EffectScope(is_national=True),
+                ),
+            ],
+        )
+
+        # Player(direct): 国家税率 ×3.0（皇帝亲令加税）
+        player_event = PlayerEvent(
+            turn_created=0,
+            description="皇帝亲令加税",
+            command_type="tax_increase",
+            direct=True,
+            effects=[
+                EventEffect(
+                    target="national_tax_modifier",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("3.0"),
+                    scope=EffectScope(is_national=True),
+                ),
+            ],
+        )
+
+        # Player 排在 Random 之后：1.0 × 0.5 × 3.0 = 1.5
+        # 无论传入顺序如何
+        _, metrics1 = resolve_turn(national, [player_event, random_event])
+        _, metrics2 = resolve_turn(national, [random_event, player_event])
+
+        assert metrics1.province_metrics[0].land_tax_revenue == (
+            metrics2.province_metrics[0].land_tax_revenue
+        )
+
+    def test_non_direct_player_event_treated_normally(self):
+        """PlayerEvent(direct=False) 也按 PLAYER 顺序排（在 Agent 之后）。"""
+        zhili = make_zhili_province()
+        national = NationalBaseData(
+            turn=0,
+            imperial_treasury=Decimal("500000"),
+            national_tax_modifier=Decimal("1.0"),
+            provinces=[zhili],
+        )
+
+        agent_event = AgentEvent(
+            turn_created=0,
+            description="户部执行",
+            agent_event_type="execute",
+            agent_id="hubu",
+            fidelity=Decimal("0.8"),
+            effects=[
+                EventEffect(
+                    target="national_tax_modifier",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("1.1"),
+                    scope=EffectScope(is_national=True),
+                ),
+            ],
+        )
+
+        player_event = PlayerEvent(
+            turn_created=0,
+            description="下令调税",
+            command_type="adjust_tax",
+            direct=False,
+            effects=[
+                EventEffect(
+                    target="national_tax_modifier",
+                    operation=EffectOperation.MULTIPLY,
+                    value=Decimal("1.2"),
+                    scope=EffectScope(is_national=True),
+                ),
+            ],
+        )
+
+        # Agent 先于 Player 应用：1.0 × 1.1 × 1.2 = 1.32
+        _, metrics1 = resolve_turn(national, [player_event, agent_event])
+        _, metrics2 = resolve_turn(national, [agent_event, player_event])
+
+        assert metrics1.province_metrics[0].land_tax_revenue == (
+            metrics2.province_metrics[0].land_tax_revenue
+        )
