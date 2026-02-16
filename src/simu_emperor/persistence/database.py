@@ -56,6 +56,8 @@ async def _create_schema(conn: Connection) -> None:
             game_id TEXT NOT NULL,
             turn INTEGER NOT NULL,
             agent_id TEXT NOT NULL,
+            report_type TEXT NOT NULL DEFAULT 'report',
+            file_name TEXT,
             report_markdown TEXT NOT NULL,
             real_data_json TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

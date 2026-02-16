@@ -175,6 +175,8 @@ class AgentReportRepository:
         agent_id: str,
         markdown: str,
         real_data: NationalBaseData,
+        report_type: str = "report",
+        file_name: str | None = None,
     ) -> None:
         """保存 Agent 报告。
 
@@ -184,14 +186,16 @@ class AgentReportRepository:
             agent_id: Agent ID
             markdown: 报告内容（Markdown 格式）
             real_data: 真实数据快照
+            report_type: 报告类型（report/exec）
+            file_name: workspace 文件名（如 003_report.md）
         """
         real_data_json = serialize_national_data(real_data)
         await self.conn.execute(
             """
-            INSERT INTO agent_reports (game_id, turn, agent_id, report_markdown, real_data_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO agent_reports (game_id, turn, agent_id, report_type, file_name, report_markdown, real_data_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (game_id, turn, agent_id, markdown, real_data_json),
+            (game_id, turn, agent_id, report_type, file_name, markdown, real_data_json),
         )
         await self.conn.commit()
 
