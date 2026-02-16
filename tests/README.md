@@ -6,11 +6,12 @@
 tests/
 ├── conftest.py                          # 共享工厂函数和 fixtures
 ├── unit/
-│   └── engine/                          # 引擎模块单元测试（4 个文件，125 个测试）
+│   └── engine/                          # 引擎模块单元测试（5 个文件，145 个测试）
 │       ├── test_base_data.py            # Pydantic 模型验证
 │       ├── test_events.py               # 事件与状态模型
 │       ├── test_formulas.py             # 经济公式
-│       └── test_calculator.py           # 回合结算引擎
+│       ├── test_calculator.py           # 回合结算引擎
+│       └── test_event_generator.py      # 随机事件生成器
 │   └── agents/                          # Agent 模块单元测试（待实现）
 │   └── persistence/                     # 持久化模块单元测试（待实现）
 ├── integration/                         # 集成测试（待实现）
@@ -47,6 +48,7 @@ uv run pytest --cov
 | `test_events.py` | 24 | 事件层级、discriminated union、GameState 序列化 |
 | `test_formulas.py` | 40 | 13 个经济公式的默认值/边界/极端场景 |
 | `test_calculator.py` | 10 | resolve_turn 集成测试（事件效果、多回合、多省份） |
+| `test_event_generator.py` | 20 | 随机事件生成器（模板加载、种子复现、权重选择、省份一致性） |
 
 ### test_base_data.py（51 个测试）
 
@@ -116,6 +118,21 @@ uv run pytest --cov
 | `TestResolveTurnWithEvents` | 旱灾事件（irrigation×0.7→产量下降）、加法效果（增兵→军费上升）、国家级效果（税率修正×1.2→田赋增加） |
 | `TestMultiTurnStability` | 10 回合无事件稳定性（人口/幸福度/国库/士气/繁荣度在合理区间）、连续旱灾螺旋（人口下降+粮仓耗尽） |
 | `TestMultiProvince` | 两省份独立计算、定向事件只影响目标省份 |
+
+### test_event_generator.py（20 个测试）
+
+随机事件生成器的模板加载、事件生成、种子复现测试。
+
+| TestClass | 测试点 |
+|---|---|
+| `TestLoadEventTemplates` | 从 JSON 文件加载模板、无效路径异常 |
+| `TestGenerateSingleEvent` | 生成事件字段正确性、描述占位符填充 |
+| `TestSeededReproducibility` | 相同种子生成相同事件、不同种子生成不同事件 |
+| `TestScopeTypes` | province 范围（单省份）、all_provinces 范围（所有省份）、national 范围（国家级） |
+| `TestWeightedSelection` | 权重分布统计测试、零权重模板不被选中 |
+| `TestValueRange` | 乘法效果值在范围内、加法效果值在范围内 |
+| `TestDescriptionEffectProvinceConsistency` | 描述中省份与效果影响省份一致、多效果模板所有省份效果影响同一省份 |
+| `TestEdgeCases` | 空模板列表、空省份列表、max_events=0、单省份、持续时间范围 |
 
 ## conftest.py 工厂函数
 
