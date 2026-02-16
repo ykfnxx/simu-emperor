@@ -36,6 +36,10 @@ from simu_emperor.engine.models.state import (
     GameState,
     TurnRecord,
 )
+from simu_emperor.engine.models.event_templates import (
+    EffectTemplate,
+    EventTemplate,
+)
 
 __all__ = [
     "AdministrationData",
@@ -48,8 +52,10 @@ __all__ = [
     "CropType",
     "EffectOperation",
     "EffectScope",
+    "EffectTemplate",
     "EventEffect",
     "EventSource",
+    "EventTemplate",
     "GameEvent",
     "GamePhase",
     "GameState",

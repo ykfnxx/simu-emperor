@@ -1,0 +1,320 @@
+[
+  {
+    "template_id": "flood",
+    "category": "disaster",
+    "weight": "1.0",
+    "severity_min": "0.3",
+    "severity_max": "1.0",
+    "duration_min": 1,
+    "duration_max": 3,
+    "description_templates": [
+      "{province}遭遇洪灾，农田被淹，粮仓受损",
+      "暴雨成灾，{province}一片汪洋"
+    ],
+    "effects": [
+      {
+        "target": "granary_stock",
+        "operation": "multiply",
+        "value_min": "0.3",
+        "value_max": "0.7",
+        "scope_type": "province"
+      },
+      {
+        "target": "agriculture.irrigation_level",
+        "operation": "multiply",
+        "value_min": "0.7",
+        "value_max": "0.9",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "drought",
+    "category": "disaster",
+    "weight": "1.0",
+    "severity_min": "0.2",
+    "severity_max": "0.8",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "{province}大旱，河流干涸，灌溉困难",
+      "天干物燥，{province}田地龟裂"
+    ],
+    "effects": [
+      {
+        "target": "agriculture.irrigation_level",
+        "operation": "multiply",
+        "value_min": "0.5",
+        "value_max": "0.8",
+        "scope_type": "province"
+      },
+      {
+        "target": "population.happiness",
+        "operation": "add",
+        "value_min": "-0.1",
+        "value_max": "-0.05",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "locust",
+    "category": "disaster",
+    "weight": "0.8",
+    "severity_min": "0.3",
+    "severity_max": "0.9",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "蝗虫过境，{province}庄稼受损严重",
+      "{province}突发蝗灾，遮天蔽日"
+    ],
+    "effects": [
+      {
+        "target": "agriculture.crops.rice.base_yield",
+        "operation": "multiply",
+        "value_min": "0.6",
+        "value_max": "0.9",
+        "scope_type": "province"
+      },
+      {
+        "target": "agriculture.crops.wheat.base_yield",
+        "operation": "multiply",
+        "value_min": "0.6",
+        "value_max": "0.9",
+        "scope_type": "province"
+      },
+      {
+        "target": "agriculture.crops.millet.base_yield",
+        "operation": "multiply",
+        "value_min": "0.6",
+        "value_max": "0.9",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "harvest",
+    "category": "blessing",
+    "weight": "1.2",
+    "severity_min": "0.2",
+    "severity_max": "0.6",
+    "duration_min": 1,
+    "duration_max": 1,
+    "description_templates": [
+      "{province}风调雨顺，五谷丰登",
+      "天赐丰收，{province}百姓欢庆"
+    ],
+    "effects": [
+      {
+        "target": "agriculture.irrigation_level",
+        "operation": "add",
+        "value_min": "0.05",
+        "value_max": "0.15",
+        "scope_type": "province"
+      },
+      {
+        "target": "population.happiness",
+        "operation": "add",
+        "value_min": "0.05",
+        "value_max": "0.1",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "trade_boom",
+    "category": "blessing",
+    "weight": "0.8",
+    "severity_min": "0.3",
+    "severity_max": "0.7",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "{province}商业繁荣，商贾云集",
+      "市井兴旺，{province}贸易兴盛"
+    ],
+    "effects": [
+      {
+        "target": "commerce.market_prosperity",
+        "operation": "add",
+        "value_min": "0.1",
+        "value_max": "0.2",
+        "scope_type": "province"
+      },
+      {
+        "target": "local_treasury",
+        "operation": "add",
+        "value_min": "500",
+        "value_max": "2000",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "rebellion",
+    "category": "unrest",
+    "weight": "0.5",
+    "severity_min": "0.4",
+    "severity_max": "1.0",
+    "duration_min": 2,
+    "duration_max": 4,
+    "description_templates": [
+      "{province}民变频起，局势动荡",
+      "苛政猛于虎，{province}百姓揭竿而起"
+    ],
+    "effects": [
+      {
+        "target": "population.happiness",
+        "operation": "multiply",
+        "value_min": "0.7",
+        "value_max": "0.9",
+        "scope_type": "province"
+      },
+      {
+        "target": "military.morale",
+        "operation": "multiply",
+        "value_min": "0.8",
+        "value_max": "0.95",
+        "scope_type": "province"
+      },
+      {
+        "target": "administration.stability",
+        "operation": "add",
+        "value_min": "-0.15",
+        "value_max": "-0.05",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "plague",
+    "category": "plague",
+    "weight": "0.3",
+    "severity_min": "0.2",
+    "severity_max": "0.8",
+    "duration_min": 1,
+    "duration_max": 3,
+    "description_templates": [
+      "{province}突发瘟疫，人心惶惶",
+      "疫病流行，{province}死伤惨重"
+    ],
+    "effects": [
+      {
+        "target": "population.total",
+        "operation": "multiply",
+        "value_min": "0.95",
+        "value_max": "0.99",
+        "scope_type": "province"
+      },
+      {
+        "target": "population.happiness",
+        "operation": "add",
+        "value_min": "-0.15",
+        "value_max": "-0.05",
+        "scope_type": "province"
+      },
+      {
+        "target": "commerce.market_prosperity",
+        "operation": "multiply",
+        "value_min": "0.8",
+        "value_max": "0.95",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "trade_route_open",
+    "category": "trade",
+    "weight": "0.6",
+    "severity_min": "0.2",
+    "severity_max": "0.5",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "商路畅通，{province}贸易繁荣",
+      "丝路开通，{province}货物云集"
+    ],
+    "effects": [
+      {
+        "target": "trade.trade_route_quality",
+        "operation": "add",
+        "value_min": "0.1",
+        "value_max": "0.2",
+        "scope_type": "province"
+      },
+      {
+        "target": "commerce.market_prosperity",
+        "operation": "add",
+        "value_min": "0.05",
+        "value_max": "0.1",
+        "scope_type": "province"
+      }
+    ]
+  },
+  {
+    "template_id": "national_prosperity",
+    "category": "blessing",
+    "weight": "0.3",
+    "severity_min": "0.3",
+    "severity_max": "0.6",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "国泰民安，天下太平，万民欢庆",
+      "圣明垂拱而治，四海升平"
+    ],
+    "effects": [
+      {
+        "target": "population.happiness",
+        "operation": "add",
+        "value_min": "0.03",
+        "value_max": "0.08",
+        "scope_type": "all_provinces"
+      },
+      {
+        "target": "administration.stability",
+        "operation": "add",
+        "value_min": "0.02",
+        "value_max": "0.05",
+        "scope_type": "all_provinces"
+      }
+    ]
+  },
+  {
+    "template_id": "earthquake",
+    "category": "disaster",
+    "weight": "0.4",
+    "severity_min": "0.5",
+    "severity_max": "1.0",
+    "duration_min": 1,
+    "duration_max": 2,
+    "description_templates": [
+      "{province}地动山摇，房倒屋塌",
+      "大地震颤，{province}受灾严重"
+    ],
+    "effects": [
+      {
+        "target": "population.total",
+        "operation": "multiply",
+        "value_min": "0.9",
+        "value_max": "0.98",
+        "scope_type": "province"
+      },
+      {
+        "target": "local_treasury",
+        "operation": "multiply",
+        "value_min": "0.5",
+        "value_max": "0.8",
+        "scope_type": "province"
+      },
+      {
+        "target": "administration.stability",
+        "operation": "add",
+        "value_min": "-0.1",
+        "value_max": "-0.05",
+        "scope_type": "province"
+      }
+    ]
+  }
+]
