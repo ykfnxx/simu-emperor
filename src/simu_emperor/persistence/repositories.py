@@ -238,6 +238,33 @@ class AgentReportRepository:
         rows = await cursor.fetchall()
         return [(row[0], row[1]) for row in rows]
 
+    async def list_all_reports(
+        self, game_id: str, max_turn: int | None = None
+    ) -> list[tuple[str, int, str, str, str | None]]:
+        """列出所有报告（用于 workspace 重建）。
+
+        Args:
+            game_id: 游戏 ID
+            max_turn: 最大回合数（可选，None 表示不限制）
+
+        Returns:
+            [(agent_id, turn, report_type, markdown, file_name), ...] 按 id ASC 排序
+        """
+        if max_turn is not None:
+            cursor = await self.conn.execute(
+                "SELECT agent_id, turn, report_type, report_markdown, file_name "
+                "FROM agent_reports WHERE game_id = ? AND turn <= ? ORDER BY id",
+                (game_id, max_turn),
+            )
+        else:
+            cursor = await self.conn.execute(
+                "SELECT agent_id, turn, report_type, report_markdown, file_name "
+                "FROM agent_reports WHERE game_id = ? ORDER BY id",
+                (game_id,),
+            )
+        rows = await cursor.fetchall()
+        return [(row[0], row[1], row[2], row[3], row[4]) for row in rows]
+
 
 class ChatHistoryRepository:
     """对话历史 Repository。"""
