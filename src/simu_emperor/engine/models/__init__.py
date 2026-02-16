@@ -1,14 +1,17 @@
 """引擎数据模型。"""
 
 from simu_emperor.engine.models.base_data import (
+    AdministrationData,
     AgricultureData,
     CommerceData,
+    ConsumptionData,
     CropData,
     CropType,
     MilitaryData,
     NationalBaseData,
     PopulationData,
     ProvinceBaseData,
+    TaxationData,
     TradeData,
 )
 from simu_emperor.engine.models.effects import (
@@ -24,6 +27,10 @@ from simu_emperor.engine.models.events import (
     PlayerEvent,
     RandomEvent,
 )
+from simu_emperor.engine.models.metrics import (
+    NationalTurnMetrics,
+    ProvinceTurnMetrics,
+)
 from simu_emperor.engine.models.state import (
     GamePhase,
     GameState,
@@ -31,10 +38,12 @@ from simu_emperor.engine.models.state import (
 )
 
 __all__ = [
+    "AdministrationData",
     "AgentEvent",
     "AgricultureData",
     "BaseEvent",
     "CommerceData",
+    "ConsumptionData",
     "CropData",
     "CropType",
     "EffectOperation",
@@ -46,10 +55,13 @@ __all__ = [
     "GameState",
     "MilitaryData",
     "NationalBaseData",
+    "NationalTurnMetrics",
     "PlayerEvent",
     "PopulationData",
     "ProvinceBaseData",
+    "ProvinceTurnMetrics",
     "RandomEvent",
+    "TaxationData",
     "TradeData",
     "TurnRecord",
 ]

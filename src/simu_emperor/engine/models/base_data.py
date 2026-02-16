@@ -44,7 +44,6 @@ class CommerceData(BaseModel):
     """商业部门数据。"""
 
     merchant_households: Decimal = Field(ge=0, description="商户数量")
-    tax_rate: Decimal = Field(ge=0, le=1, description="商业税率")
     market_prosperity: Decimal = Field(ge=0, le=1, description="市场繁荣度")
 
 
@@ -52,7 +51,6 @@ class TradeData(BaseModel):
     """贸易部门数据。"""
 
     trade_volume: Decimal = Field(ge=0, description="贸易量")
-    tariff_rate: Decimal = Field(ge=0, le=1, description="关税税率")
     trade_route_quality: Decimal = Field(ge=0, le=1, description="贸易路线质量")
 
 
@@ -62,7 +60,33 @@ class MilitaryData(BaseModel):
     garrison_size: Decimal = Field(ge=0, description="驻军规模")
     equipment_level: Decimal = Field(ge=0, le=1, description="装备水平")
     morale: Decimal = Field(ge=0, le=1, description="士气")
-    upkeep: Decimal = Field(ge=0, description="维持费用")
+    upkeep_per_soldier: Decimal = Field(default=Decimal("6.0"), ge=0, description="单兵年维持费(两/兵/年)")
+    upkeep: Decimal = Field(default=Decimal("0"), ge=0, description="军事总维持费(两/年)，每回合由公式计算回写")
+
+
+class TaxationData(BaseModel):
+    """统一税收模型。"""
+
+    land_tax_rate: Decimal = Field(default=Decimal("0.03"), ge=0, le=1, description="田赋税率(产出折银比例)")
+    commercial_tax_rate: Decimal = Field(default=Decimal("0.10"), ge=0, le=1, description="商业税率")
+    tariff_rate: Decimal = Field(default=Decimal("0.05"), ge=0, le=1, description="关税税率")
+
+
+class ConsumptionData(BaseModel):
+    """粮食消费端参数。"""
+
+    civilian_grain_per_capita: Decimal = Field(default=Decimal("3.0"), ge=0, description="平民人均年粮食消耗(石/人/年)")
+    military_grain_per_soldier: Decimal = Field(default=Decimal("5.0"), ge=0, description="士兵年粮食消耗(石/兵/年)")
+
+
+class AdministrationData(BaseModel):
+    """行政开支参数。"""
+
+    official_count: Decimal = Field(default=Decimal("200"), ge=0, description="地方官吏数量")
+    official_salary: Decimal = Field(default=Decimal("60"), ge=0, description="官吏年俸(两/人/年)")
+    infrastructure_maintenance_rate: Decimal = Field(default=Decimal("0.02"), ge=0, le=1, description="基建年维护费率")
+    infrastructure_value: Decimal = Field(default=Decimal("500000"), ge=0, description="基建总估值(两)")
+    court_levy_amount: Decimal = Field(default=Decimal("0"), ge=0, description="朝廷额外征派固定金额(两/年)")
 
 
 class ProvinceBaseData(BaseModel):
@@ -75,6 +99,9 @@ class ProvinceBaseData(BaseModel):
     commerce: CommerceData = Field(description="商业数据")
     trade: TradeData = Field(description="贸易数据")
     military: MilitaryData = Field(description="军事数据")
+    taxation: TaxationData = Field(default_factory=TaxationData, description="税收数据")
+    consumption: ConsumptionData = Field(default_factory=ConsumptionData, description="粮食消费数据")
+    administration: AdministrationData = Field(default_factory=AdministrationData, description="行政开支数据")
     granary_stock: Decimal = Field(ge=0, description="粮仓储量")
     local_treasury: Decimal = Field(ge=0, description="地方财政")
 
@@ -85,4 +112,5 @@ class NationalBaseData(BaseModel):
     turn: int = Field(ge=0, description="当前回合数")
     imperial_treasury: Decimal = Field(ge=0, description="国库")
     national_tax_modifier: Decimal = Field(default=Decimal("1.0"), description="全国税率修正")
+    tribute_rate: Decimal = Field(default=Decimal("0.30"), ge=0, le=1, description="省份财政盈余上缴国库比例")
     provinces: list[ProvinceBaseData] = Field(default_factory=list, description="省份列表")

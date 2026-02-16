@@ -36,12 +36,13 @@ src/simu_emperor/
 ├── game.py                            # 游戏循环编排器（阶段推进）
 ├── engine/                            # 模块一：计算逻辑（纯函数，无 I/O）
 │   ├── models/
-│   │   ├── base_data.py               # 基础数据：Population/Agriculture/Commerce/Trade/Military/Province/NationalBaseData
+│   │   ├── base_data.py               # 基础数据：Population/Agriculture/Commerce/Trade/Military/Consumption/Administration/Taxation/Province/NationalBaseData
+│   │   ├── metrics.py                 # 回合计算指标：ProvinceTurnMetrics, NationalTurnMetrics
 │   │   ├── events.py                  # 事件层级：PlayerEvent/AgentEvent/RandomEvent（discriminated union）
 │   │   ├── state.py                   # GameState, TurnRecord
 │   │   └── effects.py                 # EventEffect（target 字段路径 + add/multiply 操作）
-│   ├── calculator.py                  # resolve_turn()：收集效果→分组→应用→公式计算→约束校验
-│   ├── formulas.py                    # 经济公式：粮食产量/税收/贸易收入/军事开支/人口变化
+│   ├── calculator.py                  # resolve_turn()：应用事件效果→计算指标→回写反馈→约束校验
+│   ├── formulas.py                    # 经济公式（13个纯函数）：粮食生产/需求/田赋/商税/关税/军费/幸福度/人口/士气/商业/财政
 │   └── event_generator.py            # 随机事件生成（接受 seeded Random）
 ├── agents/                            # 模块二：文件驱动 AI 官员系统
 │   ├── models/
@@ -96,7 +97,7 @@ tests/
 
 ### Three Modules
 
-**Engine** (`engine/`) — Pure computation, no I/O. Province-level economic simulation with population, agriculture, commerce, trade, military subsystems. Turn resolution applies EventEffects (add/multiply operations) to NationalBaseData. All economic formulas are pure functions in `formulas.py`.
+**Engine** (`engine/`) — Pure computation, no I/O. Province-level economic simulation with population, agriculture, commerce, trade, military, consumption, administration, taxation subsystems. Turn resolution: apply EventEffects → run 13 economic formulas → write back feedback (population/happiness/morale/commerce changes) → clamp bounded values. All formulas are pure functions in `formulas.py`; per-turn derived values stored in `ProvinceTurnMetrics`/`NationalTurnMetrics` (not in base data).
 
 **Agents** (`agents/`) — File-driven AI officials. Each agent is defined by markdown files (`soul.md` for personality, `skills/` for data access ranges, `memory/` for context), not Python classes. Deception emerges from LLM reading soul.md personality descriptions. Templates live in `data/default_agents/`, active state in `data/agent/`. Three-phase lifecycle per turn: summarize (produce report) → interact (answer player questions) → execute (carry out commands, possibly poorly).
 
@@ -112,14 +113,16 @@ tests/
 
 - Pydantic v2 models with `Decimal` precision and field constraints for all game data
 - Discriminated union for events: `GameEvent = PlayerEvent | AgentEvent | RandomEvent` (discriminator: `source`)
-- Province data hierarchy: `ProvinceBaseData` contains `PopulationData`, `AgricultureData`, `CommerceData`, `TradeData`, `MilitaryData` plus `granary_stock`/`local_treasury`
-- `NationalBaseData` aggregates all provinces plus `imperial_treasury` and `national_tax_modifier`
+- Province data hierarchy: `ProvinceBaseData` contains `PopulationData`, `AgricultureData`, `CommerceData`, `TradeData`, `MilitaryData`, `TaxationData`, `ConsumptionData`, `AdministrationData` plus `granary_stock`/`local_treasury`
+- `NationalBaseData` aggregates all provinces plus `imperial_treasury`, `national_tax_modifier`, and `tribute_rate`
+- Turn metrics separation: `ProvinceTurnMetrics`/`NationalTurnMetrics` hold per-turn derived values (food production, tax revenue, expenditure, population change etc.), computed by formulas but not stored in base data
+- `resolve_turn()` returns `tuple[NationalBaseData, NationalTurnMetrics]`
 - Agent execution output (free markdown) is converted to structured `AgentEvent` via a second LLM call
 - Engine is deterministic: random functions take seeded `random.Random` for reproducibility
 
 ### Planning Docs
 
-Architecture specs are in `.plan/rewrite_plan.md` (full system) and `.plan/agent_design.md` (agent module detail). Original proposals in `.proposal/`.
+Architecture specs are in `.plan/rewrite_plan.md` (full system), `.plan/eco_system_design.md` (economic system formulas and data model), and `.plan/agent_design.md` (agent module detail). Original proposals in `.proposal/`. Design reviews in `.review/`.
 
 ## Development Workflow
 

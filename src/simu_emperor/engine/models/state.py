@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.engine.models.events import GameEvent
+from simu_emperor.engine.models.metrics import NationalTurnMetrics
 
 
 class GamePhase(StrEnum):
@@ -24,6 +25,7 @@ class TurnRecord(BaseModel):
     turn: int = Field(ge=0, description="回合数")
     base_data_snapshot: NationalBaseData = Field(description="回合结束时的数据快照")
     events_applied: list[GameEvent] = Field(default_factory=list, description="本回合应用的事件")
+    metrics: NationalTurnMetrics | None = Field(default=None, description="本回合计算指标")
 
 
 class GameState(BaseModel):
