@@ -35,6 +35,7 @@ class PlayerEvent(BaseEvent):
     command_type: str = Field(description="命令类型")
     target_province_id: str | None = Field(default=None, description="目标省份 ID")
     parameters: dict[str, str] = Field(default_factory=dict, description="命令参数")
+    direct: bool = Field(default=False, description="True=皇帝亲政直接生效, False=需经Agent执行")
 
 
 class AgentEvent(BaseEvent):

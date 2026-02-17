@@ -49,8 +49,7 @@ src/simu_emperor/
 │   │   └── roles.py                   # 角色枚举（系统层面标识 agent 类型）
 │   ├── runtime.py                     # AgentRuntime：三阶段生命周期（summarize/respond/execute）
 │   ├── file_manager.py                # 读写 agent 目录的文件操作
-│   ├── context_builder.py             # 组装 LLM 调用上下文（soul + skills + memory + data）
-│   ├── data_accessor.py               # 解析 skill 中数据范围声明，从 NationalBaseData 提取子集
+│   ├── context_builder.py             # 组装 LLM 调用上下文（含 data_scope 解析和数据提取）
 │   ├── memory_manager.py              # 记忆管理：短期写入/清理（保留 3 回合）+ 长期读取
 │   ├── agent_manager.py               # 动态管理：初始化/增删/存档/恢复
 │   └── llm/
@@ -72,21 +71,25 @@ src/simu_emperor/
     └── serialization.py               # GameState ↔ DB 序列化
 
 data/
+├── skills/                            # 通用 skill 模板（所有 Agent 共享）
+│   ├── query_data.md
+│   ├── write_report.md
+│   └── execute_command.md
 ├── default_agents/                    # Agent 模板（随代码版本管理）
-│   └── {agent_name}/
-│       ├── soul.md                    # 角色定义（身份/性格/行为倾向/说话风格）
-│       └── skills/                    # 能力定义（可访问数据范围）
+│   └── {agent_id}/
+│       ├── soul.md                    # 角色定义
+│       └── data_scope.yaml            # 数据权限声明（per-skill 白名单）
 ├── initial_provinces.json             # 初始省份配置
 └── event_templates.json               # 随机事件模板池
 
-data/agent/                            # Agent 活跃工作区（运行时生成，存档时备份）
-└── {agent_name}/
-    ├── soul.md                        # 从模板拷贝，可被游戏修改
-    ├── skills/
+data/agent/                            # Agent 活跃工作区（运行时生成）
+└── {agent_id}/
+    ├── soul.md
+    ├── data_scope.yaml
     ├── memory/
-    │   ├── summary.md                 # 长期记忆（Agent/LLM 自行维护）
-    │   └── recent/                    # 短期记忆（固定保留最近 3 回合）
-    └── workspace/                     # 工作文档（奏折、报告等产出物）
+    │   ├── summary.md                 # 长期记忆
+    │   └── recent/                    # 短期记忆（保留最近 3 回合）
+    └── workspace/                     # 玩家可见的文档归档
 
 tests/
 ├── conftest.py                        # 共享 fixtures + 工厂函数
@@ -99,7 +102,7 @@ tests/
 
 **Engine** (`engine/`) — Pure computation, no I/O. Province-level economic simulation with population, agriculture, commerce, trade, military, consumption, administration, taxation subsystems. Turn resolution: apply EventEffects → run 13 economic formulas → write back feedback (population/happiness/morale/commerce changes) → clamp bounded values. All formulas are pure functions in `formulas.py`; per-turn derived values stored in `ProvinceTurnMetrics`/`NationalTurnMetrics` (not in base data).
 
-**Agents** (`agents/`) — File-driven AI officials. Each agent is defined by markdown files (`soul.md` for personality, `skills/` for data access ranges, `memory/` for context), not Python classes. Deception emerges from LLM reading soul.md personality descriptions. Templates live in `data/default_agents/`, active state in `data/agent/`. Three-phase lifecycle per turn: summarize (produce report) → interact (answer player questions) → execute (carry out commands, possibly poorly).
+**Agents** (`agents/`) — File-driven AI officials. Each agent is defined by markdown files (`soul.md` for personality, `data_scope.yaml` for data access permissions, `memory/` for context), not Python classes. Shared skill templates live in `data/skills/`, per-agent data permissions in `data_scope.yaml`. Deception emerges from LLM reading soul.md personality descriptions. Templates live in `data/default_agents/`, active state in `data/agent/`. Three-phase lifecycle per turn: summarize (produce report) → interact (answer player questions) → execute (carry out commands, possibly poorly).
 
 **Player** (`player/`) — FastAPI web UI. Routes in `web/routes/` for game state, agent chat, reports, commands. Phase-locked: API rejects operations invalid for the current game phase.
 
@@ -117,13 +120,13 @@ tests/
 - `NationalBaseData` aggregates all provinces plus `imperial_treasury`, `national_tax_modifier`, and `tribute_rate`
 - Turn metrics separation: `ProvinceTurnMetrics`/`NationalTurnMetrics` hold per-turn derived values (food production, tax revenue, expenditure, population change etc.), computed by formulas but not stored in base data
 - `resolve_turn()` returns `tuple[NationalBaseData, NationalTurnMetrics]`
-- Agent execution output (free markdown) is converted to structured `AgentEvent` via a second LLM call
+- Agent execution uses single structured output (ExecutionResult: narrative + effects + fidelity)
 - Engine is deterministic: random functions take seeded `random.Random` for reproducibility
 
 ### Planning Docs
 
-Architecture specs are in `.plan/rewrite_plan.md` (full system), `.plan/eco_system_design.md` (economic system formulas and data model), and `.plan/agent_design.md` (agent module detail). Original proposals in `.proposal/`. Design reviews in `.review/`.
+Architecture specs are in `.plan/rewrite_plan_v1.1.md` (full system), `.plan/eco_system_design.md` (economic system formulas and data model), and `.plan/agent_design_v1.1.md` (agent module detail). Original proposals in `.proposal/`. Design reviews in `.review/`.
 
 ## Development Workflow
 
-Implementation follows the step-by-step plan defined in `.plan/rewrite_plan.md` (实施顺序 section). After completing each step, write a summary to `.summary/stepNN_<name>.md` documenting what was implemented, key decisions made, and verification results. Existing summaries serve as context for subsequent steps — read them before continuing work.
+Implementation follows the step-by-step plan defined in `.plan/rewrite_plan_v1.1.md` (实施顺序 section). After completing each step, write a summary to `.summary/stepNN_<name>.md` documenting what was implemented, key decisions made, and verification results. Existing summaries serve as context for subsequent steps — read them before continuing work.

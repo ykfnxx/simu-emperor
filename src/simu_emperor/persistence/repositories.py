@@ -175,6 +175,8 @@ class AgentReportRepository:
         agent_id: str,
         markdown: str,
         real_data: NationalBaseData,
+        report_type: str = "report",
+        file_name: str | None = None,
     ) -> None:
         """保存 Agent 报告。
 
@@ -184,14 +186,16 @@ class AgentReportRepository:
             agent_id: Agent ID
             markdown: 报告内容（Markdown 格式）
             real_data: 真实数据快照
+            report_type: 报告类型（report/exec）
+            file_name: workspace 文件名（如 003_report.md）
         """
         real_data_json = serialize_national_data(real_data)
         await self.conn.execute(
             """
-            INSERT INTO agent_reports (game_id, turn, agent_id, report_markdown, real_data_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO agent_reports (game_id, turn, agent_id, report_type, file_name, report_markdown, real_data_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (game_id, turn, agent_id, markdown, real_data_json),
+            (game_id, turn, agent_id, report_type, file_name, markdown, real_data_json),
         )
         await self.conn.commit()
 
@@ -233,6 +237,33 @@ class AgentReportRepository:
         )
         rows = await cursor.fetchall()
         return [(row[0], row[1]) for row in rows]
+
+    async def list_all_reports(
+        self, game_id: str, max_turn: int | None = None
+    ) -> list[tuple[str, int, str, str, str | None]]:
+        """列出所有报告（用于 workspace 重建）。
+
+        Args:
+            game_id: 游戏 ID
+            max_turn: 最大回合数（可选，None 表示不限制）
+
+        Returns:
+            [(agent_id, turn, report_type, markdown, file_name), ...] 按 id ASC 排序
+        """
+        if max_turn is not None:
+            cursor = await self.conn.execute(
+                "SELECT agent_id, turn, report_type, report_markdown, file_name "
+                "FROM agent_reports WHERE game_id = ? AND turn <= ? ORDER BY id",
+                (game_id, max_turn),
+            )
+        else:
+            cursor = await self.conn.execute(
+                "SELECT agent_id, turn, report_type, report_markdown, file_name "
+                "FROM agent_reports WHERE game_id = ? ORDER BY id",
+                (game_id,),
+            )
+        rows = await cursor.fetchall()
+        return [(row[0], row[1], row[2], row[3], row[4]) for row in rows]
 
 
 class ChatHistoryRepository:

@@ -13,6 +13,7 @@ dependencies = [
     "anthropic>=0.40",
     "openai>=1.50",
     "instructor>=1.5",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
