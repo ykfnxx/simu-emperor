@@ -9,6 +9,8 @@ from simu_emperor.agents.context_builder import (
     SkillScope,
 )
 from simu_emperor.agents.file_manager import FileManager
+from simu_emperor.agents.llm.client import LLMClient
+from simu_emperor.agents.llm.providers import ExecutionResult, LLMProvider, MockProvider
 from simu_emperor.agents.memory_manager import MemoryContext, MemoryManager
 from simu_emperor.agents.models.roles import AgentRole
 
@@ -19,8 +21,12 @@ __all__ = [
     "ConfigurationError",
     "ContextBuilder",
     "DataScope",
+    "ExecutionResult",
     "FileManager",
+    "LLMClient",
+    "LLMProvider",
     "MemoryContext",
     "MemoryManager",
+    "MockProvider",
     "SkillScope",
 ]
