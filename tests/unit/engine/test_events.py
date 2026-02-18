@@ -121,7 +121,10 @@ class TestPlayerEvent:
 
     def test_direct_true(self):
         event = PlayerEvent(
-            turn_created=0, description="皇帝亲自下令", command_type="direct_order", direct=True,
+            turn_created=0,
+            description="皇帝亲自下令",
+            command_type="direct_order",
+            direct=True,
         )
         assert event.direct is True
         assert event.source == EventSource.PLAYER
@@ -231,8 +234,11 @@ class TestGameEventDiscriminatedUnion:
         events = [
             PlayerEvent(turn_created=1, description="a", command_type="x"),
             AgentEvent(
-                turn_created=1, description="b",
-                agent_event_type="y", agent_id="z", fidelity=Decimal("1"),
+                turn_created=1,
+                description="b",
+                agent_event_type="y",
+                agent_id="z",
+                fidelity=Decimal("1"),
             ),
             RandomEvent(turn_created=1, description="c", category="d", severity=Decimal("0")),
         ]
@@ -275,7 +281,9 @@ class TestTurnRecord:
             turn=1,
             base_data_snapshot=national,
             events_applied=[
-                RandomEvent(turn_created=1, description="丰收", category="harvest", severity=Decimal("0.3")),
+                RandomEvent(
+                    turn_created=1, description="丰收", category="harvest", severity=Decimal("0.3")
+                ),
             ],
         )
         json_str = record.model_dump_json()
@@ -303,7 +311,9 @@ class TestGameState:
             base_data=make_national_data(),
             active_events=[
                 PlayerEvent(turn_created=0, description="建设", command_type="build"),
-                RandomEvent(turn_created=0, description="水灾", category="disaster", severity=Decimal("0.9")),
+                RandomEvent(
+                    turn_created=0, description="水灾", category="disaster", severity=Decimal("0.9")
+                ),
             ],
         )
         assert len(state.active_events) == 2
@@ -316,8 +326,11 @@ class TestGameState:
             base_data=national,
             active_events=[
                 AgentEvent(
-                    turn_created=5, description="执行",
-                    agent_event_type="exec", agent_id="hubu", fidelity=Decimal("0.8"),
+                    turn_created=5,
+                    description="执行",
+                    agent_event_type="exec",
+                    agent_id="hubu",
+                    fidelity=Decimal("0.8"),
                 ),
             ],
             history=[

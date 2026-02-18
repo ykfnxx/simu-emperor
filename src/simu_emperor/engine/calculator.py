@@ -159,27 +159,36 @@ def _resolve_province(
 
     # 5.2 粮食需求
     food_demand_civilian, food_demand_military, food_demand_total = calculate_food_demand(
-        province.population, province.consumption, province.military,
+        province.population,
+        province.consumption,
+        province.military,
     )
 
     # 5.3 粮食平衡与粮仓
     food_surplus, new_granary, granary_change = calculate_food_surplus_and_granary(
-        food_production, food_demand_total, province.granary_stock,
+        food_production,
+        food_demand_total,
+        province.granary_stock,
     )
 
     # 5.4 田赋收入
     land_tax_revenue = calculate_land_tax_revenue(
-        food_production, province.taxation, national_tax_modifier,
+        food_production,
+        province.taxation,
+        national_tax_modifier,
     )
 
     # 5.5 商税收入
     commercial_tax_revenue = calculate_commercial_tax_revenue(
-        province.commerce, province.taxation, national_tax_modifier,
+        province.commerce,
+        province.taxation,
+        national_tax_modifier,
     )
 
     # 5.6 关税收入
     trade_tariff_revenue = calculate_trade_tariff_revenue(
-        province.trade, province.taxation,
+        province.trade,
+        province.taxation,
     )
 
     total_revenue = land_tax_revenue + commercial_tax_revenue + trade_tariff_revenue
@@ -188,35 +197,49 @@ def _resolve_province(
     military_upkeep = calculate_military_upkeep(province.military)
 
     # 5.12 财政平衡（需要 military_upkeep 和 total_revenue）
-    official_salary_cost, infrastructure_cost, court_levy_cost, total_expenditure, fiscal_surplus = (
-        calculate_fiscal_balance(province.administration, military_upkeep, total_revenue)
-    )
+    (
+        official_salary_cost,
+        infrastructure_cost,
+        court_levy_cost,
+        total_expenditure,
+        fiscal_surplus,
+    ) = calculate_fiscal_balance(province.administration, military_upkeep, total_revenue)
 
     # 5.8 幸福度变化
     happiness_change = calculate_happiness_change(
-        food_production, food_demand_total,
-        province.taxation, province.military,
-        fiscal_surplus, total_revenue,
+        food_production,
+        food_demand_total,
+        province.taxation,
+        province.military,
+        fiscal_surplus,
+        total_revenue,
     )
 
     # 5.9 人口变化
     population_change = calculate_population_change(
-        province.population, food_production, food_demand_total,
+        province.population,
+        food_production,
+        food_demand_total,
     )
 
     # 5.10 士气变化
     morale_change = calculate_morale_change(
-        province.military, fiscal_surplus, military_upkeep,
+        province.military,
+        fiscal_surplus,
+        military_upkeep,
     )
 
     # 5.11 商业动态
     merchant_change, prosperity_change = calculate_commerce_dynamics(
-        province.commerce, province.taxation, province.population.happiness,
+        province.commerce,
+        province.taxation,
+        province.population.happiness,
     )
 
     # 5.13 国库分配
     local_change, imperial_tribute = calculate_treasury_distribution(
-        fiscal_surplus, tribute_rate,
+        fiscal_surplus,
+        tribute_rate,
     )
 
     # --- 回写反馈到基础数据 ---
@@ -225,16 +248,23 @@ def _resolve_province(
     province.military.upkeep = military_upkeep
     province.population.total = max(_ZERO, province.population.total + population_change)
     province.population.happiness = _clamp(
-        province.population.happiness + happiness_change, HAPPINESS_MIN, HAPPINESS_MAX,
+        province.population.happiness + happiness_change,
+        HAPPINESS_MIN,
+        HAPPINESS_MAX,
     )
     province.military.morale = _clamp(
-        province.military.morale + morale_change, MORALE_MIN, MORALE_MAX,
+        province.military.morale + morale_change,
+        MORALE_MIN,
+        MORALE_MAX,
     )
     province.commerce.merchant_households = max(
-        _ZERO, province.commerce.merchant_households + merchant_change,
+        _ZERO,
+        province.commerce.merchant_households + merchant_change,
     )
     province.commerce.market_prosperity = _clamp(
-        province.commerce.market_prosperity + prosperity_change, PROSPERITY_MIN, PROSPERITY_MAX,
+        province.commerce.market_prosperity + prosperity_change,
+        PROSPERITY_MIN,
+        PROSPERITY_MAX,
     )
 
     metrics = ProvinceTurnMetrics(
@@ -290,7 +320,9 @@ def resolve_turn(
 
     for province in new_data.provinces:
         metrics, tribute = _resolve_province(
-            province, new_data.national_tax_modifier, new_data.tribute_rate,
+            province,
+            new_data.national_tax_modifier,
+            new_data.tribute_rate,
         )
         province_metrics_list.append(metrics)
         total_tribute += tribute

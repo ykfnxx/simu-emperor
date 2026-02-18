@@ -101,9 +101,7 @@ class EventLogRepository:
     def __init__(self, conn: Connection):
         self.conn = conn
 
-    async def log_event(
-        self, game_id: str, turn: int, event: GameEvent, action: str
-    ) -> None:
+    async def log_event(self, game_id: str, turn: int, event: GameEvent, action: str) -> None:
         """记录事件日志。
 
         Args:
@@ -123,9 +121,7 @@ class EventLogRepository:
         )
         await self.conn.commit()
 
-    async def get_events(
-        self, game_id: str, turn: int
-    ) -> list[tuple[GameEvent, str]]:
+    async def get_events(self, game_id: str, turn: int) -> list[tuple[GameEvent, str]]:
         """获取指定回合的所有事件。
 
         Args:
@@ -142,9 +138,7 @@ class EventLogRepository:
         rows = await cursor.fetchall()
         return [(deserialize_event(row[0]), row[1]) for row in rows]
 
-    async def get_event_history(
-        self, game_id: str, event_id: str
-    ) -> list[tuple[str, datetime]]:
+    async def get_event_history(self, game_id: str, event_id: str) -> list[tuple[str, datetime]]:
         """获取指定事件的历史记录。
 
         Args:
@@ -272,9 +266,7 @@ class ChatHistoryRepository:
     def __init__(self, conn: Connection):
         self.conn = conn
 
-    async def add_message(
-        self, game_id: str, agent_id: str, role: str, message: str
-    ) -> None:
+    async def add_message(self, game_id: str, agent_id: str, role: str, message: str) -> None:
         """添加对话消息。
 
         Args:
@@ -315,9 +307,7 @@ class ChatHistoryRepository:
         )
         rows = await cursor.fetchall()
         # 反转以获得正序
-        result = [
-            (row[0], row[1], datetime.fromisoformat(row[2])) for row in reversed(rows)
-        ]
+        result = [(row[0], row[1], datetime.fromisoformat(row[2])) for row in reversed(rows)]
         return result
 
 

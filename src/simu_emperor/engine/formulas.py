@@ -104,6 +104,7 @@ def _clamp(value: Decimal, lo: Decimal, hi: Decimal) -> Decimal:
 # 5.1  粮食产量
 # ---------------------------------------------------------------------------
 
+
 def calculate_food_production(
     agriculture: AgricultureData,
     population: PopulationData,
@@ -117,7 +118,9 @@ def calculate_food_production(
         start=_ZERO,
     )
 
-    irrigation_modifier = IRRIGATION_BASE_FACTOR + IRRIGATION_BONUS_FACTOR * agriculture.irrigation_level
+    irrigation_modifier = (
+        IRRIGATION_BASE_FACTOR + IRRIGATION_BONUS_FACTOR * agriculture.irrigation_level
+    )
 
     total_area = sum((crop.area_mu for crop in agriculture.crops), start=_ZERO)
     required_labor = total_area * LABOR_PER_MU
@@ -133,6 +136,7 @@ def calculate_food_production(
 # ---------------------------------------------------------------------------
 # 5.2  粮食需求
 # ---------------------------------------------------------------------------
+
 
 def calculate_food_demand(
     population: PopulationData,
@@ -154,6 +158,7 @@ def calculate_food_demand(
 # 5.3  粮食平衡与粮仓
 # ---------------------------------------------------------------------------
 
+
 def calculate_food_surplus_and_granary(
     food_production: Decimal,
     food_demand_total: Decimal,
@@ -174,6 +179,7 @@ def calculate_food_surplus_and_granary(
 # 5.4  田赋收入
 # ---------------------------------------------------------------------------
 
+
 def calculate_land_tax_revenue(
     food_production: Decimal,
     taxation: TaxationData,
@@ -186,6 +192,7 @@ def calculate_land_tax_revenue(
 # ---------------------------------------------------------------------------
 # 5.5  商税收入
 # ---------------------------------------------------------------------------
+
 
 def calculate_commercial_tax_revenue(
     commerce: CommerceData,
@@ -206,6 +213,7 @@ def calculate_commercial_tax_revenue(
 # 5.6  关税收入
 # ---------------------------------------------------------------------------
 
+
 def calculate_trade_tariff_revenue(
     trade: TradeData,
     taxation: TaxationData,
@@ -217,6 +225,7 @@ def calculate_trade_tariff_revenue(
 # ---------------------------------------------------------------------------
 # 5.7  军事维持费
 # ---------------------------------------------------------------------------
+
 
 def calculate_military_upkeep(military: MilitaryData) -> Decimal:
     """计算军事维持费(两)。"""
@@ -230,6 +239,7 @@ def calculate_military_upkeep(military: MilitaryData) -> Decimal:
 # ---------------------------------------------------------------------------
 # 5.8  幸福度变化
 # ---------------------------------------------------------------------------
+
 
 def calculate_happiness_change(
     food_production: Decimal,
@@ -278,6 +288,7 @@ def calculate_happiness_change(
 # ---------------------------------------------------------------------------
 # 5.9  人口变化（分段函数）
 # ---------------------------------------------------------------------------
+
 
 def calculate_population_change(
     population: PopulationData,
@@ -332,6 +343,7 @@ def calculate_population_change(
 # 5.10 士气变化
 # ---------------------------------------------------------------------------
 
+
 def calculate_morale_change(
     military: MilitaryData,
     fiscal_surplus: Decimal,
@@ -357,6 +369,7 @@ def calculate_morale_change(
 # ---------------------------------------------------------------------------
 # 5.11 商业动态
 # ---------------------------------------------------------------------------
+
 
 def calculate_commerce_dynamics(
     commerce: CommerceData,
@@ -386,6 +399,7 @@ def calculate_commerce_dynamics(
 # 5.12 财政平衡
 # ---------------------------------------------------------------------------
 
+
 def calculate_fiscal_balance(
     administration: AdministrationData,
     military_upkeep: Decimal,
@@ -398,18 +412,29 @@ def calculate_fiscal_balance(
          total_expenditure, fiscal_surplus)
     """
     official_salary_cost = administration.official_count * administration.official_salary
-    infrastructure_cost = administration.infrastructure_maintenance_rate * administration.infrastructure_value
+    infrastructure_cost = (
+        administration.infrastructure_maintenance_rate * administration.infrastructure_value
+    )
     court_levy_cost = administration.court_levy_amount
 
-    total_expenditure = military_upkeep + official_salary_cost + infrastructure_cost + court_levy_cost
+    total_expenditure = (
+        military_upkeep + official_salary_cost + infrastructure_cost + court_levy_cost
+    )
     fiscal_surplus = total_revenue - total_expenditure
 
-    return official_salary_cost, infrastructure_cost, court_levy_cost, total_expenditure, fiscal_surplus
+    return (
+        official_salary_cost,
+        infrastructure_cost,
+        court_levy_cost,
+        total_expenditure,
+        fiscal_surplus,
+    )
 
 
 # ---------------------------------------------------------------------------
 # 5.13 国库分配
 # ---------------------------------------------------------------------------
+
 
 def calculate_treasury_distribution(
     fiscal_surplus: Decimal,
