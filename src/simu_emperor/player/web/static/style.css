@@ -1,0 +1,145 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+}
+
+header {
+    background: #16213e;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #c9a227;
+}
+
+header h1 { color: #c9a227; font-size: 1.5rem; }
+
+#status-bar span {
+    margin-left: 1.5rem;
+    padding: 0.3rem 0.8rem;
+    background: #0f3460;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+#control-panel {
+    padding: 1rem 2rem;
+    text-align: center;
+}
+
+#advance-btn {
+    background: #c9a227;
+    color: #1a1a2e;
+    border: none;
+    padding: 0.6rem 2rem;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#advance-btn:hover { background: #e0b830; }
+
+#content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0 2rem 2rem;
+}
+
+section {
+    background: #16213e;
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+section h2 {
+    color: #c9a227;
+    font-size: 1.1rem;
+    margin-bottom: 0.8rem;
+    border-bottom: 1px solid #333;
+    padding-bottom: 0.4rem;
+}
+
+.province-card {
+    background: #0f3460;
+    padding: 0.6rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.report-item {
+    background: #0f3460;
+    padding: 0.6rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+}
+
+#chat-messages {
+    height: 200px;
+    overflow-y: auto;
+    background: #0f3460;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.chat-msg { margin-bottom: 0.4rem; }
+.chat-msg.player { color: #4fc3f7; }
+.chat-msg.agent { color: #aed581; }
+
+#chat-input-row { display: flex; gap: 0.5rem; }
+
+#chat-input {
+    flex: 1;
+    padding: 0.4rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #0f3460;
+    color: #e0e0e0;
+}
+
+button {
+    background: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #333;
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover { background: #1a4a8a; }
+
+select {
+    width: 100%;
+    padding: 0.4rem;
+    margin-bottom: 0.5rem;
+    background: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+#command-form input[type="text"] {
+    width: 100%;
+    padding: 0.4rem;
+    margin-bottom: 0.4rem;
+    background: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+#command-form label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+}
