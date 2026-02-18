@@ -25,9 +25,7 @@ class TestGameStateSerialization:
             serialize_game_state,
         )
 
-        national_data = make_national_data(
-            turn=5, imperial_treasury=Decimal("600000")
-        )
+        national_data = make_national_data(turn=5, imperial_treasury=Decimal("600000"))
         state = GameState(
             game_id="test-game-001",
             current_turn=5,

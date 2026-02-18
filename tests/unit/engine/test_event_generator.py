@@ -161,12 +161,16 @@ class TestSeededReproducibility:
         rng1 = random.Random(12345)
         rng2 = random.Random(12345)
 
-        events1 = generate_events_for_turn(sample_templates, turn=1, province_ids=sample_province_ids, rng=rng1, max_events=3)
-        events2 = generate_events_for_turn(sample_templates, turn=1, province_ids=sample_province_ids, rng=rng2, max_events=3)
+        events1 = generate_events_for_turn(
+            sample_templates, turn=1, province_ids=sample_province_ids, rng=rng1, max_events=3
+        )
+        events2 = generate_events_for_turn(
+            sample_templates, turn=1, province_ids=sample_province_ids, rng=rng2, max_events=3
+        )
 
         assert len(events1) == len(events2)
         for e1, e2 in zip(events1, events2):
-            assert e1.template_id == e2.template_id if hasattr(e1, 'template_id') else True
+            assert e1.template_id == e2.template_id if hasattr(e1, "template_id") else True
             assert e1.category == e2.category
             assert e1.severity == e2.severity
             assert e1.description == e2.description
@@ -176,8 +180,12 @@ class TestSeededReproducibility:
         rng1 = random.Random(111)
         rng2 = random.Random(222)
 
-        events1 = generate_events_for_turn(sample_templates, turn=1, province_ids=sample_province_ids, rng=rng1, max_events=3)
-        events2 = generate_events_for_turn(sample_templates, turn=1, province_ids=sample_province_ids, rng=rng2, max_events=3)
+        events1 = generate_events_for_turn(
+            sample_templates, turn=1, province_ids=sample_province_ids, rng=rng1, max_events=3
+        )
+        events2 = generate_events_for_turn(
+            sample_templates, turn=1, province_ids=sample_province_ids, rng=rng2, max_events=3
+        )
 
         # 不同种子生成的结果很可能不同（不能保证一定不同，但大概率）
         # 这里只检查多次运行不会崩溃
@@ -276,7 +284,9 @@ class TestValueRange:
 
         for _ in range(20):
             rng_copy = random.Random(rng.randint(0, 1000000))
-            event = generate_random_event(template, turn=1, province_ids=sample_province_ids, rng=rng_copy)
+            event = generate_random_event(
+                template, turn=1, province_ids=sample_province_ids, rng=rng_copy
+            )
             value = event.effects[0].value
             assert value >= effect_template.value_min
             assert value <= effect_template.value_max
@@ -289,7 +299,9 @@ class TestValueRange:
 
         for _ in range(20):
             rng_copy = random.Random(rng.randint(0, 1000000))
-            event = generate_random_event(template, turn=1, province_ids=sample_province_ids, rng=rng_copy)
+            event = generate_random_event(
+                template, turn=1, province_ids=sample_province_ids, rng=rng_copy
+            )
             value = event.effects[0].value
             assert value >= effect_template.value_min
             assert value <= effect_template.value_max
@@ -348,7 +360,9 @@ class TestDescriptionEffectProvinceConsistency:
         for _ in range(30):
             seed = rng.randint(0, 1000000)
             rng_copy = random.Random(seed)
-            event = generate_random_event(template, turn=1, province_ids=sample_province_ids, rng=rng_copy)
+            event = generate_random_event(
+                template, turn=1, province_ids=sample_province_ids, rng=rng_copy
+            )
 
             # 从描述中提取省份名
             province_in_desc = next(p for p in sample_province_ids if p in event.description)
@@ -417,5 +431,7 @@ class TestEdgeCases:
 
         for seed in range(50):
             rng = random.Random(seed)
-            event = generate_random_event(template, turn=1, province_ids=sample_province_ids, rng=rng)
+            event = generate_random_event(
+                template, turn=1, province_ids=sample_province_ids, rng=rng
+            )
             assert 2 <= event.duration <= 5

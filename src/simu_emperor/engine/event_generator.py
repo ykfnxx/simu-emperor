@@ -5,7 +5,7 @@ import random
 from decimal import Decimal
 from pathlib import Path
 
-from simu_emperor.engine.models.effects import EffectOperation, EffectScope, EventEffect
+from simu_emperor.engine.models.effects import EffectScope, EventEffect
 from simu_emperor.engine.models.event_templates import EffectTemplate, EventTemplate
 from simu_emperor.engine.models.events import RandomEvent
 
@@ -144,7 +144,6 @@ def generate_events_for_turn(
 
     # 计算权重
     weights = [float(t.weight) for t in templates]
-    total_weight = sum(weights)
 
     # 决定生成多少个事件（0 到 max_events）
     # 使用泊松分布的简化版本，平均值约为 max_events / 2
@@ -188,8 +187,7 @@ def generate_events_for_turn(
 
     # 基于选中的模板生成事件
     events = [
-        generate_random_event(template, turn, province_ids, rng)
-        for template in selected_templates
+        generate_random_event(template, turn, province_ids, rng) for template in selected_templates
     ]
 
     return events

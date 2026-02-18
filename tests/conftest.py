@@ -103,7 +103,9 @@ def make_administration(**overrides) -> AdministrationData:
     return AdministrationData(**defaults)
 
 
-def make_province(province_id: str = "jiangnan", name: str = "江南", **overrides) -> ProvinceBaseData:
+def make_province(
+    province_id: str = "jiangnan", name: str = "江南", **overrides
+) -> ProvinceBaseData:
     defaults = {
         "province_id": province_id,
         "name": name,
@@ -147,8 +149,16 @@ def make_zhili_province(**overrides) -> ProvinceBaseData:
         ),
         "agriculture": AgricultureData(
             crops=[
-                CropData(crop_type=CropType.WHEAT, area_mu=Decimal("5500000"), yield_per_mu=Decimal("1.3")),
-                CropData(crop_type=CropType.MILLET, area_mu=Decimal("2500000"), yield_per_mu=Decimal("1.1")),
+                CropData(
+                    crop_type=CropType.WHEAT,
+                    area_mu=Decimal("5500000"),
+                    yield_per_mu=Decimal("1.3"),
+                ),
+                CropData(
+                    crop_type=CropType.MILLET,
+                    area_mu=Decimal("2500000"),
+                    yield_per_mu=Decimal("1.1"),
+                ),
             ],
             irrigation_level=Decimal("0.60"),
         ),

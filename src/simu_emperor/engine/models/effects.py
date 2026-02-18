@@ -23,7 +23,9 @@ class EffectScope(BaseModel):
 class EventEffect(BaseModel):
     """原子效果：对目标字段施加加法或乘法操作。"""
 
-    target: str = Field(description="目标字段路径（如 population.total, commerce.market_prosperity）")
+    target: str = Field(
+        description="目标字段路径（如 population.total, commerce.market_prosperity）"
+    )
     operation: EffectOperation = Field(description="操作类型：add 或 multiply")
     value: Decimal = Field(description="数值")
     scope: EffectScope = Field(default_factory=EffectScope, description="影响范围")

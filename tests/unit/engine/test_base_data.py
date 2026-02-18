@@ -119,8 +119,12 @@ class TestAgricultureData:
     def test_multiple_crops(self):
         agri = AgricultureData(
             crops=[
-                CropData(crop_type=CropType.RICE, area_mu=Decimal("30000"), yield_per_mu=Decimal("3")),
-                CropData(crop_type=CropType.TEA, area_mu=Decimal("5000"), yield_per_mu=Decimal("1")),
+                CropData(
+                    crop_type=CropType.RICE, area_mu=Decimal("30000"), yield_per_mu=Decimal("3")
+                ),
+                CropData(
+                    crop_type=CropType.TEA, area_mu=Decimal("5000"), yield_per_mu=Decimal("1")
+                ),
             ],
             irrigation_level=Decimal("0.8"),
         )
@@ -303,12 +307,17 @@ class TestProvinceBaseData:
             province_id="test",
             name="测试",
             population=PopulationData(
-                total=Decimal("1000"), growth_rate=Decimal("0"), labor_ratio=Decimal("0.5"), happiness=Decimal("0.5"),
+                total=Decimal("1000"),
+                growth_rate=Decimal("0"),
+                labor_ratio=Decimal("0.5"),
+                happiness=Decimal("0.5"),
             ),
             agriculture=AgricultureData(crops=[], irrigation_level=Decimal("0")),
             commerce=CommerceData(merchant_households=Decimal("0"), market_prosperity=Decimal("0")),
             trade=TradeData(trade_volume=Decimal("0"), trade_route_quality=Decimal("0")),
-            military=MilitaryData(garrison_size=Decimal("0"), equipment_level=Decimal("0"), morale=Decimal("0.5")),
+            military=MilitaryData(
+                garrison_size=Decimal("0"), equipment_level=Decimal("0"), morale=Decimal("0.5")
+            ),
             granary_stock=Decimal("0"),
             local_treasury=Decimal("0"),
         )
