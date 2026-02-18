@@ -1,0 +1,65 @@
+{
+  "imperial_treasury": "500000",
+  "national_tax_modifier": "1.0",
+  "tribute_rate": "0.30",
+  "provinces": [
+    {
+      "province_id": "zhili",
+      "name": "直隶",
+      "population": {
+        "total": "2600000",
+        "growth_rate": "0.002",
+        "labor_ratio": "0.55",
+        "happiness": "0.70"
+      },
+      "agriculture": {
+        "crops": [
+          {
+            "crop_type": "wheat",
+            "area_mu": "5500000",
+            "yield_per_mu": "1.3"
+          },
+          {
+            "crop_type": "millet",
+            "area_mu": "2500000",
+            "yield_per_mu": "1.1"
+          }
+        ],
+        "irrigation_level": "0.60"
+      },
+      "commerce": {
+        "merchant_households": "3500",
+        "market_prosperity": "0.60"
+      },
+      "trade": {
+        "trade_volume": "80000",
+        "trade_route_quality": "0.65"
+      },
+      "military": {
+        "garrison_size": "30000",
+        "equipment_level": "0.50",
+        "morale": "0.70",
+        "upkeep_per_soldier": "6.0",
+        "upkeep": "0"
+      },
+      "taxation": {
+        "land_tax_rate": "0.03",
+        "commercial_tax_rate": "0.10",
+        "tariff_rate": "0.05"
+      },
+      "consumption": {
+        "civilian_grain_per_capita": "3.0",
+        "military_grain_per_soldier": "5.0"
+      },
+      "administration": {
+        "official_count": "200",
+        "official_salary": "60",
+        "infrastructure_maintenance_rate": "0.02",
+        "infrastructure_value": "500000",
+        "court_levy_amount": "0"
+      },
+      "granary_stock": "1200000",
+      "local_treasury": "80000"
+    }
+  ]
+}

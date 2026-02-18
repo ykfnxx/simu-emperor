@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from simu_emperor.config import GameConfig
+from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.game import GameLoop, PhaseError
 from simu_emperor.player.schemas import ErrorResponse
 
@@ -25,76 +27,19 @@ _STATIC_DIR = _WEB_DIR / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
-def _make_initial_data():
-    """构造初始全国数据（使用 conftest 工厂函数的默认值）。"""
-    from decimal import Decimal
+def load_initial_data(data_dir: Path) -> NationalBaseData:
+    """从 initial_provinces.json 加载初始全国数据。
 
-    from simu_emperor.engine.models.base_data import (
-        AdministrationData,
-        AgricultureData,
-        CommerceData,
-        ConsumptionData,
-        CropData,
-        CropType,
-        MilitaryData,
-        NationalBaseData,
-        PopulationData,
-        ProvinceBaseData,
-        TaxationData,
-        TradeData,
-    )
+    Args:
+        data_dir: 数据根目录（包含 initial_provinces.json）
 
-    province = ProvinceBaseData(
-        province_id="zhili",
-        name="直隶",
-        population=PopulationData(
-            total=Decimal("2600000"),
-            growth_rate=Decimal("0.002"),
-            labor_ratio=Decimal("0.55"),
-            happiness=Decimal("0.70"),
-        ),
-        agriculture=AgricultureData(
-            crops=[
-                CropData(
-                    crop_type=CropType.WHEAT,
-                    area_mu=Decimal("5500000"),
-                    yield_per_mu=Decimal("1.3"),
-                ),
-                CropData(
-                    crop_type=CropType.MILLET,
-                    area_mu=Decimal("2500000"),
-                    yield_per_mu=Decimal("1.1"),
-                ),
-            ],
-            irrigation_level=Decimal("0.60"),
-        ),
-        commerce=CommerceData(
-            merchant_households=Decimal("3500"),
-            market_prosperity=Decimal("0.60"),
-        ),
-        trade=TradeData(
-            trade_volume=Decimal("80000"),
-            trade_route_quality=Decimal("0.65"),
-        ),
-        military=MilitaryData(
-            garrison_size=Decimal("30000"),
-            equipment_level=Decimal("0.50"),
-            morale=Decimal("0.70"),
-            upkeep_per_soldier=Decimal("6.0"),
-            upkeep=Decimal("0"),
-        ),
-        taxation=TaxationData(),
-        consumption=ConsumptionData(),
-        administration=AdministrationData(),
-        granary_stock=Decimal("1200000"),
-        local_treasury=Decimal("80000"),
-    )
-
-    return NationalBaseData(
-        turn=0,
-        imperial_treasury=Decimal("500000"),
-        provinces=[province],
-    )
+    Returns:
+        NationalBaseData 实例（turn=0）
+    """
+    json_path = data_dir / "initial_provinces.json"
+    raw = json.loads(json_path.read_text(encoding="utf-8"))
+    raw["turn"] = 0
+    return NationalBaseData.model_validate(raw)
 
 
 @asynccontextmanager
@@ -107,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     config = GameConfig()
     conn = await init_database(config.db_path)
     provider = MockProvider()
-    state = GameState(base_data=_make_initial_data())
+    state = GameState(base_data=load_initial_data(config.data_dir))
     game_loop = GameLoop(state=state, config=config, provider=provider, conn=conn)
     game_loop.initialize_agents()
     app.state.game_loop = game_loop
