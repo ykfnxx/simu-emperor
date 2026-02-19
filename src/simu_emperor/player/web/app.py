@@ -45,13 +45,34 @@ def load_initial_data(data_dir: Path) -> NationalBaseData:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """应用生命周期：初始化 DB + GameLoop + Agent 文件系统。"""
-    from simu_emperor.agents.llm.providers import MockProvider
+    from simu_emperor.agents.llm.providers import AnthropicProvider, MockProvider, OpenAIProvider
     from simu_emperor.engine.models.state import GameState
     from simu_emperor.persistence.database import init_database
 
     config = GameConfig()
     conn = await init_database(config.db_path)
-    provider = MockProvider()
+
+    # 根据配置选择 Provider
+    llm_config = config.llm
+    provider_name = llm_config.provider
+    api_key = llm_config.api_key
+
+    if provider_name == "anthropic":
+        if not api_key:
+            raise ValueError("config.yaml 中 llm.api_key 未配置，使用 anthropic 需要提供 API Key")
+        provider = AnthropicProvider(api_key=api_key, model=llm_config.get_model())
+    elif provider_name == "openai":
+        if not api_key:
+            raise ValueError("config.yaml 中 llm.api_key 未配置，使用 openai 需要提供 API Key")
+        provider = OpenAIProvider(
+            api_key=api_key,
+            model=llm_config.get_model(),
+            base_url=llm_config.api_base,
+        )
+    else:
+        provider = MockProvider()
+        print("提示: 使用 MockProvider（无真实 LLM 响应），可在 config.yaml 中配置真实 Provider")
+
     state = GameState(base_data=load_initial_data(config.data_dir))
     game_loop = GameLoop(state=state, config=config, provider=provider, conn=conn)
     game_loop.initialize_agents()

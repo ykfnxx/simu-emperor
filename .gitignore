@@ -49,3 +49,5 @@ htmlcov/
 .proposal/
 .summary/
 .survey/
+
+config.yaml

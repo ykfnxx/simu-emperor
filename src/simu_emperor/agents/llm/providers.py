@@ -205,13 +205,18 @@ class AnthropicProvider(LLMProvider):
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI API Provider。"""
+    """OpenAI API Provider（支持兼容 OpenAI 格式的服务）。"""
 
-    def __init__(self, api_key: str | None = None, model: str = "gpt-4o") -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "gpt-4o",
+        base_url: str | None = None,
+    ) -> None:
         import openai
 
         self._model = model
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def generate(self, context: AgentContext) -> str:
         """调用 OpenAI Chat Completions API 生成文本。"""
