@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from decimal import Decimal
 from typing import Any, TypeVar
 
@@ -116,6 +117,10 @@ class LLMProvider(ABC):
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """生成结构化输出（用于 execute 阶段的 ExecutionResult）。"""
 
+    async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
+        """流式生成文本响应。默认实现为非流式，子类可覆盖。"""
+        yield await self.generate(context)
+
 
 # ── MockProvider ──
 
@@ -136,6 +141,13 @@ class MockProvider(LLMProvider):
         if context.agent_id in self._responses:
             return self._responses[context.agent_id]
         return f"[MockProvider] agent={context.agent_id} skill={context.skill[:50]}"
+
+    async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
+        """模拟流式输出，逐字符返回。"""
+        text = await self.generate(context)
+        # 模拟打字机效果，每次返回一个字符
+        for char in text:
+            yield char
 
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """按 agent_id 查找预设结构化响应，无预设时返回默认实例。"""
@@ -184,6 +196,20 @@ class AnthropicProvider(LLMProvider):
         # 提取文本内容
         return response.content[0].text  # type: ignore[union-attr]
 
+    async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
+        """调用 Anthropic Messages Stream API 流式生成文本。"""
+        system_prompt = build_system_prompt(context)
+        user_prompt = build_user_prompt(context)
+
+        async with self._client.messages.stream(
+            model=self._model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """使用 instructor 包装 Anthropic client 获取结构化输出。"""
         import instructor
@@ -231,6 +257,23 @@ class OpenAIProvider(LLMProvider):
             ],
         )
         return response.choices[0].message.content or ""
+
+    async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
+        """调用 OpenAI Chat Completions API 流式生成文本。"""
+        system_prompt = build_system_prompt(context)
+        user_prompt = build_user_prompt(context)
+
+        stream = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """使用 instructor 包装 OpenAI client 获取结构化输出。"""

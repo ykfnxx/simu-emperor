@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -21,6 +22,11 @@ class LLMClient:
     async def generate(self, context: AgentContext) -> str:
         """调用 LLM 生成文本。"""
         return await self.provider.generate(context)
+
+    async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
+        """流式调用 LLM 生成文本。"""
+        async for chunk in self.provider.generate_stream(context):
+            yield chunk
 
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """调用 LLM 生成结构化输出。"""
