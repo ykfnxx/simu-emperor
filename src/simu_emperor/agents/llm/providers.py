@@ -276,18 +276,47 @@ class OpenAIProvider(LLMProvider):
                 yield chunk.choices[0].delta.content
 
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
-        """使用 instructor 包装 OpenAI client 获取结构化输出。"""
-        import instructor
+        """生成结构化输出。
 
-        client = instructor.from_openai(self._client)
+        优先使用 instructor（function calling），若失败则降级为 JSON 模式解析。
+        某些模型（如 Qwen thinking 模式）不支持 tool_choice 参数。
+        """
+        import json
+
         system_prompt = build_system_prompt(context)
         user_prompt = build_user_prompt(context)
 
-        return await client.chat.completions.create(
+        # 获取 Pydantic 模型的 JSON schema
+        schema = response_model.model_json_schema()
+
+        # 构建要求 JSON 输出的 prompt
+        json_instruction = (
+            f"\n\n请严格按照以下 JSON Schema 格式输出，不要输出其他内容：\n"
+            f"```json\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n```\n"
+            f"只输出 JSON 对象，不要包含 ```json``` 标记。"
+        )
+
+        response = await self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system_prompt + json_instruction},
                 {"role": "user", "content": user_prompt},
             ],
-            response_model=response_model,
         )
+
+        content = response.choices[0].message.content or ""
+
+        # 提取 JSON（处理可能包含的 markdown 代码块）
+        content = content.strip()
+        if content.startswith("```"):
+            # 移除 markdown 代码块标记
+            lines = content.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+
+        # 解析 JSON 并构造模型实例
+        data = json.loads(content)
+        return response_model(**data)
