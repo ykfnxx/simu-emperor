@@ -12,6 +12,7 @@
 9. 返回 (new_data, metrics)
 """
 
+import time
 from collections import defaultdict
 from decimal import Decimal
 
@@ -41,6 +42,9 @@ from simu_emperor.engine.models.base_data import NationalBaseData, ProvinceBaseD
 from simu_emperor.engine.models.effects import EventEffect
 from simu_emperor.engine.models.events import EventSource, GameEvent
 from simu_emperor.engine.models.metrics import NationalTurnMetrics, ProvinceTurnMetrics
+from simu_emperor.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -305,6 +309,14 @@ def resolve_turn(
     4. 汇总国家级指标
     5. 返回更新后的数据和指标
     """
+    start_time = time.time()
+    logger.info(
+        "turn_calculation_started",
+        turn=current_data.turn,
+        province_count=len(current_data.provinces),
+        active_events_count=len(active_events),
+    )
+
     # 1. 深拷贝
     new_data = current_data.model_copy(deep=True)
 
@@ -312,6 +324,7 @@ def resolve_turn(
     sorted_events = _sort_events_by_priority(active_events)
     effects = _collect_effects(sorted_events)
     if effects:
+        logger.debug("effects_applying", effects_count=len(effects))
         _apply_effects(new_data, effects)
 
     # 5. 对每个省份运行经济公式
@@ -339,6 +352,15 @@ def resolve_turn(
         province_metrics=province_metrics_list,
         imperial_treasury_change=total_tribute,
         tribute_total=total_tribute,
+    )
+
+    duration_ms = (time.time() - start_time) * 1000
+    logger.info(
+        "turn_calculation_completed",
+        turn=new_data.turn,
+        province_count=len(province_metrics_list),
+        imperial_tribute=float(total_tribute),
+        duration_ms=round(duration_ms, 2),
     )
 
     return new_data, national_metrics

@@ -7,6 +7,15 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
+class LoggingConfig(BaseSettings):
+    """日志配置。"""
+
+    log_level: str = Field(default="INFO", description="日志级别 (DEBUG/INFO/WARNING/ERROR)")
+    log_json_format: bool = Field(default=False, description="是否使用 JSON 格式（生产环境推荐）")
+    llm_audit_enabled: bool = Field(default=False, description="是否启用 LLM 调用审计")
+    llm_audit_dir: Path = Field(default=Path("data/audit/llm"), description="LLM 审计日志目录")
+
+
 class AgentConfig(BaseSettings):
     """Agent 子系统配置。"""
 
@@ -55,6 +64,7 @@ class GameConfig(BaseSettings):
     max_random_events_per_turn: int = Field(default=2, ge=0, description="每回合最大随机事件数")
     agent: AgentConfig = Field(default_factory=AgentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
     def settings_customise_sources(

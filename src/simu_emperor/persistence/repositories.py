@@ -1,5 +1,6 @@
 """Repository 模式 CRUD 封装。"""
 
+import time
 from datetime import datetime
 
 from aiosqlite import Connection
@@ -7,6 +8,7 @@ from aiosqlite import Connection
 from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.engine.models.events import AgentEvent, GameEvent, PlayerEvent
 from simu_emperor.engine.models.state import GameState
+from simu_emperor.infrastructure.logging import get_logger
 from simu_emperor.persistence.serialization import (
     deserialize_event,
     deserialize_game_state,
@@ -15,6 +17,8 @@ from simu_emperor.persistence.serialization import (
     serialize_game_state,
     serialize_national_data,
 )
+
+logger = get_logger(__name__)
 
 
 class GameSaveRepository:
@@ -29,6 +33,7 @@ class GameSaveRepository:
         Args:
             state: 游戏状态对象
         """
+        start_time = time.time()
         state_json = serialize_game_state(state)
         await self.conn.execute(
             """
@@ -38,6 +43,15 @@ class GameSaveRepository:
             (state.game_id, state.current_turn, state_json),
         )
         await self.conn.commit()
+        duration_ms = (time.time() - start_time) * 1000
+        logger.debug(
+            "db_operation",
+            operation="save",
+            table="game_saves",
+            game_id=state.game_id,
+            turn=state.current_turn,
+            duration_ms=round(duration_ms, 2),
+        )
 
     async def load(self, game_id: str, turn: int | None = None) -> GameState | None:
         """加载游戏状态。

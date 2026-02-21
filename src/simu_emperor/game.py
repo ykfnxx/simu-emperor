@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 
 from aiosqlite import Connection
 
@@ -20,6 +21,7 @@ from simu_emperor.engine.event_generator import generate_events_for_turn, load_e
 from simu_emperor.engine.models.events import PlayerEvent
 from simu_emperor.engine.models.metrics import NationalTurnMetrics
 from simu_emperor.engine.models.state import GamePhase, GameState, TurnRecord
+from simu_emperor.infrastructure.logging import get_logger, log_context
 from simu_emperor.persistence.repositories import (
     AgentReportRepository,
     ChatHistoryRepository,
@@ -27,6 +29,8 @@ from simu_emperor.persistence.repositories import (
     GameSaveRepository,
     PlayerCommandRepository,
 )
+
+logger = get_logger(__name__)
 
 
 class PhaseError(Exception):
@@ -135,48 +139,65 @@ class GameLoop:
         Returns:
             (更新后的 GameState, 本回合指标)
         """
-        if self._state.phase != GamePhase.EXECUTION and self._state.current_turn > 0:
-            raise PhaseError(f"当前阶段为 {self._state.phase}，无法推进到 RESOLUTION")
-
-        # 回合结算
-        new_data, metrics = resolve_turn(self._state.base_data, self._state.active_events)
-        self._latest_metrics = metrics
-
-        # 记录 TurnRecord
-        turn_record = TurnRecord(
-            turn=self._state.current_turn,
-            base_data_snapshot=self._state.base_data,
-            events_applied=list(self._state.active_events),
-            metrics=metrics,
-        )
-        self._state.history.append(turn_record)
-
-        # 生成随机事件
-        province_ids = [p.province_id for p in new_data.provinces]
-        random_events = generate_events_for_turn(
-            self._event_templates,
-            new_data.turn,
-            province_ids,
-            self._rng,
-            max_events=self._config.max_random_events_per_turn,
-        )
-
-        # 记录事件日志
-        for event in self._state.active_events:
-            await self._event_log_repo.log_event(
-                self._state.game_id, self._state.current_turn, event, "applied"
-            )
-        for event in random_events:
-            await self._event_log_repo.log_event(
-                self._state.game_id, new_data.turn, event, "generated"
+        start_time = time.time()
+        async with log_context(game_id=self._state.game_id, turn=self._state.current_turn):
+            logger.info(
+                "phase_transition_started",
+                from_phase=self._state.phase.value,
+                to_phase="RESOLUTION",
             )
 
-        # 更新 state
-        self._state.base_data = new_data
-        self._state.current_turn = new_data.turn
-        self._state.active_events = list(random_events)
-        self._state.phase = GamePhase.SUMMARY
-        self._pending_commands = []
+            if self._state.phase != GamePhase.EXECUTION and self._state.current_turn > 0:
+                raise PhaseError(f"当前阶段为 {self._state.phase}，无法推进到 RESOLUTION")
+
+            # 回合结算
+            new_data, metrics = resolve_turn(self._state.base_data, self._state.active_events)
+            self._latest_metrics = metrics
+
+            # 记录 TurnRecord
+            turn_record = TurnRecord(
+                turn=self._state.current_turn,
+                base_data_snapshot=self._state.base_data,
+                events_applied=list(self._state.active_events),
+                metrics=metrics,
+            )
+            self._state.history.append(turn_record)
+
+            # 生成随机事件
+            province_ids = [p.province_id for p in new_data.provinces]
+            random_events = generate_events_for_turn(
+                self._event_templates,
+                new_data.turn,
+                province_ids,
+                self._rng,
+                max_events=self._config.max_random_events_per_turn,
+            )
+
+            # 记录事件日志
+            for event in self._state.active_events:
+                await self._event_log_repo.log_event(
+                    self._state.game_id, self._state.current_turn, event, "applied"
+                )
+            for event in random_events:
+                await self._event_log_repo.log_event(
+                    self._state.game_id, new_data.turn, event, "generated"
+                )
+
+            # 更新 state
+            self._state.base_data = new_data
+            self._state.current_turn = new_data.turn
+            self._state.active_events = list(random_events)
+            self._state.phase = GamePhase.SUMMARY
+            self._pending_commands = []
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "turn_resolved",
+                turn=new_data.turn,
+                events_applied_count=len(turn_record.events_applied),
+                random_events_count=len(random_events),
+                duration_ms=round(duration_ms, 2),
+            )
 
         return self._state, metrics
 
@@ -194,31 +215,50 @@ class GameLoop:
         Returns:
             {agent_id: report_markdown} 的字典
         """
-        if self._state.phase != GamePhase.SUMMARY:
-            raise PhaseError(f"当前阶段为 {self._state.phase}，无法执行汇总")
+        start_time = time.time()
+        async with log_context(game_id=self._state.game_id, turn=self._state.current_turn):
+            logger.info("agents_summarizing_started", agent_count=len(self._agent_manager.list_active_agents()))
 
-        agents = self._agent_manager.list_active_agents()
-        turn = self._state.current_turn
+            if self._state.phase != GamePhase.SUMMARY:
+                raise PhaseError(f"当前阶段为 {self._state.phase}，无法执行汇总")
 
-        async def _summarize_one(agent_id: str) -> tuple[str, str]:
-            async with self._llm_semaphore:
-                report = await self._runtime.summarize(agent_id, turn, self._state.base_data)
-            # 持久化报告
-            await self._report_repo.save_report(
-                game_id=self._state.game_id,
-                turn=turn,
-                agent_id=agent_id,
-                markdown=report,
-                real_data=self._state.base_data,
-                report_type="report",
-                file_name=f"{turn:03d}_report.md",
+            agents = self._agent_manager.list_active_agents()
+            turn = self._state.current_turn
+
+            async def _summarize_one(agent_id: str) -> tuple[str, str]:
+                agent_start = time.time()
+                async with self._llm_semaphore:
+                    report = await self._runtime.summarize(agent_id, turn, self._state.base_data)
+                # 持久化报告
+                await self._report_repo.save_report(
+                    game_id=self._state.game_id,
+                    turn=turn,
+                    agent_id=agent_id,
+                    markdown=report,
+                    real_data=self._state.base_data,
+                    report_type="report",
+                    file_name=f"{turn:03d}_report.md",
+                )
+                duration_ms = (time.time() - agent_start) * 1000
+                logger.info(
+                    "agent_summarize_complete",
+                    agent_id=agent_id,
+                    duration_ms=round(duration_ms, 2),
+                    success=True,
+                )
+                return agent_id, report
+
+            results = await asyncio.gather(*[_summarize_one(a) for a in agents])
+            reports = dict(results)
+
+            self._state.phase = GamePhase.INTERACTION
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "agents_summarizing_completed",
+                agent_count=len(reports),
+                duration_ms=round(total_duration_ms, 2),
             )
-            return agent_id, report
 
-        results = await asyncio.gather(*[_summarize_one(a) for a in agents])
-        reports = dict(results)
-
-        self._state.phase = GamePhase.INTERACTION
         return reports
 
     async def handle_player_message(self, agent_id: str, message: str) -> str:
@@ -233,17 +273,29 @@ class GameLoop:
         Returns:
             Agent 的回答
         """
-        if self._state.phase != GamePhase.INTERACTION:
-            raise PhaseError(f"当前阶段为 {self._state.phase}，无法与 Agent 对话")
+        start_time = time.time()
+        async with log_context(game_id=self._state.game_id, turn=self._state.current_turn, agent_id=agent_id):
+            logger.info("agent_chat_started", message_length=len(message))
 
-        async with self._llm_semaphore:
-            response = await self._runtime.respond(
-                agent_id, self._state.current_turn, message, self._state.base_data
+            if self._state.phase != GamePhase.INTERACTION:
+                raise PhaseError(f"当前阶段为 {self._state.phase}，无法与 Agent 对话")
+
+            async with self._llm_semaphore:
+                response = await self._runtime.respond(
+                    agent_id, self._state.current_turn, message, self._state.base_data
+                )
+
+            # 持久化对话
+            await self._chat_repo.add_message(self._state.game_id, agent_id, "player", message)
+            await self._chat_repo.add_message(self._state.game_id, agent_id, "agent", response)
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "agent_chat_completed",
+                agent_id=agent_id,
+                duration_ms=round(duration_ms, 2),
+                response_length=len(response),
             )
-
-        # 持久化对话
-        await self._chat_repo.add_message(self._state.game_id, agent_id, "player", message)
-        await self._chat_repo.add_message(self._state.game_id, agent_id, "agent", response)
 
         return response
 
@@ -314,48 +366,69 @@ class GameLoop:
         Returns:
             AgentEvent 列表
         """
-        if self._state.phase != GamePhase.INTERACTION:
-            raise PhaseError(f"当前阶段为 {self._state.phase}，无法推进到执行")
+        start_time = time.time()
+        async with log_context(game_id=self._state.game_id, turn=self._state.current_turn):
+            logger.info("agents_executing_started", command_count=len(self._pending_commands))
 
-        agents = self._agent_manager.list_active_agents()
-        turn = self._state.current_turn
-        agent_events = []
+            if self._state.phase != GamePhase.INTERACTION:
+                raise PhaseError(f"当前阶段为 {self._state.phase}，无法推进到执行")
 
-        async def _execute_one(command: PlayerEvent) -> None:
-            # 选择执行 Agent：如有 target_province_id 则匹配 governor，否则用第一个 agent
-            executor = agents[0] if agents else None
-            for a in agents:
-                if command.target_province_id and command.target_province_id in a:
-                    executor = a
-                    break
+            agents = self._agent_manager.list_active_agents()
+            turn = self._state.current_turn
+            agent_events = []
 
-            if executor is None:
-                return
+            async def _execute_one(command: PlayerEvent) -> None:
+                # 选择执行 Agent：如有 target_province_id 则匹配 governor，否则用第一个 agent
+                executor = agents[0] if agents else None
+                for a in agents:
+                    if command.target_province_id and command.target_province_id in a:
+                        executor = a
+                        break
 
-            async with self._llm_semaphore:
-                event = await self._runtime.execute(executor, turn, command, self._state.base_data)
+                if executor is None:
+                    return
 
-            agent_events.append(event)
-            self._state.active_events.append(event)
+                agent_start = time.time()
+                async with self._llm_semaphore:
+                    event = await self._runtime.execute(executor, turn, command, self._state.base_data)
 
-            # 持久化
-            await self._command_repo.save_command(self._state.game_id, turn, command, event)
-            # 执行结果写入报告表
-            await self._report_repo.save_report(
-                game_id=self._state.game_id,
-                turn=turn,
-                agent_id=executor,
-                markdown=event.description,
-                real_data=self._state.base_data,
-                report_type="exec",
-                file_name=f"{turn:03d}_exec_{command.command_type}.md",
+                agent_events.append(event)
+                self._state.active_events.append(event)
+
+                # 持久化
+                await self._command_repo.save_command(self._state.game_id, turn, command, event)
+                # 执行结果写入报告表
+                await self._report_repo.save_report(
+                    game_id=self._state.game_id,
+                    turn=turn,
+                    agent_id=executor,
+                    markdown=event.description,
+                    real_data=self._state.base_data,
+                    report_type="exec",
+                    file_name=f"{turn:03d}_exec_{command.command_type}.md",
+                )
+
+                duration_ms = (time.time() - agent_start) * 1000
+                logger.info(
+                    "agent_execute_complete",
+                    agent_id=executor,
+                    command_type=command.command_type,
+                    duration_ms=round(duration_ms, 2),
+                    fidelity=float(event.fidelity),
+                )
+
+            if self._pending_commands:
+                await asyncio.gather(*[_execute_one(cmd) for cmd in self._pending_commands])
+
+            self._state.phase = GamePhase.EXECUTION
+            self._pending_commands = []
+
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(
+                "agents_executing_completed",
+                events_count=len(agent_events),
+                duration_ms=round(total_duration_ms, 2),
             )
-
-        if self._pending_commands:
-            await asyncio.gather(*[_execute_one(cmd) for cmd in self._pending_commands])
-
-        self._state.phase = GamePhase.EXECUTION
-        self._pending_commands = []
 
         return agent_events
 

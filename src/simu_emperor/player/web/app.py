@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from simu_emperor.config import GameConfig
 from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.game import GameLoop, PhaseError
+from simu_emperor.infrastructure.logging import configure_logging, get_logger
 from simu_emperor.player.schemas import ErrorResponse
 
 if TYPE_CHECKING:
@@ -44,12 +46,18 @@ def load_initial_data(data_dir: Path) -> NationalBaseData:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """应用生命周期：初始化 DB + GameLoop + Agent 文件系统。"""
+    """应用生命周期：初始化日志 + DB + GameLoop + Agent 文件系统。"""
     from simu_emperor.agents.llm.providers import AnthropicProvider, MockProvider, OpenAIProvider
     from simu_emperor.engine.models.state import GameState
     from simu_emperor.persistence.database import init_database
 
     config = GameConfig()
+
+    # 尽早初始化日志
+    configure_logging(config.logging)
+    logger = get_logger(__name__)
+    logger.info("application_started", log_level=config.logging.log_level)
+
     conn = await init_database(config.db_path)
 
     # 根据配置选择 Provider
@@ -96,6 +104,25 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
 
     if game_loop is not None:
         app.state.game_loop = game_loop
+
+    # 请求日志中间件
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        logger = get_logger(__name__)
+        start_time = time.time()
+        logger.info("request_started", method=request.method, path=request.url.path)
+
+        response = await call_next(request)
+
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "request_completed",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=round(duration_ms, 2),
+        )
+        return response
 
     # 异常处理
     @app.exception_handler(PhaseError)
