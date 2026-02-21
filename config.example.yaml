@@ -1,0 +1,46 @@
+# 皇帝模拟器配置文件示例
+# 复制此文件为 config.yaml 并修改配置
+
+# LLM 配置
+llm:
+  # Provider 类型: mock / anthropic / openai
+  provider: mock
+
+  # API Key
+  # api_key: sk-xxxxx
+
+  # API Base URL（可选，用于兼容 OpenAI 格式的服务）
+  # OpenAI 官方: https://api.openai.com/v1（默认）
+  # DeepSeek: https://api.deepseek.com/v1
+  # 智谱 GLM: https://open.bigmodel.cn/api/paas/v4
+  # Ollama 本地: http://localhost:11434/v1
+  # 其他兼容服务: 按文档填写
+  # api_base: https://api.deepseek.com/v1
+
+  # 模型名称（可选，不填使用默认值）
+  # anthropic 默认: claude-sonnet-4-20250514
+  # openai 默认: gpt-4o
+  # DeepSeek: deepseek-chat
+  # 智谱: glm-4
+  # Ollama: llama3 / qwen2 等
+  # model: gpt-4o
+
+# 数据库路径
+db_path: game.db
+
+# 数据根目录
+data_dir: data
+
+# 随机种子（可选，用于复现游戏）
+# seed: 42
+
+# 每回合最大随机事件数
+max_random_events_per_turn: 2
+
+# Agent 子系统配置
+agent:
+  # 并发 LLM 请求数上限
+  max_concurrent_llm_calls: 5
+
+  # 是否启用 LLM 二次校验（调试用）
+  enable_execution_validation: false

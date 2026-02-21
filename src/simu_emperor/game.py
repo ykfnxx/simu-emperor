@@ -247,6 +247,42 @@ class GameLoop:
 
         return response
 
+    async def _build_agent_context(self, agent_id: str, player_message: str):
+        """构建 Agent 对话上下文（用于流式输出）。
+
+        Args:
+            agent_id: Agent ID
+            player_message: 玩家消息
+
+        Returns:
+            AgentContext 对象
+        """
+        from simu_emperor.agents.context_builder import AgentContext
+
+        # 读取记忆
+        mem = self._memory_manager.read_context(agent_id)
+
+        # 组装上下文
+        context = self._context_builder.build_context(
+            agent_id=agent_id,
+            skill_name="query_data",
+            national_data=self._state.base_data,
+            memory_summary=mem.summary,
+            recent_memories=mem.recent,
+        )
+
+        # 将玩家消息附加到 skill prompt 中
+        context = AgentContext(
+            agent_id=context.agent_id,
+            soul=context.soul,
+            skill=context.skill + f"\n\n## 玩家问话\n{player_message}",
+            data=context.data,
+            memory_summary=context.memory_summary,
+            recent_memories=context.recent_memories,
+        )
+
+        return context
+
     def submit_command(self, command: PlayerEvent) -> None:
         """交互阶段：提交玩家命令。
 
