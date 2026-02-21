@@ -1,4 +1,4 @@
-"""基础设施模块：日志、审计等。"""
+"""基础设施模块：日志、审计、指标等。"""
 
 from simu_emperor.infrastructure.logging import (
     bind_context,
@@ -9,6 +9,10 @@ from simu_emperor.infrastructure.logging import (
     unbind_context,
 )
 from simu_emperor.infrastructure.llm_audit import LLMAuditLogger, LLMAuditRecord
+from simu_emperor.infrastructure.metrics import (
+    record_llm_call,
+    set_game_turn,
+)
 
 __all__ = [
     # logging
@@ -21,4 +25,7 @@ __all__ = [
     # llm_audit
     "LLMAuditLogger",
     "LLMAuditRecord",
+    # metrics
+    "record_llm_call",
+    "set_game_turn",
 ]

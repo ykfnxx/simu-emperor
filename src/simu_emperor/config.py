@@ -8,12 +8,50 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 
 class LoggingConfig(BaseSettings):
-    """日志配置。"""
+    """日志和指标配置。"""
 
+    # 日志
     log_level: str = Field(default="INFO", description="日志级别 (DEBUG/INFO/WARNING/ERROR)")
     log_json_format: bool = Field(default=False, description="是否使用 JSON 格式（生产环境推荐）")
+
+    # 审计
     llm_audit_enabled: bool = Field(default=False, description="是否启用 LLM 调用审计")
     llm_audit_dir: Path = Field(default=Path("data/audit/llm"), description="LLM 审计日志目录")
+
+    # 指标
+    metrics_enabled: bool = Field(default=True, description="是否启用 Prometheus 指标")
+
+    # 成本估算价格（每 1M tokens，美元）
+    pricing: dict[str, dict[str, dict[str, float]]] = Field(
+        default_factory=lambda: {
+            "anthropic": {
+                "claude-sonnet-4": {"prompt": 3.0, "completion": 15.0},
+                "claude-sonnet-4-20250514": {"prompt": 3.0, "completion": 15.0},
+                "claude-opus-4": {"prompt": 15.0, "completion": 75.0},
+            },
+            "openai": {
+                "gpt-4o": {"prompt": 2.5, "completion": 10.0},
+                "gpt-4o-mini": {"prompt": 0.15, "completion": 0.6},
+            },
+            "mock": {"mock": {"prompt": 0.0, "completion": 0.0}},
+        },
+        description="LLM 价格配置（每 1M tokens 美元）",
+    )
+
+    def get_price(self, provider: str, model: str, token_type: str) -> float:
+        """获取指定配置的价格。
+
+        Args:
+            provider: LLM 提供商
+            model: 模型名称
+            token_type: token 类型（prompt/completion）
+
+        Returns:
+            每 1M tokens 的价格（美元）
+        """
+        provider_prices = self.pricing.get(provider, {})
+        model_prices = provider_prices.get(model, {"prompt": 0.0, "completion": 0.0})
+        return model_prices.get(token_type, 0.0)
 
 
 class AgentConfig(BaseSettings):

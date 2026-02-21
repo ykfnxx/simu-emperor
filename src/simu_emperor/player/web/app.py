@@ -142,11 +142,13 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
     # 路由
     from simu_emperor.player.web.routes.agents import router as agents_router
     from simu_emperor.player.web.routes.game import router as game_router
+    from simu_emperor.player.web.routes.metrics import router as metrics_router
     from simu_emperor.player.web.routes.reports import router as reports_router
 
     app.include_router(game_router, prefix="/api")
     app.include_router(agents_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
+    app.include_router(metrics_router)  # /metrics 在根路径
 
     # 静态文件
     if _STATIC_DIR.exists():

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from simu_emperor.agents.context_builder import AgentContext
 from simu_emperor.agents.llm.providers import LLMProvider
 from simu_emperor.infrastructure.logging import get_logger
+from simu_emperor.infrastructure.metrics import record_llm_call
 
 if TYPE_CHECKING:
     from simu_emperor.infrastructure.llm_audit import LLMAuditLogger
@@ -29,11 +30,13 @@ class LLMClient:
         audit_logger: LLMAuditLogger | None = None,
         game_id_getter: callable | None = None,
         turn_getter: callable | None = None,
+        metrics_enabled: bool = True,
     ) -> None:
         self.provider = provider
         self._audit_logger = audit_logger
         self._game_id_getter = game_id_getter
         self._turn_getter = turn_getter
+        self._metrics_enabled = metrics_enabled
 
     async def generate(self, context: AgentContext) -> str:
         """调用 LLM 生成文本。"""
@@ -51,7 +54,8 @@ class LLMClient:
 
         try:
             response = await self.provider.generate(context)
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
 
             logger.info(
                 "llm_call_completed",
@@ -61,6 +65,17 @@ class LLMClient:
                 duration_ms=round(duration_ms, 2),
                 response_length=len(response),
             )
+
+            # Prometheus 指标
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="generate",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                )
 
             # 审计日志
             if self._audit_logger:
@@ -74,7 +89,20 @@ class LLMClient:
             return response
 
         except Exception as e:
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
+
+            # Prometheus 指标（失败）
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="generate",
+                    duration_seconds=duration_seconds,
+                    success=False,
+                )
+
             logger.error(
                 "llm_call_failed",
                 provider=provider_name,
@@ -109,7 +137,9 @@ class LLMClient:
                 response_chunks.append(chunk)
                 yield chunk
 
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
+
             logger.info(
                 "llm_stream_completed",
                 provider=provider_name,
@@ -119,6 +149,17 @@ class LLMClient:
                 chunk_count=chunk_count,
                 total_chars=total_chars,
             )
+
+            # Prometheus 指标
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="stream",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                )
 
             # 审计日志
             if self._audit_logger:
@@ -130,7 +171,20 @@ class LLMClient:
                 )
 
         except Exception as e:
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
+
+            # Prometheus 指标（失败）
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="stream",
+                    duration_seconds=duration_seconds,
+                    success=False,
+                )
+
             logger.error(
                 "llm_stream_failed",
                 provider=provider_name,
@@ -158,7 +212,8 @@ class LLMClient:
 
         try:
             response = await self.provider.generate_structured(context, response_model)
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
 
             logger.info(
                 "llm_structured_completed",
@@ -168,6 +223,17 @@ class LLMClient:
                 duration_ms=round(duration_ms, 2),
                 response_model=response_model.__name__,
             )
+
+            # Prometheus 指标
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="structured",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                )
 
             # 审计日志
             if self._audit_logger:
@@ -181,7 +247,20 @@ class LLMClient:
             return response
 
         except Exception as e:
-            duration_ms = (time.time() - start_time) * 1000
+            duration_seconds = time.time() - start_time
+            duration_ms = duration_seconds * 1000
+
+            # Prometheus 指标（失败）
+            if self._metrics_enabled:
+                await record_llm_call(
+                    provider=provider_name,
+                    model=model,
+                    agent_id=context.agent_id,
+                    phase="structured",
+                    duration_seconds=duration_seconds,
+                    success=False,
+                )
+
             logger.error(
                 "llm_structured_failed",
                 provider=provider_name,
