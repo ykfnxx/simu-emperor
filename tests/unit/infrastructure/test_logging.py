@@ -265,11 +265,12 @@ class TestLLMAuditLogger:
         assert len(files) == 0
 
     @pytest.mark.asyncio
-    async def test_audit_write_error_fallback(self, tmp_path: Path) -> None:
+    async def test_audit_write_error_fallback(self, tmp_path: Path, monkeypatch) -> None:
         """测试审计文件写入失败时的降级处理。"""
         # 初始化日志配置
         configure_logging(LoggingConfig())
 
+        # 创建一个有效的 logger
         logger = LLMAuditLogger(audit_dir=tmp_path)
 
         record = LLMAuditRecord(
@@ -286,9 +287,22 @@ class TestLLMAuditLogger:
             duration_ms=0.0,
         )
 
-        # 模拟写入失败（通过设置无效路径）
-        logger = LLMAuditLogger(audit_dir=Path("/nonexistent/path/that/cannot/be/created"))
+        # 模拟 aiofiles.open 抛出异常
+        import simu_emperor.infrastructure.llm_audit as audit_module
 
-        # 应该不抛出异常，返回 None
-        result = await logger.log(record)
-        assert result is None
+        original_aiofiles = audit_module.aiofiles
+
+        class MockAiofiles:
+            @staticmethod
+            async def open(*args, **kwargs):
+                raise PermissionError("Mocked write failure")
+
+        monkeypatch.setattr(audit_module, "aiofiles", MockAiofiles())
+
+        try:
+            # 应该不抛出异常，返回 None
+            result = await logger.log(record)
+            assert result is None
+        finally:
+            # 恢复原始 aiofiles
+            monkeypatch.setattr(audit_module, "aiofiles", original_aiofiles)

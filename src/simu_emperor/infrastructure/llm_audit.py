@@ -40,6 +40,8 @@ class LLMAuditLogger:
 
     def __post_init__(self) -> None:
         self._logger = structlog.get_logger(__name__)
+        # 确保审计目录存在
+        self.audit_dir.mkdir(parents=True, exist_ok=True)
 
     async def log(self, record: LLMAuditRecord) -> Path | None:
         """记录 LLM 调用到 JSON 文件。
