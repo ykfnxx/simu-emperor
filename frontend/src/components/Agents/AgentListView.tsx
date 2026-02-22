@@ -3,7 +3,6 @@ import { useAgentStore } from '../../stores/agentStore'
 import { Loading } from '../common/Loading'
 import { AgentCard } from './AgentCard'
 import { ChatPanel } from './ChatPanel'
-import type { Agent } from '../../types'
 
 export function AgentListView() {
   const { agents, selectedAgentId, isLoading, error, fetchAgents, selectAgent } =
