@@ -40,7 +40,8 @@ src/simu_emperor/
 │   │   ├── metrics.py                 # 回合计算指标：ProvinceTurnMetrics, NationalTurnMetrics
 │   │   ├── events.py                  # 事件层级：PlayerEvent/AgentEvent/RandomEvent（discriminated union）
 │   │   ├── state.py                   # GameState, TurnRecord
-│   │   └── effects.py                 # EventEffect（target 字段路径 + add/multiply 操作）
+│   │   ├── effects.py                 # EventEffect（target 字段路径 + add/multiply 操作）
+│   │   └── event_templates.py         # 随机事件模板池定义
 │   ├── calculator.py                  # resolve_turn()：应用事件效果→计算指标→回写反馈→约束校验
 │   ├── formulas.py                    # 经济公式（13个纯函数）：粮食生产/需求/田赋/商税/关税/军费/幸福度/人口/士气/商业/财政
 │   └── event_generator.py            # 随机事件生成（接受 seeded Random）
