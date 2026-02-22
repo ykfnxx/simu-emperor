@@ -32,8 +32,13 @@ class ExecutionResult(BaseModel):
 
 
 def build_system_prompt(context: AgentContext) -> str:
-    """从 AgentContext 组装 system prompt（soul 部分）。"""
-    return context.soul
+    """从 AgentContext 组装 system prompt（soul + rule 部分）。"""
+    parts = []
+    if context.rule:
+        parts.append(context.rule)
+        parts.append("")
+    parts.append(context.soul)
+    return "\n".join(parts)
 
 
 def build_user_prompt(context: AgentContext) -> str:
