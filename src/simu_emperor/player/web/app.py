@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from simu_emperor.config import GameConfig
 from simu_emperor.engine.models.base_data import NationalBaseData
@@ -21,10 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 _WEB_DIR = Path(__file__).parent
-_TEMPLATES_DIR = _WEB_DIR / "templates"
-_STATIC_DIR = _WEB_DIR / "static"
-
-templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+_FRONTEND_DIR = Path(__file__).parent.parent.parent.parent.parent / "frontend" / "dist"
 
 
 def load_initial_data(data_dir: Path) -> NationalBaseData:
@@ -97,6 +95,16 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
     if game_loop is not None:
         app.state.game_loop = game_loop
 
+    # 开发模式 CORS
+    if os.getenv("ENV") == "development":
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:5173"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     # 异常处理
     @app.exception_handler(PhaseError)
     async def phase_error_handler(_request: Request, exc: PhaseError) -> JSONResponse:
@@ -112,7 +120,7 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
             content=ErrorResponse(error=type(exc).__name__, detail=str(exc)).model_dump(),
         )
 
-    # 路由
+    # API 路由
     from simu_emperor.player.web.routes.agents import router as agents_router
     from simu_emperor.player.web.routes.game import router as game_router
     from simu_emperor.player.web.routes.reports import router as reports_router
@@ -121,14 +129,18 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
     app.include_router(agents_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
 
-    # 静态文件
-    if _STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    # 生产模式：静态文件服务
+    if os.getenv("ENV") != "development" and _FRONTEND_DIR.exists():
+        # 静态资源
+        app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="assets")
 
-    # 首页
-    @app.get("/")
-    async def index(request: Request):
-        return templates.TemplateResponse("index.html", {"request": request})
+        # SPA fallback - 所有非 API 路由返回 index.html
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            # 排除 API 路由
+            if full_path.startswith("api/"):
+                return None
+            return FileResponse(str(_FRONTEND_DIR / "index.html"))
 
     return app
 
@@ -136,6 +148,10 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
 def main() -> None:
     """CLI 入口点。"""
     import uvicorn
+
+    # 开发模式默认设置
+    if not os.getenv("ENV"):
+        os.environ["ENV"] = "development"
 
     uvicorn.run(
         "simu_emperor.player.web.app:create_app",
