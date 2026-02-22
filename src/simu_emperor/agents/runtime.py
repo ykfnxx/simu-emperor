@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from decimal import Decimal
 
 from simu_emperor.agents.context_builder import AgentContext, ContextBuilder, DataScope
@@ -169,6 +170,51 @@ class AgentRuntime:
 
         # 调用 LLM
         return await self._llm.generate(context)
+
+    async def respond_stream(
+        self,
+        agent_id: str,
+        turn: int,
+        player_message: str,
+        national_data: NationalBaseData,
+    ) -> AsyncIterator[str]:
+        """交互阶段：流式回答玩家问题。
+
+        Args:
+            agent_id: Agent ID
+            turn: 当前回合
+            player_message: 玩家消息
+            national_data: 全国数据
+
+        Yields:
+            Agent 回答的文本块
+        """
+        # 读取记忆
+        mem = self._memory.read_context(agent_id)
+
+        # 组装上下文
+        context = self._context_builder.build_context(
+            agent_id=agent_id,
+            skill_name="query_data",
+            national_data=national_data,
+            memory_summary=mem.summary,
+            recent_memories=mem.recent,
+        )
+
+        # 将玩家消息附加到 skill prompt 中
+        context = AgentContext(
+            agent_id=context.agent_id,
+            soul=context.soul,
+            skill=context.skill + f"\n\n## 玩家问话\n{player_message}",
+            data=context.data,
+            memory_summary=context.memory_summary,
+            recent_memories=context.recent_memories,
+            rule=context.rule,
+        )
+
+        # 流式调用 LLM
+        async for chunk in self._llm.generate_stream(context):
+            yield chunk
 
     async def execute(
         self,
