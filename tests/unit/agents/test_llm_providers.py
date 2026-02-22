@@ -27,6 +27,7 @@ def _make_context(**overrides: Any) -> AgentContext:
         "data": {"national": {"imperial_treasury": "500000"}},
         "memory_summary": None,
         "recent_memories": [],
+        "rule": None,
     }
     defaults.update(overrides)
     return AgentContext(**defaults)
@@ -112,7 +113,32 @@ class TestBuildSystemPrompt:
     def test_contains_soul(self) -> None:
         ctx = _make_context(soul="你是兵部尚书，掌管天下军务。")
         prompt = build_system_prompt(ctx)
+        assert "你是兵部尚书，掌管天下军务。" in prompt
+
+    def test_contains_rule_when_present(self) -> None:
+        ctx = _make_context(
+            soul="你是兵部尚书。",
+            rule="# 官员奏折规范\n\n## 格式要求",
+        )
+        prompt = build_system_prompt(ctx)
+        assert "官员奏折规范" in prompt
+        assert "你是兵部尚书。" in prompt
+
+    def test_no_rule_when_missing(self) -> None:
+        ctx = _make_context(soul="你是兵部尚书，掌管天下军务。", rule=None)
+        prompt = build_system_prompt(ctx)
         assert prompt == "你是兵部尚书，掌管天下军务。"
+
+    def test_rule_before_soul(self) -> None:
+        """测试 RULE 内容在 soul 之前。"""
+        ctx = _make_context(
+            soul="你是兵部尚书。",
+            rule="# 规范",
+        )
+        prompt = build_system_prompt(ctx)
+        rule_idx = prompt.index("规范")
+        soul_idx = prompt.index("兵部尚书")
+        assert rule_idx < soul_idx
 
 
 class TestBuildUserPrompt:

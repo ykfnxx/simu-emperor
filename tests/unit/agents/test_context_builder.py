@@ -14,6 +14,7 @@ from simu_emperor.agents.context_builder import (
     SkillScope,
     extract_province_data,
     extract_scoped_data,
+    load_rule_md,
     parse_data_scope,
     resolve_field_paths,
 )
@@ -384,3 +385,95 @@ class TestContextBuilder:
         # write_report inherits query_data, so data should be the same
         ctx_qd = cb.build_context(agent_id, "query_data", data)
         assert ctx.data == ctx_qd.data
+
+
+class TestLoadRuleMd:
+    """测试 RULE.md 加载功能。"""
+
+    def test_load_rule_md_exists(self, tmp_path: Path) -> None:
+        """测试 RULE.md 文件存在时正确加载。"""
+        rule_content = "# Test Rule\n\n这是测试规则。"
+        (tmp_path / "RULE.md").write_text(rule_content, encoding="utf-8")
+
+        # 清除缓存
+        import simu_emperor.agents.context_builder as cb_module
+
+        cb_module._rule_cache = None
+
+        result = load_rule_md(tmp_path)
+        assert result == rule_content
+
+    def test_load_rule_md_not_exists(self, tmp_path: Path) -> None:
+        """测试 RULE.md 文件不存在时返回空字符串。"""
+        import simu_emperor.agents.context_builder as cb_module
+
+        cb_module._rule_cache = None
+
+        result = load_rule_md(tmp_path)
+        assert result == ""
+
+    def test_load_rule_md_caching(self, tmp_path: Path) -> None:
+        """测试 RULE.md 缓存机制。"""
+        import simu_emperor.agents.context_builder as cb_module
+
+        cb_module._rule_cache = None
+
+        rule_content = "# Cached Rule"
+        (tmp_path / "RULE.md").write_text(rule_content, encoding="utf-8")
+
+        # 第一次加载
+        result1 = load_rule_md(tmp_path)
+        assert result1 == rule_content
+
+        # 修改文件
+        (tmp_path / "RULE.md").write_text("# Modified Rule", encoding="utf-8")
+
+        # 第二次加载应该返回缓存值
+        result2 = load_rule_md(tmp_path)
+        assert result2 == rule_content  # 仍然是旧值
+
+
+class TestRuleContext:
+    """测试 AgentContext 中的 rule 字段。"""
+
+    def test_context_includes_rule(
+        self, setup_builder: tuple[ContextBuilder, FileManager, str]
+    ) -> None:
+        """测试 AgentContext 包含 rule 字段。"""
+        cb, fm, agent_id = setup_builder
+
+        # 创建 RULE.md
+        rule_content = "# 官员奏折规范\n\n## 格式要求"
+        (fm.template_base.parent / "RULE.md").write_text(rule_content, encoding="utf-8")
+
+        # 清除缓存
+        import simu_emperor.agents.context_builder as cb_module
+
+        cb_module._rule_cache = None
+
+        data = make_national_data()
+        ctx = cb.build_context(agent_id, "query_data", data)
+
+        assert ctx.rule is not None
+        assert "官员奏折规范" in ctx.rule
+
+    def test_context_rule_none_when_missing(
+        self, setup_builder: tuple[ContextBuilder, FileManager, str]
+    ) -> None:
+        """测试 RULE.md 不存在时 rule 为 None。"""
+        cb, fm, agent_id = setup_builder
+
+        # 确保 RULE.md 不存在
+        rule_path = fm.template_base.parent / "RULE.md"
+        if rule_path.exists():
+            rule_path.unlink()
+
+        # 清除缓存
+        import simu_emperor.agents.context_builder as cb_module
+
+        cb_module._rule_cache = None
+
+        data = make_national_data()
+        ctx = cb.build_context(agent_id, "query_data", data)
+
+        assert ctx.rule is None

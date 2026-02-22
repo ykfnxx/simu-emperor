@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -19,6 +20,31 @@ from simu_emperor.engine.models.base_data import (
     TaxationData,
     TradeData,
 )
+
+# RULE.md 缓存
+_rule_cache: str | None = None
+
+
+def load_rule_md(data_dir: Path | None = None) -> str:
+    """加载 RULE.md 内容（带缓存）。
+
+    Args:
+        data_dir: 数据目录路径，默认为 data/
+
+    Returns:
+        RULE.md 的内容，文件不存在时返回空字符串
+    """
+    global _rule_cache
+    if _rule_cache is not None:
+        return _rule_cache
+
+    rule_path = (data_dir or Path("data")) / "RULE.md"
+    if rule_path.exists():
+        _rule_cache = rule_path.read_text(encoding="utf-8")
+    else:
+        _rule_cache = ""
+
+    return _rule_cache
 
 
 class ConfigurationError(Exception):
@@ -49,6 +75,7 @@ class AgentContext(BaseModel):
     data: dict[str, Any]
     memory_summary: str | None = None
     recent_memories: list[tuple[int, str]] = []
+    rule: str | None = None  # RULE.md 规范内容
 
 
 # ── 字段注册表（从 ProvinceBaseData 内省构建）──
@@ -350,6 +377,9 @@ class ContextBuilder:
         skill_scope = data_scope.skills[skill_name]
         data = extract_scoped_data(national_data, skill_scope)
 
+        # 加载 RULE.md 规范
+        rule = load_rule_md(self.file_manager.template_base.parent)
+
         return AgentContext(
             agent_id=agent_id,
             soul=soul,
@@ -357,4 +387,5 @@ class ContextBuilder:
             data=data,
             memory_summary=memory_summary,
             recent_memories=recent_memories or [],
+            rule=rule if rule else None,
         )

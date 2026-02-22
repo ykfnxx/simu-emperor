@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from decimal import Decimal
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from simu_emperor.agents.context_builder import AgentContext
 from simu_emperor.engine.models.effects import EventEffect
+from simu_emperor.utils.logger import log_llm_request, log_llm_response
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -30,8 +32,13 @@ class ExecutionResult(BaseModel):
 
 
 def build_system_prompt(context: AgentContext) -> str:
-    """从 AgentContext 组装 system prompt（soul 部分）。"""
-    return context.soul
+    """从 AgentContext 组装 system prompt（soul + rule 部分）。"""
+    parts = []
+    if context.rule:
+        parts.append(context.rule)
+        parts.append("")
+    parts.append(context.soul)
+    return "\n".join(parts)
 
 
 def build_user_prompt(context: AgentContext) -> str:
@@ -138,9 +145,23 @@ class MockProvider(LLMProvider):
 
     async def generate(self, context: AgentContext) -> str:
         """按 agent_id 查找预设响应，无预设时返回默认响应。"""
+        start_time = log_llm_request(
+            provider="mock",
+            model="mock-model",
+            messages=[],
+            agent_id=context.agent_id,
+        )
         if context.agent_id in self._responses:
-            return self._responses[context.agent_id]
-        return f"[MockProvider] agent={context.agent_id} skill={context.skill[:50]}"
+            result = self._responses[context.agent_id]
+        else:
+            result = f"[MockProvider] agent={context.agent_id} skill={context.skill[:50]}"
+        log_llm_response(
+            provider="mock",
+            tokens=len(result),
+            latency_ms=(time.time() - start_time) * 1000,
+            agent_id=context.agent_id,
+        )
+        return result
 
     async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
         """模拟流式输出，逐字符返回。"""
@@ -151,14 +172,34 @@ class MockProvider(LLMProvider):
 
     async def generate_structured(self, context: AgentContext, response_model: type[T]) -> T:
         """按 agent_id 查找预设结构化响应，无预设时返回默认实例。"""
+        start_time = log_llm_request(
+            provider="mock",
+            model="mock-model",
+            messages=[],
+            agent_id=context.agent_id,
+        )
         if context.agent_id in self._structured_responses:
             preset = self._structured_responses[context.agent_id]
             if isinstance(preset, response_model):
-                return preset
+                result = preset
             # 如果是 dict，构造模型实例
-            if isinstance(preset, dict):
-                return response_model(**preset)
+            elif isinstance(preset, dict):
+                result = response_model(**preset)
+            else:
+                result = self._default_structured_response(context, response_model)
+        else:
+            result = self._default_structured_response(context, response_model)
 
+        log_llm_response(
+            provider="mock",
+            tokens=0,
+            latency_ms=(time.time() - start_time) * 1000,
+            agent_id=context.agent_id,
+        )
+        return result  # type: ignore[return-value]
+
+    def _default_structured_response(self, context: AgentContext, response_model: type[T]) -> T:
+        """生成默认结构化响应。"""
         # 默认返回 ExecutionResult 或尝试构造 response_model 的默认实例
         if response_model is ExecutionResult:
             return response_model(  # type: ignore[return-value]
@@ -186,15 +227,31 @@ class AnthropicProvider(LLMProvider):
         """调用 Anthropic Messages API 生成文本。"""
         system_prompt = build_system_prompt(context)
         user_prompt = build_user_prompt(context)
+        messages = [{"role": "user", "content": user_prompt}]
+
+        start_time = log_llm_request(
+            provider="anthropic",
+            model=self._model,
+            messages=messages,
+            agent_id=context.agent_id,
+        )
 
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=4096,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=messages,
         )
         # 提取文本内容
-        return response.content[0].text  # type: ignore[union-attr]
+        text = response.content[0].text  # type: ignore[union-attr]
+
+        log_llm_response(
+            provider="anthropic",
+            tokens=response.usage.input_tokens + response.usage.output_tokens,
+            latency_ms=(time.time() - start_time) * 1000,
+            agent_id=context.agent_id,
+        )
+        return text
 
     async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
         """调用 Anthropic Messages Stream API 流式生成文本。"""
@@ -248,15 +305,35 @@ class OpenAIProvider(LLMProvider):
         """调用 OpenAI Chat Completions API 生成文本。"""
         system_prompt = build_system_prompt(context)
         user_prompt = build_user_prompt(context)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        start_time = log_llm_request(
+            provider="openai",
+            model=self._model,
+            messages=messages,
+            agent_id=context.agent_id,
+        )
 
         response = await self._client.chat.completions.create(
             model=self._model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
         )
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+
+        tokens = 0
+        if response.usage:
+            tokens = response.usage.total_tokens
+
+        log_llm_response(
+            provider="openai",
+            tokens=tokens,
+            latency_ms=(time.time() - start_time) * 1000,
+            agent_id=context.agent_id,
+        )
+        return text
 
     async def generate_stream(self, context: AgentContext) -> AsyncIterator[str]:
         """调用 OpenAI Chat Completions API 流式生成文本。"""

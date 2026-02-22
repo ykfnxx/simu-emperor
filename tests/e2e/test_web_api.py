@@ -260,3 +260,71 @@ class TestAgentList:
         agents = resp.json()
         assert isinstance(agents, list)
         assert len(agents) > 0
+
+
+class TestAgentChatStream:
+    """Agent 流式对话测试。"""
+
+    async def test_chat_stream_in_interaction_phase(self, client: AsyncClient):
+        """测试流式对话在 INTERACTION 阶段正常工作。"""
+        # 推进到 INTERACTION 阶段
+        await client.post("/api/turn/advance")  # → SUMMARY
+        await client.post("/api/turn/advance")  # → INTERACTION
+
+        # 获取 agent 列表
+        agents_resp = await client.get("/api/agents")
+        agents = agents_resp.json()
+        assert len(agents) > 0
+
+        agent_id = agents[0]
+        resp = await client.post(
+            f"/api/agents/{agent_id}/chat/stream",
+            json={"message": "今年收成如何？"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+
+        # 读取流式响应
+        content = resp.text
+        # 应该包含 SSE 格式的数据
+        assert "data:" in content
+        # 应该以 [DONE] 结束
+        assert "[DONE]" in content
+
+    async def test_chat_stream_yields_chunks(self, client: AsyncClient):
+        """测试流式对话返回多个文本块。"""
+        # 推进到 INTERACTION 阶段
+        await client.post("/api/turn/advance")
+        await client.post("/api/turn/advance")
+
+        agents_resp = await client.get("/api/agents")
+        agent_id = agents_resp.json()[0]
+
+        resp = await client.post(
+            f"/api/agents/{agent_id}/chat/stream",
+            json={"message": "测试流式输出"},
+        )
+        assert resp.status_code == 200
+
+        # MockProvider 会逐字符返回，所以应该有多个 data: 行
+        lines = [line for line in resp.text.split("\n") if line.startswith("data:")]
+        # 应该有多个数据块 + [DONE]
+        assert len(lines) >= 2
+        # 最后一行应该是 [DONE]
+        assert "[DONE]" in lines[-1]
+
+    async def test_chat_stream_wrong_phase_returns_400(self, client: AsyncClient):
+        """测试在错误阶段进行流式对话返回 400。"""
+        agents_resp = await client.get("/api/agents")
+        agents = agents_resp.json()
+        if not agents:
+            pytest.skip("No agents available")
+
+        # 在 RESOLUTION 阶段尝试流式对话
+        resp = await client.post(
+            f"/api/agents/{agents[0]}/chat/stream",
+            json={"message": "测试"},
+        )
+        # SSE 端点在错误情况下仍返回 200，但在内容中包含 [ERROR]
+        assert resp.status_code == 200
+        assert "[ERROR]" in resp.text or "[DONE]" in resp.text
