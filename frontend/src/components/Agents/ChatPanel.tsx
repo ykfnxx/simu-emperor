@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { ArrowLeft, Send, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { ArrowLeft, Send, Loader2, AlertCircle } from 'lucide-react'
+import { useSSE } from '../../hooks/useSSE'
+import { api } from '../../api/client'
 import type { Agent, ChatMessage } from '../../types'
 
 interface ChatPanelProps {
@@ -10,9 +12,38 @@ interface ChatPanelProps {
 export function ChatPanel({ agent, onBack }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [streamingMessage, setStreamingMessage] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const handleSend = async () => {
+  const { data, isLoading, error, connect } = useSSE(api.chatUrl(agent.id, ''))
+
+  // Update streaming message as data comes in
+  useEffect(() => {
+    if (data) {
+      setStreamingMessage(data)
+    }
+  }, [data])
+
+  // When loading finishes, add the complete message
+  useEffect(() => {
+    if (!isLoading && streamingMessage) {
+      const assistantMessage: ChatMessage = {
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: streamingMessage,
+        timestamp: Date.now(),
+      }
+      setMessages((prev) => [...prev, assistantMessage])
+      setStreamingMessage('')
+    }
+  }, [isLoading, streamingMessage])
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, streamingMessage])
+
+  const handleSend = () => {
     if (!input.trim() || isLoading) return
 
     const userMessage: ChatMessage = {
@@ -23,20 +54,12 @@ export function ChatPanel({ agent, onBack }: ChatPanelProps) {
     }
 
     setMessages((prev) => [...prev, userMessage])
+    const messageContent = input.trim()
     setInput('')
-    setIsLoading(true)
+    setStreamingMessage('')
 
-    // Mock response for now - will be replaced with SSE in Step 5
-    setTimeout(() => {
-      const assistantMessage: ChatMessage = {
-        id: `msg_${Date.now() + 1}`,
-        role: 'assistant',
-        content: `This is a mock response from ${agent.name}. SSE integration will be implemented in Step 5.`,
-        timestamp: Date.now(),
-      }
-      setMessages((prev) => [...prev, assistantMessage])
-      setIsLoading(false)
-    }, 1000)
+    // Connect to SSE endpoint
+    connect(messageContent)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -69,7 +92,7 @@ export function ChatPanel({ agent, onBack }: ChatPanelProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-4 space-y-4">
-        {messages.length === 0 && (
+        {messages.length === 0 && !streamingMessage && (
           <div className="text-center text-gray-500 py-8">
             <p>Start a conversation with {agent.name}</p>
           </div>
@@ -90,13 +113,32 @@ export function ChatPanel({ agent, onBack }: ChatPanelProps) {
             </div>
           </div>
         ))}
-        {isLoading && (
+        {/* Streaming message */}
+        {streamingMessage && (
+          <div className="flex justify-start">
+            <div className="max-w-[70%] px-4 py-2 rounded-lg bg-gray-100 text-gray-900">
+              <p className="whitespace-pre-wrap">{streamingMessage}</p>
+            </div>
+          </div>
+        )}
+        {/* Loading indicator */}
+        {isLoading && !streamingMessage && (
           <div className="flex justify-start">
             <div className="bg-gray-100 px-4 py-2 rounded-lg">
               <Loader2 className="animate-spin text-gray-400" size={20} />
             </div>
           </div>
         )}
+        {/* Error message */}
+        {error && (
+          <div className="flex justify-center">
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 px-4 py-2 rounded-lg">
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
@@ -108,6 +150,7 @@ export function ChatPanel({ agent, onBack }: ChatPanelProps) {
           placeholder="Type your message..."
           className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
           rows={1}
+          disabled={isLoading}
         />
         <button
           onClick={handleSend}
