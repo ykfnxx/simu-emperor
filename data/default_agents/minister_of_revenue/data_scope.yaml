@@ -15,7 +15,8 @@ skills:
     inherits: query_data
 
   execute_command:
-    national: [national_tax_modifier]
+    national: [national_tax_modifier, imperial_treasury]
     provinces: all
     fields:
       - taxation.*
+      - local_treasury
