@@ -229,3 +229,99 @@ class TestLogEvent:
 
         assert "EVENT" in caplog.text
         assert "effects=0" in caplog.text
+
+
+class TestSensitiveDataRedaction:
+    """测试敏感数据脱敏。"""
+
+    def test_request_does_not_log_message_content(self, tmp_path: Path, caplog):
+        """测试请求日志不记录消息内容（敏感信息脱敏）。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        sensitive_content = "这是敏感的API密钥：sk-1234567890"
+        messages = [{"role": "user", "content": sensitive_content}]
+
+        with caplog.at_level(logging.INFO, logger=logger_module.LLM_LOGGER_NAME):
+            log_llm_request(
+                provider="anthropic",
+                model="claude-sonnet",
+                messages=messages,
+            )
+
+        # 敏感内容不应该出现在日志中
+        assert sensitive_content not in caplog.text
+        # 只应该记录消息数量
+        assert "messages=1" in caplog.text
+
+    def test_request_redacts_empty_messages(self, tmp_path: Path, caplog):
+        """测试空消息列表的处理。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        with caplog.at_level(logging.INFO, logger=logger_module.LLM_LOGGER_NAME):
+            log_llm_request(
+                provider="mock",
+                model="mock-model",
+                messages=None,
+            )
+
+        # 应该记录 messages=0
+        assert "messages=0" in caplog.text
+
+    def test_large_token_count_logged(self, tmp_path: Path, caplog):
+        """测试大 token 数量的日志记录。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        with caplog.at_level(logging.INFO, logger=logger_module.LLM_LOGGER_NAME):
+            log_llm_response(
+                provider="anthropic",
+                tokens=1000000,  # 100万 tokens
+                latency_ms=5000.0,
+            )
+
+        assert "tokens=1000000" in caplog.text
+
+    def test_high_latency_logged(self, tmp_path: Path, caplog):
+        """测试高延迟的日志记录。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        with caplog.at_level(logging.INFO, logger=logger_module.LLM_LOGGER_NAME):
+            log_llm_response(
+                provider="anthropic",
+                tokens=100,
+                latency_ms=30000.0,  # 30秒
+            )
+
+        assert "latency_ms=30000" in caplog.text
+
+
+class TestLogFileWriting:
+    """测试日志文件写入。"""
+
+    def test_llm_log_file_created(self, tmp_path: Path):
+        """测试 LLM 日志文件被创建。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        # 写入一条日志
+        log_llm_request(provider="test", model="test-model", messages=[])
+
+        log_file = tmp_path / "log" / "llm.log"
+        assert log_file.exists()
+
+    def test_event_log_file_created(self, tmp_path: Path):
+        """测试 Event 日志文件被创建。"""
+        config = GameConfig(data_dir=tmp_path)
+        setup_logging(config)
+
+        # 写入一条日志
+        class TestEvent:
+            event_id = "test_001"
+
+        log_event(TestEvent(), action="test")
+
+        log_file = tmp_path / "log" / "event.log"
+        assert log_file.exists()

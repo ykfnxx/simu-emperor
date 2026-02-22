@@ -86,6 +86,40 @@ class TestRouterAgent:
         with pytest.raises(ValueError, match="Invalid agent_id"):
             await router.route_command("测试命令", {"turn": 1})
 
+    @pytest.mark.asyncio
+    async def test_route_command_ambiguous(self, role_map_path: Path) -> None:
+        """测试模糊命令的路由行为 - LLM 返回有效 agent 时应该成功。"""
+        # 模糊命令可能返回任意有效 agent
+        client = MockLLMClient(response="governor_zhili")
+        router = RouterAgent(client, timeout=5.0, role_map_path=role_map_path)
+
+        # 模糊命令如"处理事务"
+        agent_id = await router.route_command("处理事务", {"turn": 1})
+        # 只要返回的是有效 agent_id 就应该成功
+        assert agent_id in ["governor_zhili", "minister_of_revenue"]
+
+    @pytest.mark.asyncio
+    async def test_route_command_with_extra_whitespace(self, role_map_path: Path) -> None:
+        """测试 LLM 返回带额外空白的结果能正确解析。"""
+        client = MockLLMClient(response="  governor_zhili  ")
+        router = RouterAgent(client, timeout=5.0, role_map_path=role_map_path)
+
+        agent_id = await router.route_command("测试命令", {"turn": 1})
+        assert agent_id == "governor_zhili"
+
+    @pytest.mark.asyncio
+    async def test_route_command_no_valid_agents_in_map(self, tmp_path: Path) -> None:
+        """测试 role_map 中没有有效 agent 时的行为。"""
+        empty_map = tmp_path / "empty.md"
+        empty_map.write_text("# 空职责表\n", encoding="utf-8")
+
+        client = MockLLMClient(response="any_agent")
+        router = RouterAgent(client, timeout=5.0, role_map_path=empty_map)
+
+        # 当没有有效 agent 列表时，任何 agent_id 都应该被接受
+        agent_id = await router.route_command("测试命令", {"turn": 1})
+        assert agent_id == "any_agent"
+
     def test_get_valid_agents(self, role_map_path: Path) -> None:
         """测试提取有效 agent 列表。"""
         client = MockLLMClient()
