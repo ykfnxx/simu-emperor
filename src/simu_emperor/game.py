@@ -27,6 +27,7 @@ from simu_emperor.persistence.repositories import (
     GameSaveRepository,
     PlayerCommandRepository,
 )
+from simu_emperor.utils.logger import log_event, setup_logging
 
 
 class PhaseError(Exception):
@@ -54,6 +55,9 @@ class GameLoop:
         self._state = state
         self._config = config
         self._conn = conn
+
+        # 初始化日志系统
+        setup_logging(config)
 
         # 文件系统层
         data_dir = config.data_dir
@@ -163,10 +167,12 @@ class GameLoop:
 
         # 记录事件日志
         for event in self._state.active_events:
+            log_event(event, action="applied")
             await self._event_log_repo.log_event(
                 self._state.game_id, self._state.current_turn, event, "applied"
             )
         for event in random_events:
+            log_event(event, action="generated")
             await self._event_log_repo.log_event(
                 self._state.game_id, new_data.turn, event, "generated"
             )
