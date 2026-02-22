@@ -13,6 +13,7 @@ from simu_emperor.agents.file_manager import FileManager
 from simu_emperor.agents.llm.client import LLMClient
 from simu_emperor.agents.llm.providers import LLMProvider
 from simu_emperor.agents.memory_manager import MemoryManager
+from simu_emperor.agents.router import RouterAgent, RouterTimeoutError
 from simu_emperor.agents.runtime import AgentRuntime
 from simu_emperor.config import GameConfig
 from simu_emperor.engine.calculator import resolve_turn
@@ -101,6 +102,13 @@ class GameLoop:
 
         # LLM 并发限流
         self._llm_semaphore = asyncio.Semaphore(config.agent.max_concurrent_llm_calls)
+
+        # Router 智能路由
+        self._router = RouterAgent(
+            llm_client=self._llm_client,
+            timeout=5.0,
+            role_map_path=config.data_dir / "role_map.md",
+        )
 
         # 回合内待执行命令
         self._pending_commands: list[PlayerEvent] = []
@@ -311,7 +319,7 @@ class GameLoop:
         前置条件：当前阶段为 INTERACTION。
 
         流程：
-        1. 按命令分配 Agent 执行
+        1. 按命令分配 Agent 执行（非 direct 命令使用 Router 智能路由）
         2. asyncio.gather 并行执行
         3. 收集 AgentEvent 加入 active_events
         4. 持久化命令和结果
@@ -327,13 +335,43 @@ class GameLoop:
         turn = self._state.current_turn
         agent_events = []
 
-        async def _execute_one(command: PlayerEvent) -> None:
-            # 选择执行 Agent：如有 target_province_id 则匹配 governor，否则用第一个 agent
-            executor = agents[0] if agents else None
+        def _fallback_select_agent(command: PlayerEvent, agents: list[str]) -> str | None:
+            """Fallback agent 选择逻辑（原有逻辑）。"""
+            if not agents:
+                return None
             for a in agents:
                 if command.target_province_id and command.target_province_id in a:
-                    executor = a
-                    break
+                    return a
+            return agents[0]
+
+        async def _execute_one(command: PlayerEvent) -> None:
+            # 选择执行 Agent
+            executor: str | None = None
+
+            if not command.direct:
+                # 非 direct 命令使用 Router 智能路由
+                command_str = f"{command.command_type}: {command.description}"
+                try:
+                    executor = await self._router.route_command(
+                        command_str,
+                        context={"turn": turn, "command_type": command.command_type},
+                    )
+                    # 验证 router 返回的 agent 在活跃列表中
+                    if executor not in agents:
+                        log_event(
+                            {"event": "router_agent_not_active", "agent_id": executor},
+                            action="fallback",
+                        )
+                        executor = _fallback_select_agent(command, agents)
+                except (RouterTimeoutError, ValueError) as e:
+                    log_event(
+                        {"event": "router_error", "error": str(e)},
+                        action="fallback",
+                    )
+                    executor = _fallback_select_agent(command, agents)
+            else:
+                # direct 命令使用 fallback 逻辑
+                executor = _fallback_select_agent(command, agents)
 
             if executor is None:
                 return

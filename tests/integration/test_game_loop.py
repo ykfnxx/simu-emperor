@@ -357,3 +357,204 @@ class TestHistory:
         await loop.advance_to_resolution()
         assert len(loop.state.history) == 2
         assert loop.state.history[1].turn == 1
+
+
+# ── Router 集成测试 ──
+
+
+class TestRouterIntegration:
+    """测试 Router 在执行阶段的集成。"""
+
+    @pytest.fixture
+    def data_dir_with_role_map(self, tmp_path: Path) -> Path:
+        """创建包含 role_map.md 的完整 data 目录结构。"""
+        data = tmp_path / "data"
+        data.mkdir()
+
+        # skills
+        skills = data / "skills"
+        skills.mkdir()
+        (skills / "query_data.md").write_text("# 查询数据", encoding="utf-8")
+        (skills / "write_report.md").write_text("# 撰写报告", encoding="utf-8")
+        (skills / "execute_command.md").write_text("# 执行命令", encoding="utf-8")
+
+        # default_agents
+        defaults = data / "default_agents"
+        defaults.mkdir()
+
+        # agent 工作区
+        agent_base = data / "agent"
+        agent_base.mkdir()
+
+        # 创建两个 agent
+        for agent_id in ["minister_of_revenue", "governor_zhili"]:
+            agent_dir = agent_base / agent_id
+            agent_dir.mkdir()
+            (agent_dir / "soul.md").write_text(f"你是{agent_id}。", encoding="utf-8")
+            (agent_dir / "data_scope.yaml").write_text(
+                f"""\
+display_name: {agent_id}
+skills:
+  query_data:
+    national: [imperial_treasury]
+    provinces: all
+    fields:
+      - commerce.*
+      - taxation.*
+  write_report:
+    inherits: query_data
+  execute_command:
+    inherits: query_data
+""",
+                encoding="utf-8",
+            )
+            (agent_dir / "memory").mkdir()
+            (agent_dir / "memory" / "recent").mkdir()
+            (agent_dir / "workspace").mkdir()
+
+        # role_map.md
+        role_map = data / "role_map.md"
+        role_map.write_text(
+            """# 大庆帝国官员职责表
+
+## 直隶巡抚 (governor_zhili)
+- 职责：直隶省民政、农桑、商贸、治安
+- 适用命令：地方治理、粮食调度、商税征收、民情上报
+
+## 户部尚书 (minister_of_revenue)
+- 职责：全国财政、税收、粮储
+- 适用命令：国库调拨、税率调整、赈灾拨款、财政报告
+""",
+            encoding="utf-8",
+        )
+
+        # saves 目录
+        (data / "saves").mkdir()
+
+        return data
+
+    @pytest.mark.asyncio
+    async def test_router_routes_to_correct_agent(
+        self, data_dir_with_role_map: Path, db_conn
+    ) -> None:
+        """Router 应将税收命令路由到户部尚书。"""
+        # MockProvider 返回 minister_of_revenue
+        provider = MockProvider(
+            responses={
+                "minister_of_revenue": "回禀陛下，已执行减税令。",
+                "governor_zhili": "回禀陛下，已执行。",
+                "router": "minister_of_revenue",  # Router 的响应
+            },
+        )
+        loop = _make_game_loop(data_dir_with_role_map, db_conn, provider=provider)
+        await loop.advance_to_resolution()
+        await loop.advance_to_summary()
+
+        cmd = PlayerEvent(
+            turn_created=1,
+            description="调整全国税率",
+            command_type="adjust_tax",
+            direct=False,
+        )
+        loop.submit_command(cmd)
+
+        events = await loop.advance_to_execution()
+        assert len(events) == 1
+        assert events[0].agent_event_type == "adjust_tax"
+
+    @pytest.mark.asyncio
+    async def test_router_fallback_on_invalid_agent(
+        self, data_dir_with_role_map: Path, db_conn
+    ) -> None:
+        """Router 返回无效 agent_id 时应 fallback 到默认选择。"""
+        # MockProvider 返回无效的 agent_id
+        provider = MockProvider(
+            responses={
+                "minister_of_revenue": "回禀陛下，已执行。",
+                "governor_zhili": "回禀陛下，已执行。",
+                "router": "invalid_agent_id",  # 无效的 agent
+            },
+        )
+        loop = _make_game_loop(data_dir_with_role_map, db_conn, provider=provider)
+        await loop.advance_to_resolution()
+        await loop.advance_to_summary()
+
+        cmd = PlayerEvent(
+            turn_created=1,
+            description="处理事务",
+            command_type="general_task",
+            direct=False,
+        )
+        loop.submit_command(cmd)
+
+        # 即使 router 返回无效 agent，也应成功执行（fallback）
+        events = await loop.advance_to_execution()
+        assert len(events) == 1
+        assert events[0].agent_event_type == "general_task"
+
+    @pytest.mark.asyncio
+    async def test_direct_command_bypasses_router(
+        self, data_dir_with_role_map: Path, db_conn
+    ) -> None:
+        """direct=True 的命令应跳过 Router。"""
+        provider = MockProvider(
+            responses={
+                "minister_of_revenue": "回禀陛下，已执行。",
+            },
+        )
+        loop = _make_game_loop(data_dir_with_role_map, db_conn, provider=provider)
+        await loop.advance_to_resolution()
+        await loop.advance_to_summary()
+
+        events_before = len(loop.state.active_events)
+        cmd = PlayerEvent(
+            turn_created=1,
+            description="皇帝亲令减税",
+            command_type="direct_tax",
+            direct=True,
+            effects=[
+                EventEffect(
+                    target="taxation.land_tax_rate",
+                    operation=EffectOperation.ADD,
+                    value=Decimal("-0.01"),
+                    scope=EffectScope(province_ids=["jiangnan"]),
+                ),
+            ],
+        )
+        loop.submit_command(cmd)
+
+        # direct 命令直接加入 active_events，不经过 router
+        assert len(loop.state.active_events) == events_before + 1
+
+        # 执行阶段没有待执行命令
+        events = await loop.advance_to_execution()
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_router_with_province_target_fallback(
+        self, data_dir_with_role_map: Path, db_conn
+    ) -> None:
+        """当 Router 失败时，应使用 target_province_id 进行 fallback。"""
+        provider = MockProvider(
+            responses={
+                "minister_of_revenue": "回禀陛下，已执行。",
+                "governor_zhili": "回禀陛下，已执行。",
+                "router": "invalid_agent",  # 触发 fallback
+            },
+        )
+        loop = _make_game_loop(data_dir_with_role_map, db_conn, provider=provider)
+        await loop.advance_to_resolution()
+        await loop.advance_to_summary()
+
+        # 命令带有 target_province_id，但 fallback 时使用省份匹配
+        cmd = PlayerEvent(
+            turn_created=1,
+            description="治理直隶",
+            command_type="local_governance",
+            target_province_id="zhili",
+            direct=False,
+        )
+        loop.submit_command(cmd)
+
+        events = await loop.advance_to_execution()
+        assert len(events) == 1
