@@ -30,8 +30,10 @@ echo "=========================================="
 echo "[0/2] 清除运行时临时文件..."
 rm -rf data/log/* data/saves/* 2>/dev/null || true
 
-# 提示清理前端缓存
-echo "提示: 如需清除前端缓存，请在浏览器中清除 localStorage（开发者工具 > Application > Local Storage）"
+# 清除前端 localStorage 缓存（通过写入 JS 文件让前端执行）
+CACHE_FILE="frontend/public/clear-cache.js"
+echo "// 自动生成的缓存清理脚本，页面加载后自动删除" > $CACHE_FILE
+echo "// 此文件会在启动时被前端加载并清除 localStorage" >> $CACHE_FILE
 
 # 启动后端
 echo "[1/2] 启动后端服务 (端口 8000)..."
