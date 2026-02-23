@@ -2,23 +2,57 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from simu_emperor.player.schemas import ChatRequest, ChatResponse
 
 router = APIRouter(tags=["agents"])
 
 
+class AgentInfo(BaseModel):
+    """Agent 信息。"""
+
+    id: str
+    name: str
+    title: str
+
+
 def _get_loop(request: Request):
     return request.app.state.game_loop
 
 
+def _parse_agent_info(agent_id: str, soul_content: str) -> AgentInfo:
+    """从 soul.md 解析 agent 名称和职位。"""
+    # 尝试匹配第一行的格式: "# 职位 - 姓名" 或 "# 姓名 - 职位"
+    first_line = soul_content.strip().split("\n")[0]
+    match = re.match(r"^#\s*(.+?)\s*[-–—]\s*(.+)$", first_line)
+    if match:
+        # 判断哪边是名字（通常是2-3个汉字）
+        part1, part2 = match.group(1).strip(), match.group(2).strip()
+        # 如果 part2 是2-3个字符，大概率是名字
+        if len(part2) <= 3:
+            return AgentInfo(id=agent_id, name=part2, title=part1)
+        else:
+            return AgentInfo(id=agent_id, name=part1, title=part2)
+
+    # 回退：使用 agent_id 作为名称
+    return AgentInfo(id=agent_id, name=agent_id, title=agent_id)
+
+
 @router.get("/agents")
-async def list_agents(request: Request) -> list[str]:
+async def list_agents(request: Request) -> list[AgentInfo]:
     """列出活跃 Agent。"""
     loop = _get_loop(request)
-    return loop._agent_manager.list_active_agents()
+    agent_ids = loop._agent_manager.list_active_agents()
+    agents = []
+    for agent_id in agent_ids:
+        soul_content = loop._agent_manager.file_manager.read_soul(agent_id)
+        agents.append(_parse_agent_info(agent_id, soul_content))
+    return agents
 
 
 @router.post("/agents/{agent_id}/chat", response_model=ChatResponse)

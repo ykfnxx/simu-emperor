@@ -9,6 +9,7 @@ import type {
   CommandResponse,
   ErrorResponse,
   Agent,
+  ChatResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -58,6 +59,13 @@ export const api = {
 
   // Agent
   getAgents: () => request<Agent[]>('/agents'),
+
+  // Agent 对话
+  chatWithAgent: (agentId: string, message: string) =>
+    request<ChatResponse>(`/agents/${agentId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
 
   // 奏折
   getReports: (turn?: number) =>
