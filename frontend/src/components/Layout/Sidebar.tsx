@@ -3,17 +3,15 @@ import {
   LayoutDashboard,
   Map,
   Users,
-  ScrollText,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
 import { useUIStore } from '../../stores/uiStore'
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/provinces', label: 'Provinces', icon: Map },
-  { to: '/agents', label: 'Agents', icon: Users },
-  { to: '/memorials', label: 'Memorials', icon: ScrollText },
+  { to: '/', label: '龙椅', icon: LayoutDashboard },
+  { to: '/provinces', label: '疆域', icon: Map },
+  { to: '/agents', label: '百官', icon: Users },
 ]
 
 export function Sidebar() {
@@ -65,7 +63,7 @@ export function Sidebar() {
       {/* Footer */}
       {!sidebarCollapsed && (
         <div className="p-4 border-t border-amber-800 text-xs text-amber-400">
-          <p>Turn-based simulation</p>
+          <p>回合制模拟</p>
         </div>
       )}
     </aside>

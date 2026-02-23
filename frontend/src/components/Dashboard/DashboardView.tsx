@@ -4,9 +4,17 @@ import { Loading } from '../common/Loading'
 import { TrendChart } from './TrendChart'
 import { UrgentPanel } from './UrgentPanel'
 import { StatHeader } from '../Layout/StatHeader'
+import { ScrollText, User, MapPin } from 'lucide-react'
+
+const PHASE_LABELS: Record<string, string> = {
+  RESOLUTION: '结算',
+  SUMMARY: '汇总',
+  INTERACTION: '交互',
+  EXECUTION: '执行',
+}
 
 export function DashboardView() {
-  const { turn, phase, provinces, imperial_treasury, isLoading, error, fetchState } =
+  const { turn, phase, provinces, imperial_treasury, active_events, isLoading, error, fetchState } =
     useGameStore()
 
   useEffect(() => {
@@ -14,18 +22,18 @@ export function DashboardView() {
   }, [fetchState])
 
   if (isLoading && provinces.length === 0) {
-    return <Loading text="Loading game state..." />
+    return <Loading text="加载中..." />
   }
 
   if (error) {
     return (
       <div className="bg-red-50 text-red-700 p-4 rounded-lg">
-        <p>Error: {error}</p>
+        <p>错误: {error}</p>
         <button
           onClick={fetchState}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
-          Retry
+          重试
         </button>
       </div>
     )
@@ -49,12 +57,12 @@ export function DashboardView() {
   return (
     <div className="space-y-6">
       <StatHeader
-        title="Dashboard"
+        title="龙椅"
         stats={[
-          { label: 'Population', value: totalPopulation.toLocaleString() },
-          { label: 'Military', value: totalMilitary.toLocaleString() },
+          { label: '人口', value: totalPopulation.toLocaleString() },
+          { label: '兵力', value: totalMilitary.toLocaleString() },
           {
-            label: 'Happiness',
+            label: '民心',
             value: `${(avgHappiness * 100).toFixed(1)}%`,
             color: avgHappiness > 0.6 ? 'text-green-600' : 'text-red-600',
           },
@@ -64,35 +72,71 @@ export function DashboardView() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <SummaryCard
-          title="Imperial Treasury"
-          value={`${imperial_treasury.toLocaleString()} taels`}
+          title="国库"
+          value={`${imperial_treasury.toLocaleString()} 两`}
           color="amber"
         />
         <SummaryCard
-          title="Provinces"
+          title="省份"
           value={provinces.length.toString()}
           color="blue"
         />
         <SummaryCard
-          title="Current Turn"
+          title="当前回合"
           value={turn.toString()}
           color="purple"
         />
         <SummaryCard
-          title="Phase"
-          value={phase}
+          title="当前阶段"
+          value={PHASE_LABELS[phase] || phase}
           color="green"
         />
       </div>
 
+      {/* Active Events */}
+      {active_events.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <ScrollText className="text-amber-600" size={20} />
+            当前期政 ({active_events.length})
+          </h3>
+          <div className="space-y-2">
+            {active_events.map((event) => (
+              <div
+                key={event.event_id}
+                className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200"
+              >
+                {event.source === 'player' && (
+                  <User className="text-amber-600" size={18} />
+                )}
+                {event.target_province_id && (
+                  <MapPin className="text-gray-400" size={16} />
+                )}
+                <div className="flex-1">
+                  <p className="text-gray-900">{event.description}</p>
+                  {event.target_province_id && (
+                    <p className="text-sm text-gray-500">
+                      目标: {event.target_province_id}
+                    </p>
+                  )}
+                </div>
+                <span className="text-xs px-2 py-1 bg-amber-100 text-amber-800 rounded">
+                  {event.command_type || event.source}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">National Trend</h3>
+          <h3 className="text-lg font-semibold mb-4">国势走向</h3>
           <TrendChart />
         </div>
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Urgent Matters</h3>
+          <h3 className="text-lg font-semibold mb-4">紧急事项</h3>
           <UrgentPanel provinces={provinces} />
         </div>
       </div>

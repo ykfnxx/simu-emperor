@@ -48,8 +48,8 @@ export function ProvinceCard({ province, onClick }: ProvinceCardProps) {
 
       <div className="mt-3 pt-3 border-t border-gray-100">
         <div className="flex justify-between text-xs text-gray-500">
-          <span>Garrison: {formatNumber(Number(province.military.garrison_size))}</span>
-          <span>Commerce: {(Number(province.commerce.market_prosperity) * 100).toFixed(0)}%</span>
+          <span>驻军: {formatNumber(Number(province.military.garrison_size))}</span>
+          <span>商业: {(Number(province.commerce.market_prosperity) * 100).toFixed(0)}%</span>
         </div>
       </div>
     </div>

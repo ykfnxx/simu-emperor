@@ -10,18 +10,18 @@ export function ProvincesView() {
   const [selectedProvince, setSelectedProvince] = useState<ProvinceBaseData | null>(null)
 
   if (isLoading && provinces.length === 0) {
-    return <Loading text="Loading provinces..." />
+    return <Loading text="加载中..." />
   }
 
   if (error) {
     return (
       <div className="bg-red-50 text-red-700 p-4 rounded-lg">
-        <p>Error: {error}</p>
+        <p>错误: {error}</p>
         <button
           onClick={fetchState}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
-          Retry
+          重试
         </button>
       </div>
     )
@@ -39,8 +39,8 @@ export function ProvincesView() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Provinces</h2>
-        <p className="text-gray-500">{provinces.length} provinces under your rule</p>
+        <h2 className="text-2xl font-bold text-gray-900">疆域</h2>
+        <p className="text-gray-500">共 {provinces.length} 个省份</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
