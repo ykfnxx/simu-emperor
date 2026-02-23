@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import random
+from uuid import uuid4
 
 from aiosqlite import Connection
 
 from simu_emperor.agents.agent_manager import AgentManager
 from simu_emperor.agents.context_builder import ContextBuilder
+from simu_emperor.agents.event_handler import AgentEventHandler
 from simu_emperor.agents.file_manager import FileManager
 from simu_emperor.agents.llm.client import LLMClient
 from simu_emperor.agents.llm.providers import LLMProvider
 from simu_emperor.agents.memory_manager import MemoryManager
 from simu_emperor.agents.runtime import AgentRuntime
 from simu_emperor.config import GameConfig
+from simu_emperor.core.event_bus import (
+    ControlEvent,
+    EventBus,
+    EventPriority,
+    EventType,
+)
 from simu_emperor.engine.calculator import resolve_turn
 from simu_emperor.engine.event_generator import generate_events_for_turn, load_event_templates
 from simu_emperor.engine.models.events import PlayerEvent
@@ -108,6 +116,12 @@ class GameLoop:
         # 最新指标缓存
         self._latest_metrics: NationalTurnMetrics | None = None
 
+        # 事件总线（Phase 1 新增）
+        self._event_bus = EventBus(max_queue_size=1000)
+
+        # Agent 事件处理器（Phase 1 新增）
+        self._agent_handlers: dict[str, AgentEventHandler] = {}
+
     # ── 属性 ──
 
     @property
@@ -121,6 +135,49 @@ class GameLoop:
     @property
     def latest_metrics(self) -> NationalTurnMetrics | None:
         return self._latest_metrics
+
+    # ── 生命周期（Phase 1 新增）──
+
+    async def initialize(self) -> None:
+        """初始化事件总线（应用启动时调用）。"""
+        # 启动事件总线
+        await self._event_bus.start()
+
+        # 为每个 Agent 创建事件处理器
+        agents = self._agent_manager.list_active_agents()
+        for agent_id in agents:
+            handler = AgentEventHandler(
+                agent_id=agent_id,
+                event_bus=self._event_bus,
+                runtime=self._runtime,
+            )
+            self._agent_handlers[agent_id] = handler
+
+    async def cleanup(self) -> None:
+        """清理资源（应用关闭时调用）。"""
+        # 取消所有 Agent 订阅
+        for handler in self._agent_handlers.values():
+            handler.unsubscribe_all()
+        self._agent_handlers.clear()
+
+        # 停止事件总线
+        await self._event_bus.stop()
+
+    def register_agent_handler(self, agent_id: str) -> None:
+        """注册新 Agent 的事件处理器。"""
+        if agent_id not in self._agent_handlers:
+            handler = AgentEventHandler(
+                agent_id=agent_id,
+                event_bus=self._event_bus,
+                runtime=self._runtime,
+            )
+            self._agent_handlers[agent_id] = handler
+
+    def unregister_agent_handler(self, agent_id: str) -> None:
+        """注销 Agent 的事件处理器。"""
+        handler = self._agent_handlers.pop(agent_id, None)
+        if handler:
+            handler.unsubscribe_all()
 
     # ── 阶段推进 ──
 
@@ -191,11 +248,12 @@ class GameLoop:
 
         前置条件：当前阶段为 SUMMARY。
 
-        流程：
+        流程（Phase 1 使用事件总线）：
         1. 获取活跃 Agent 列表
-        2. asyncio.gather 并行触发所有 Agent 汇总
-        3. 持久化报告到 agent_reports 表
-        4. 推进到 INTERACTION 阶段
+        2. 通过事件总线发布汇总请求
+        3. 等待所有 Agent 完成汇总
+        4. 持久化报告到 agent_reports 表
+        5. 推进到 INTERACTION 阶段
 
         Returns:
             {agent_id: report_markdown} 的字典
@@ -206,23 +264,64 @@ class GameLoop:
         agents = self._agent_manager.list_active_agents()
         turn = self._state.current_turn
 
-        async def _summarize_one(agent_id: str) -> tuple[str, str]:
-            async with self._llm_semaphore:
-                report = await self._runtime.summarize(agent_id, turn, self._state.base_data)
-            # 持久化报告
-            await self._report_repo.save_report(
-                game_id=self._state.game_id,
-                turn=turn,
-                agent_id=agent_id,
-                markdown=report,
-                real_data=self._state.base_data,
-                report_type="report",
-                file_name=f"{turn:03d}_report.md",
-            )
-            return agent_id, report
+        if not agents:
+            self._state.phase = GamePhase.INTERACTION
+            return {}
 
-        results = await asyncio.gather(*[_summarize_one(a) for a in agents])
-        reports = dict(results)
+        # 使用事件总线发布汇总请求
+        correlation_id = uuid4().hex
+
+        # 为每个 Agent 创建 Future
+        futures: dict[str, asyncio.Future[ControlEvent]] = {}
+        for agent_id in agents:
+            # 发布汇总请求事件
+            await self._event_bus.publish(
+                event_type=EventType.AGENT_SUMMARY_REQUESTED,
+                turn=turn,
+                phase=self._state.phase,
+                agent_id=agent_id,
+                payload={
+                    "national_data": self._state.base_data.model_dump(),
+                },
+                priority=EventPriority.NORMAL,
+                correlation_id=correlation_id,
+            )
+            # 创建对应的 Future
+            futures[agent_id] = self._event_bus.create_request_future(
+                correlation_id=correlation_id,
+                agent_id=agent_id,
+            )
+
+        # 并发等待所有 Future，带超时
+        async def wait_one(agent_id: str, fut: asyncio.Future[ControlEvent]) -> tuple[str, str | None]:
+            try:
+                event = await asyncio.wait_for(fut, timeout=60.0)
+                return agent_id, event.payload.get("report", "")
+            except asyncio.TimeoutError:
+                return agent_id, None
+            except asyncio.CancelledError:
+                return agent_id, None
+
+        results = await asyncio.gather(*[wait_one(aid, fut) for aid, fut in futures.items()])
+
+        # 处理结果
+        reports: dict[str, str] = {}
+        for agent_id, report in results:
+            if report is not None:
+                reports[agent_id] = report
+                # 持久化报告
+                await self._report_repo.save_report(
+                    game_id=self._state.game_id,
+                    turn=turn,
+                    agent_id=agent_id,
+                    markdown=report,
+                    real_data=self._state.base_data,
+                    report_type="report",
+                    file_name=f"{turn:03d}_report.md",
+                )
+            else:
+                reports[agent_id] = f"# 报告生成超时\n\nAgent {agent_id} 未在 60s 内完成报告。"
+                self._event_bus.cancel_request(correlation_id, agent_id)
 
         self._state.phase = GamePhase.INTERACTION
         return reports
@@ -310,12 +409,13 @@ class GameLoop:
 
         前置条件：当前阶段为 INTERACTION。
 
-        流程：
+        流程（Phase 1 使用事件总线）：
         1. 按命令分配 Agent 执行
-        2. asyncio.gather 并行执行
-        3. 收集 AgentEvent 加入 active_events
-        4. 持久化命令和结果
-        5. 推进到 EXECUTION 阶段
+        2. 通过事件总线发布执行请求
+        3. 等待所有 Agent 完成执行
+        4. 收集 AgentEvent 加入 active_events
+        5. 持久化命令和结果
+        6. 推进到 EXECUTION 阶段
 
         Returns:
             AgentEvent 列表
@@ -327,7 +427,18 @@ class GameLoop:
         turn = self._state.current_turn
         agent_events = []
 
-        async def _execute_one(command: PlayerEvent) -> None:
+        if not self._pending_commands:
+            self._state.phase = GamePhase.EXECUTION
+            return agent_events
+
+        # 使用事件总线发布执行请求
+        correlation_id = uuid4().hex
+
+        # 为每个命令分配执行 Agent 并发布执行请求
+        command_agent_pairs: list[tuple[PlayerEvent, str]] = []
+        futures: dict[str, asyncio.Future[ControlEvent]] = {}
+
+        for idx, command in enumerate(self._pending_commands):
             # 选择执行 Agent：如有 target_province_id 则匹配 governor，否则用第一个 agent
             executor = agents[0] if agents else None
             for a in agents:
@@ -336,29 +447,74 @@ class GameLoop:
                     break
 
             if executor is None:
-                return
+                continue
 
-            async with self._llm_semaphore:
-                event = await self._runtime.execute(executor, turn, command, self._state.base_data)
+            command_agent_pairs.append((command, executor))
+            request_key = f"{idx}:{command.event_id}"
 
-            agent_events.append(event)
-            self._state.active_events.append(event)
-
-            # 持久化
-            await self._command_repo.save_command(self._state.game_id, turn, command, event)
-            # 执行结果写入报告表
-            await self._report_repo.save_report(
-                game_id=self._state.game_id,
+            # 发布执行请求事件
+            await self._event_bus.publish(
+                event_type=EventType.AGENT_EXECUTE_REQUESTED,
                 turn=turn,
+                phase=self._state.phase,
                 agent_id=executor,
-                markdown=event.description,
-                real_data=self._state.base_data,
-                report_type="exec",
-                file_name=f"{turn:03d}_exec_{command.command_type}.md",
+                payload={
+                    "national_data": self._state.base_data.model_dump(),
+                    "command": command.model_dump(),
+                },
+                priority=EventPriority.HIGH,
+                correlation_id=correlation_id,
             )
 
-        if self._pending_commands:
-            await asyncio.gather(*[_execute_one(cmd) for cmd in self._pending_commands])
+            # 创建对应的 Future
+            futures[request_key] = self._event_bus.create_request_future(
+                correlation_id=correlation_id,
+                agent_id=executor,
+            )
+
+        # 并发等待所有 Future，带超时
+        async def wait_one(key: str, command: PlayerEvent, agent_id: str, fut: asyncio.Future[ControlEvent]):
+            try:
+                event = await asyncio.wait_for(fut, timeout=60.0)
+                return key, command, agent_id, event.payload.get("agent_event"), None
+            except asyncio.TimeoutError:
+                return key, command, agent_id, None, "timeout"
+            except asyncio.CancelledError:
+                return key, command, agent_id, None, "cancelled"
+
+        wait_tasks = [
+            wait_one(key, cmd, agent_id, fut)
+            for (cmd, agent_id), (key, fut) in zip(command_agent_pairs, futures.items())
+        ]
+
+        if wait_tasks:
+            results = await asyncio.gather(*wait_tasks)
+
+            # 处理结果
+            from simu_emperor.engine.models.events import AgentEvent
+
+            for key, command, agent_id, event_data, error in results:
+                if error:
+                    self._event_bus.cancel_request(correlation_id, agent_id)
+                    continue
+
+                if event_data:
+                    agent_event = AgentEvent.model_validate(event_data)
+                    agent_events.append(agent_event)
+                    self._state.active_events.append(agent_event)
+
+                    # 持久化
+                    await self._command_repo.save_command(self._state.game_id, turn, command, agent_event)
+                    # 执行结果写入报告表
+                    await self._report_repo.save_report(
+                        game_id=self._state.game_id,
+                        turn=turn,
+                        agent_id=agent_id,
+                        markdown=agent_event.description,
+                        real_data=self._state.base_data,
+                        report_type="exec",
+                        file_name=f"{turn:03d}_exec_{command.command_type}.md",
+                    )
 
         self._state.phase = GamePhase.EXECUTION
         self._pending_commands = []

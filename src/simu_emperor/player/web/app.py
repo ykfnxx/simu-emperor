@@ -42,7 +42,7 @@ def load_initial_data(data_dir: Path) -> NationalBaseData:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """应用生命周期：初始化 DB + GameLoop + Agent 文件系统。"""
+    """应用生命周期：初始化 DB + GameLoop + Agent 文件系统 + 事件总线。"""
     from simu_emperor.agents.llm.providers import AnthropicProvider, MockProvider, OpenAIProvider
     from simu_emperor.engine.models.state import GameState
     from simu_emperor.persistence.database import init_database
@@ -74,8 +74,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     state = GameState(base_data=load_initial_data(config.data_dir))
     game_loop = GameLoop(state=state, config=config, provider=provider, conn=conn)
     game_loop.initialize_agents()
+
+    # 启动事件总线（Phase 1 新增）
+    await game_loop.initialize()
+
     app.state.game_loop = game_loop
     yield
+
+    # 清理事件总线（Phase 1 新增）
+    await game_loop.cleanup()
     await conn.close()
 
 
