@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from simu_emperor.engine.models.state import GamePhase
-from simu_emperor.player.schemas import AdvanceResponse, StateResponse
+from simu_emperor.player.schemas import ActiveEventInfo, AdvanceResponse, StateResponse
 
 router = APIRouter(tags=["game"])
 
@@ -21,6 +21,24 @@ async def get_state(request: Request) -> StateResponse:
     state = loop.state
     # 返回完整的省份数据，与前端 ProvinceBaseData 类型对齐
     provinces = [p.model_dump(mode="json") for p in state.base_data.provinces]
+
+    # 构建活跃事件列表
+    active_events = []
+    for event in state.active_events:
+        event_info = ActiveEventInfo(
+            event_id=event.event_id,
+            source=event.source.value if hasattr(event.source, 'value') else str(event.source),
+            description=event.description,
+        )
+        # PlayerEvent 特有字段
+        if hasattr(event, 'command_type'):
+            event_info.command_type = event.command_type
+            event_info.target_province_id = event.target_province_id
+        # AgentEvent 特有字段
+        if hasattr(event, 'agent_id'):
+            event_info.agent_id = event.agent_id
+        active_events.append(event_info)
+
     return StateResponse(
         game_id=state.game_id,
         current_turn=state.current_turn,
@@ -28,6 +46,7 @@ async def get_state(request: Request) -> StateResponse:
         provinces=provinces,
         imperial_treasury=str(state.base_data.imperial_treasury),
         active_events_count=len(state.active_events),
+        active_events=active_events,
     )
 
 

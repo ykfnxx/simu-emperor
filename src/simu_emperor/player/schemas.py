@@ -29,6 +29,17 @@ class AdvanceRequest(BaseModel):
 # ── 响应 schema ──
 
 
+class ActiveEventInfo(BaseModel):
+    """活跃事件信息。"""
+
+    event_id: str
+    source: str
+    description: str
+    command_type: str | None = None
+    target_province_id: str | None = None
+    agent_id: str | None = None
+
+
 class StateResponse(BaseModel):
     """游戏状态摘要响应。"""
 
@@ -38,6 +49,7 @@ class StateResponse(BaseModel):
     provinces: list[dict]
     imperial_treasury: str
     active_events_count: int
+    active_events: list[ActiveEventInfo] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
