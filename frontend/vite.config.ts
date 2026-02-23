@@ -13,4 +13,14 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 添加时间戳后缀，强制浏览器不缓存
+    rollupOptions: {
+      output: {
+        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
+      },
+    },
+  },
 })
