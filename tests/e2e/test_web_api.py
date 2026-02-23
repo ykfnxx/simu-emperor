@@ -31,6 +31,7 @@ async def client(tmp_path: Path):
     state = GameState(base_data=make_national_data(turn=0))
     game_loop = GameLoop(state=state, config=config, provider=provider, conn=conn)
     game_loop.initialize_agents()
+    await game_loop.initialize()
 
     app = create_app(game_loop=game_loop)
     transport = ASGITransport(app=app)
@@ -38,6 +39,7 @@ async def client(tmp_path: Path):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
+    await game_loop.cleanup()
     await conn.close()
 
 
@@ -124,7 +126,7 @@ class TestAgentChat:
         agents = agents_resp.json()
         assert len(agents) > 0
 
-        agent_id = agents[0]
+        agent_id = agents[0]["id"]
         resp = await client.post(
             f"/api/agents/{agent_id}/chat",
             json={"message": "今年收成如何？"},
@@ -141,8 +143,9 @@ class TestAgentChat:
         if not agents:
             pytest.skip("No agents available")
 
+        agent_id = agents[0]["id"]
         resp = await client.post(
-            f"/api/agents/{agents[0]}/chat",
+            f"/api/agents/{agent_id}/chat",
             json={"message": "测试"},
         )
         assert resp.status_code == 400

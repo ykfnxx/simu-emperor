@@ -82,13 +82,13 @@ async def db_conn(tmp_path: Path):
     await conn.close()
 
 
-def _make_game_loop(
+async def _make_game_loop(
     data_dir: Path,
     db_conn,
     provider: MockProvider | None = None,
     seed: int = 42,
 ) -> GameLoop:
-    """创建 GameLoop 实例。"""
+    """创建并初始化 GameLoop 实例。"""
     state = GameState(
         game_id="test_game",
         current_turn=0,
@@ -105,7 +105,10 @@ def _make_game_loop(
         provider = MockProvider(
             responses={"minister_of_revenue": "回禀陛下，国库稳定。"},
         )
-    return GameLoop(state=state, config=config, provider=provider, conn=db_conn)
+    loop = GameLoop(state=state, config=config, provider=provider, conn=db_conn)
+    # 注意：不调用 initialize_agents()，因为 data_dir fixture 已经创建了 agent 目录
+    await loop.initialize()
+    return loop
 
 
 # ── 阶段推进测试 ──
@@ -115,7 +118,7 @@ class TestPhaseTransitions:
     @pytest.mark.asyncio
     async def test_initial_resolution(self, data_dir: Path, db_conn) -> None:
         """首回合可从 RESOLUTION 推进。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         assert loop.phase == GamePhase.RESOLUTION
 
         state, metrics = await loop.advance_to_resolution()
@@ -127,7 +130,7 @@ class TestPhaseTransitions:
     @pytest.mark.asyncio
     async def test_full_cycle(self, data_dir: Path, db_conn) -> None:
         """完整阶段循环：RESOLUTION → SUMMARY → INTERACTION → EXECUTION。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
 
         # RESOLUTION
         state, metrics = await loop.advance_to_resolution()
@@ -146,7 +149,7 @@ class TestPhaseTransitions:
     @pytest.mark.asyncio
     async def test_second_turn(self, data_dir: Path, db_conn) -> None:
         """第二回合正常推进。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
 
         # Turn 1
         await loop.advance_to_resolution()
@@ -166,26 +169,26 @@ class TestPhaseTransitions:
 class TestPhaseLocking:
     @pytest.mark.asyncio
     async def test_cannot_summarize_in_wrong_phase(self, data_dir: Path, db_conn) -> None:
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         # 初始为 RESOLUTION，不能汇总
         with pytest.raises(PhaseError):
             await loop.advance_to_summary()
 
     @pytest.mark.asyncio
     async def test_cannot_chat_in_wrong_phase(self, data_dir: Path, db_conn) -> None:
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         with pytest.raises(PhaseError):
             await loop.handle_player_message("minister_of_revenue", "test")
 
     @pytest.mark.asyncio
     async def test_cannot_execute_in_wrong_phase(self, data_dir: Path, db_conn) -> None:
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         with pytest.raises(PhaseError):
             await loop.advance_to_execution()
 
     @pytest.mark.asyncio
     async def test_cannot_submit_command_in_wrong_phase(self, data_dir: Path, db_conn) -> None:
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         cmd = PlayerEvent(
             turn_created=0,
             description="test",
@@ -201,7 +204,7 @@ class TestPhaseLocking:
 class TestInteraction:
     @pytest.mark.asyncio
     async def test_handle_player_message(self, data_dir: Path, db_conn) -> None:
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -214,7 +217,7 @@ class TestInteraction:
         """对话应持久化到数据库。"""
         from simu_emperor.persistence.repositories import ChatHistoryRepository
 
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -232,7 +235,7 @@ class TestExecution:
     @pytest.mark.asyncio
     async def test_direct_command_added_to_events(self, data_dir: Path, db_conn) -> None:
         """direct=True 的命令直接加入 active_events。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -257,7 +260,7 @@ class TestExecution:
     @pytest.mark.asyncio
     async def test_non_direct_command_executed_by_agent(self, data_dir: Path, db_conn) -> None:
         """direct=False 的命令由 Agent 执行。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -279,7 +282,7 @@ class TestExecution:
         """执行结果应持久化到数据库。"""
         from simu_emperor.persistence.repositories import PlayerCommandRepository
 
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -299,7 +302,7 @@ class TestExecution:
     @pytest.mark.asyncio
     async def test_no_commands_execution(self, data_dir: Path, db_conn) -> None:
         """无命令时执行阶段正常完成。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -317,7 +320,7 @@ class TestSummary:
         """报告应持久化到数据库。"""
         from simu_emperor.persistence.repositories import AgentReportRepository
 
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         await loop.advance_to_summary()
 
@@ -330,7 +333,7 @@ class TestSummary:
     @pytest.mark.asyncio
     async def test_summary_returns_all_agents(self, data_dir: Path, db_conn) -> None:
         """汇总应返回所有活跃 Agent 的报告。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
         await loop.advance_to_resolution()
         reports = await loop.advance_to_summary()
         assert "minister_of_revenue" in reports
@@ -343,7 +346,7 @@ class TestHistory:
     @pytest.mark.asyncio
     async def test_history_accumulates(self, data_dir: Path, db_conn) -> None:
         """每回合 resolution 产生一条 TurnRecord。"""
-        loop = _make_game_loop(data_dir, db_conn)
+        loop = await _make_game_loop(data_dir, db_conn)
 
         # Turn 1
         await loop.advance_to_resolution()
