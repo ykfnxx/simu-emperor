@@ -26,6 +26,8 @@ Thumbs.db
 # Project runtime
 data/agent/*
 !data/agent/.gitkeep
+data/log/
+data/saves/
 
 # Database
 *.db
@@ -35,6 +37,7 @@ data/agent/*
 # Environment
 .env
 .env.*
+claude_code_env.sh
 
 # uv
 uv.lock
@@ -49,5 +52,11 @@ htmlcov/
 .proposal/
 .summary/
 .survey/
+.archive/
+.doc/
+.review/
+.claude/
 
+# Config
 config.yaml
+prometheus.yml
