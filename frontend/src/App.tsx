@@ -5,7 +5,6 @@ import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { DashboardView } from './components/Dashboard/DashboardView'
 import { ProvincesView } from './components/Provinces/ProvincesView'
 import { AgentListView } from './components/Agents/AgentListView'
-import { MemorialView } from './components/Memorials/MemorialView'
 
 function App() {
   return (
@@ -20,7 +19,6 @@ function App() {
                 <Route path="/" element={<DashboardView />} />
                 <Route path="/provinces" element={<ProvincesView />} />
                 <Route path="/agents" element={<AgentListView />} />
-                <Route path="/memorials" element={<MemorialView />} />
               </Routes>
             </main>
           </div>
