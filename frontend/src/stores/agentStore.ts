@@ -3,6 +3,25 @@ import { persist } from 'zustand/middleware'
 import type { Agent, ChatMessage } from '../types'
 import { api } from '../api/client'
 
+// 每次加载时清除 localStorage 中的聊天记录
+const STORAGE_KEY = 'agent-store'
+const stored = localStorage.getItem(STORAGE_KEY)
+if (stored) {
+  try {
+    const data = JSON.parse(stored)
+    // 只清除 chatHistory，保留其他状态
+    if (data?.state?.chatHistory) {
+      data.state.chatHistory = {}
+      data.state.loadedHistoryAgents = []
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      console.log('Chat history cleared from localStorage')
+    }
+  } catch {
+    // 解析失败则清除整个存储
+    localStorage.removeItem(STORAGE_KEY)
+  }
+}
+
 interface AgentState {
   // State
   agents: Agent[]
