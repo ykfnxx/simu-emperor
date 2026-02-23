@@ -19,15 +19,8 @@ async def get_state(request: Request) -> StateResponse:
     """获取当前游戏状态摘要。"""
     loop = _get_loop(request)
     state = loop.state
-    provinces = [
-        {
-            "id": p.province_id,
-            "name": p.name,
-            "population": str(p.population.total),
-            "treasury": str(p.local_treasury),
-        }
-        for p in state.base_data.provinces
-    ]
+    # 返回完整的省份数据，与前端 ProvinceBaseData 类型对齐
+    provinces = [p.model_dump(mode="json") for p in state.base_data.provinces]
     return StateResponse(
         game_id=state.game_id,
         current_turn=state.current_turn,

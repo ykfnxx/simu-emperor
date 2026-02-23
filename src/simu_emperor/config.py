@@ -7,6 +7,15 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
+class LoggingConfig(BaseSettings):
+    """日志配置。"""
+
+    log_level: str = Field(default="INFO", description="日志级别")
+    log_json_format: bool = Field(default=False, description="是否使用 JSON 格式输出日志")
+    llm_audit_enabled: bool = Field(default=False, description="是否启用 LLM 调用审计")
+    llm_audit_dir: str = Field(default="data/audit/llm", description="LLM 审计日志目录")
+
+
 class AgentConfig(BaseSettings):
     """Agent 子系统配置。"""
 
@@ -56,6 +65,7 @@ class GameConfig(BaseSettings):
     log_sensitive_data: bool = Field(default=False, description="敏感数据脱敏开关")
     agent: AgentConfig = Field(default_factory=AgentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
     def settings_customise_sources(

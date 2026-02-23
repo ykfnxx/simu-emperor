@@ -129,8 +129,8 @@ def create_app(game_loop: GameLoop | None = None) -> FastAPI:
     app.include_router(agents_router, prefix="/api")
     app.include_router(reports_router, prefix="/api")
 
-    # 生产模式：静态文件服务
-    if os.getenv("ENV") != "development" and _FRONTEND_DIR.exists():
+    # 静态文件服务（前端已构建时）
+    if _FRONTEND_DIR.exists():
         # 静态资源
         app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="assets")
 
