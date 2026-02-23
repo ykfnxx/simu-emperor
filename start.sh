@@ -27,24 +27,31 @@ echo "  Simu Emperor - 一键启动"
 echo "=========================================="
 
 # 清除运行时临时文件
-echo "[0/2] 清除运行时临时文件..."
+echo "[0/3] 清除运行时临时文件..."
 rm -rf data/log/* data/saves/* 2>/dev/null || true
 
-# 清除前端 localStorage 缓存（通过写入 JS 文件让前端执行）
-CACHE_FILE="frontend/public/clear-cache.js"
-echo "// 自动生成的缓存清理脚本，页面加载后自动删除" > $CACHE_FILE
-echo "// 此文件会在启动时被前端加载并清除 localStorage" >> $CACHE_FILE
+# 清除数据库文件
+DB_FILE="game.db"
+if [ -f "$DB_FILE" ]; then
+    echo "清除数据库..."
+    rm -f "$DB_FILE"
+fi
+
+# 重新构建前端（确保包含最新的 localStorage.clear 代码）
+echo "[1/3] 构建前端..."
+cd frontend && npm run build > /dev/null 2>&1
+cd ..
 
 # 启动后端
-echo "[1/2] 启动后端服务 (端口 8000)..."
+echo "[2/3] 启动后端服务 (端口 8000)..."
 uv run simu-emperor &
 BACKEND_PID=$!
 
 # 等待后端启动
 sleep 2
 
-# 启动前端
-echo "[2/2] 启动前端服务 (端口 5173)..."
+# 启动前端开发服务器（可选，用于开发调试）
+echo "[3/3] 启动前端服务 (端口 5173)..."
 cd frontend && npm run dev &
 FRONTEND_PID=$!
 cd ..
@@ -55,6 +62,8 @@ echo "  服务已启动!"
 echo "  后端: http://localhost:8000"
 echo "  前端: http://localhost:5173"
 echo "  按 Ctrl+C 停止所有服务"
+echo ""
+echo "  提示: 首次打开页面请强制刷新 (Ctrl+Shift+R)"
 echo "=========================================="
 
 # 等待任一进程退出
