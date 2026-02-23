@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Phase, ProvinceBaseData, StateResponse } from '../types'
+import type { Phase, ProvinceBaseData, StateResponse, ActiveEventInfo } from '../types'
 import { api } from '../api/client'
 
 interface GameState {
@@ -10,6 +10,7 @@ interface GameState {
   provinces: ProvinceBaseData[]
   imperial_treasury: number
   active_events_count: number
+  active_events: ActiveEventInfo[]
   isLoading: boolean
   error: string | null
 
@@ -28,6 +29,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   provinces: [],
   imperial_treasury: 0,
   active_events_count: 0,
+  active_events: [],
   isLoading: false,
   error: null,
 
@@ -43,6 +45,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         provinces: data.provinces,
         imperial_treasury: parseFloat(data.imperial_treasury),
         active_events_count: data.active_events_count,
+        active_events: data.active_events || [],
         isLoading: false,
       })
     } catch (err) {

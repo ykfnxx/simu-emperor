@@ -97,6 +97,7 @@ export interface StateResponse {
   provinces: ProvinceBaseData[];
   imperial_treasury: string;
   active_events_count: number;
+  active_events: ActiveEventInfo[];
 }
 
 export interface ChatResponse {
@@ -138,14 +139,41 @@ export interface Agent {
   avatar_url?: string;
 }
 
+export interface AgentDetail {
+  id: string;
+  name: string;
+  title: string;
+  data_scope: Record<string, unknown>;
+}
+
+export interface AgentTemplate {
+  id: string;
+  display_name: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  // Command-specific fields
+  isCommand?: boolean;
+  commandType?: string;
+  targetProvinceId?: string;
+  // Memorial-specific fields
+  isMemorial?: boolean;
 }
 
 // ── 事件相关 ──
+
+export interface ActiveEventInfo {
+  event_id: string;
+  source: 'player' | 'agent' | 'random';
+  description: string;
+  command_type?: string;
+  target_province_id?: string;
+  agent_id?: string;
+}
 
 export interface GameEvent {
   event_id: string;
