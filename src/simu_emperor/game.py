@@ -309,19 +309,21 @@ class GameLoop:
         for agent_id, report in results:
             if report is not None:
                 reports[agent_id] = report
-                # 持久化报告
-                await self._report_repo.save_report(
-                    game_id=self._state.game_id,
-                    turn=turn,
-                    agent_id=agent_id,
-                    markdown=report,
-                    real_data=self._state.base_data,
-                    report_type="report",
-                    file_name=f"{turn:03d}_report.md",
-                )
             else:
+                # 超时时生成占位符报告
                 reports[agent_id] = f"# 报告生成超时\n\nAgent {agent_id} 未在 60s 内完成报告。"
                 self._event_bus.cancel_request(correlation_id, agent_id)
+
+            # 无论成功或超时，都持久化报告
+            await self._report_repo.save_report(
+                game_id=self._state.game_id,
+                turn=turn,
+                agent_id=agent_id,
+                markdown=reports[agent_id],
+                real_data=self._state.base_data,
+                report_type="report",
+                file_name=f"{turn:03d}_report.md",
+            )
 
         self._state.phase = GamePhase.INTERACTION
         return reports
