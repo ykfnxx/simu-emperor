@@ -30,6 +30,9 @@ echo "=========================================="
 echo "[0/2] 清除运行时临时文件..."
 rm -rf data/log/* data/saves/* 2>/dev/null || true
 
+# 提示清理前端缓存
+echo "提示: 如需清除前端缓存，请在浏览器中清除 localStorage（开发者工具 > Application > Local Storage）"
+
 # 启动后端
 echo "[1/2] 启动后端服务 (端口 8000)..."
 uv run simu-emperor &
