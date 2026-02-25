@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -11,6 +12,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, Field
 
 from simu_emperor.agents.context_builder import AgentContext
+from simu_emperor.agents.tools.models import Tool, ToolCall, ToolCallResponse
 from simu_emperor.engine.models.effects import EventEffect
 from simu_emperor.utils.logger import log_llm_request, log_llm_response
 
@@ -128,6 +130,22 @@ class LLMProvider(ABC):
         """流式生成文本响应。默认实现为非流式，子类可覆盖。"""
         yield await self.generate(context)
 
+    @abstractmethod
+    async def generate_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[Tool] | None = None,
+    ) -> ToolCallResponse:
+        """Generate response with optional function calling support.
+
+        Args:
+            messages: Conversation messages in OpenAI format
+            tools: Available tools (None to disable tool calling)
+
+        Returns:
+            ToolCallResponse with content and/or tool_calls
+        """
+
 
 # ── MockProvider ──
 
@@ -139,9 +157,12 @@ class MockProvider(LLMProvider):
         self,
         responses: dict[str, str] | None = None,
         structured_responses: dict[str, Any] | None = None,
+        tool_responses: list[ToolCallResponse] | None = None,
     ) -> None:
         self._responses = responses or {}
         self._structured_responses = structured_responses or {}
+        self._tool_responses = tool_responses or []
+        self._tool_response_index = 0
 
     async def generate(self, context: AgentContext) -> str:
         """按 agent_id 查找预设响应，无预设时返回默认响应。"""
@@ -209,6 +230,24 @@ class MockProvider(LLMProvider):
             )
         # 对于其他模型，尝试无参构造
         return response_model()  # type: ignore[call-arg]
+
+    async def generate_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[Tool] | None = None,
+    ) -> ToolCallResponse:
+        """Generate response with tool calling support using predefined responses.
+
+        Returns responses from the tool_responses list in order, then defaults
+        to an empty content response.
+        """
+        if self._tool_response_index < len(self._tool_responses):
+            resp = self._tool_responses[self._tool_response_index]
+            self._tool_response_index += 1
+            return resp
+
+        # Default: return empty content response
+        return ToolCallResponse(content="")
 
 
 # ── AnthropicProvider ──
@@ -282,6 +321,83 @@ class AnthropicProvider(LLMProvider):
             messages=[{"role": "user", "content": user_prompt}],
             response_model=response_model,
         )
+
+    async def generate_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[Tool] | None = None,
+    ) -> ToolCallResponse:
+        """Generate response with Anthropic tool use API.
+
+        Converts Anthropic's response format to OpenAI format for consistency.
+        """
+        # Extract system message if present
+        system_content = ""
+        chat_messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_content = msg.get("content", "")
+            else:
+                chat_messages.append(msg)
+
+        # Build tool definitions in Anthropic format
+        anthropic_tools = None
+        if tools:
+            anthropic_tools = []
+            for tool in tools:
+                properties: dict[str, Any] = {}
+                required: list[str] = []
+                for param in tool.parameters:
+                    prop: dict[str, Any] = {
+                        "type": param.type,
+                        "description": param.description,
+                    }
+                    if param.enum is not None:
+                        prop["enum"] = param.enum
+                    properties[param.name] = prop
+                    if param.required:
+                        required.append(param.name)
+
+                anthropic_tools.append({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                    },
+                })
+
+        # Make API call
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": 4096,
+            "messages": chat_messages,
+        }
+        if system_content:
+            kwargs["system"] = system_content
+        if anthropic_tools:
+            kwargs["tools"] = anthropic_tools
+
+        response = await self._client.messages.create(**kwargs)
+
+        # Parse response - convert Anthropic format to OpenAI format
+        content = None
+        tool_calls = None
+
+        for block in response.content:
+            if block.type == "text":
+                content = block.text
+            elif block.type == "tool_use":
+                if tool_calls is None:
+                    tool_calls = []
+                tool_calls.append(ToolCall(
+                    tool_name=block.name,
+                    arguments=block.input,
+                    call_id=block.id,
+                ))
+
+        return ToolCallResponse(content=content, tool_calls=tool_calls)
 
 
 # ── OpenAIProvider ──
@@ -397,3 +513,68 @@ class OpenAIProvider(LLMProvider):
         # 解析 JSON 并构造模型实例
         data = json.loads(content)
         return response_model(**data)
+
+    async def generate_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[Tool] | None = None,
+    ) -> ToolCallResponse:
+        """Generate response with OpenAI function calling API."""
+        # Build tool definitions in OpenAI format
+        openai_tools = None
+        if tools:
+            openai_tools = []
+            for tool in tools:
+                properties: dict[str, Any] = {}
+                required: list[str] = []
+                for param in tool.parameters:
+                    prop: dict[str, Any] = {
+                        "type": param.type,
+                        "description": param.description,
+                    }
+                    if param.enum is not None:
+                        prop["enum"] = param.enum
+                    properties[param.name] = prop
+                    if param.required:
+                        required.append(param.name)
+
+                openai_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                        },
+                    },
+                })
+
+        # Make API call
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+        }
+        if openai_tools:
+            kwargs["tools"] = openai_tools
+
+        response = await self._client.chat.completions.create(**kwargs)
+
+        # Parse response
+        message = response.choices[0].message
+        content = message.content
+
+        tool_calls = None
+        if message.tool_calls:
+            tool_calls = []
+            for tc in message.tool_calls:
+                # Parse arguments from JSON string
+                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                tool_calls.append(ToolCall(
+                    tool_name=tc.function.name,
+                    arguments=args,
+                    call_id=tc.id,
+                ))
+
+        return ToolCallResponse(content=content, tool_calls=tool_calls)
