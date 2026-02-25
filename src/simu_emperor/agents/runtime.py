@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from decimal import Decimal
 
@@ -21,11 +22,14 @@ from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.engine.models.effects import EventEffect
 from simu_emperor.engine.models.events import AgentEvent, EventSource, PlayerEvent
 
+logger = logging.getLogger(__name__)
+
 
 def validate_effects(
     effects: list[EventEffect],
     data_scope: DataScope,
     command: PlayerEvent | None = None,
+    agent_id: str | None = None,
 ) -> list[EventEffect]:
     """规则校验 effects，过滤掉越权的效果。
 
@@ -37,12 +41,17 @@ def validate_effects(
         effects: LLM 生成的效果列表
         data_scope: Agent 的数据权限声明
         command: 触发执行的玩家命令（可选）
+        agent_id: Agent ID（用于日志）
 
     Returns:
         通过校验的效果列表
     """
     exec_scope = data_scope.skills.get("execute_command")
     if exec_scope is None:
+        logger.warning(
+            f"[{agent_id}] No execute_command scope defined, "
+            f"all {len(effects)} effects filtered out"
+        )
         return []
 
     allowed_fields = set(exec_scope.fields)
@@ -53,14 +62,28 @@ def validate_effects(
     for effect in effects:
         # 校验 target 在可写范围内
         if effect.target not in allowed_fields:
+            logger.warning(
+                f"[{agent_id}] Effect filtered: target '{effect.target}' not in allowed fields. "
+                f"Allowed: {sorted(allowed_fields)}"
+            )
             continue
 
         # 校验 province_ids 与命令一致
         if command and command.target_province_id and effect.scope.province_ids:
             if command.target_province_id not in effect.scope.province_ids:
+                logger.warning(
+                    f"[{agent_id}] Effect filtered: province_ids {effect.scope.province_ids} "
+                    f"don't match command target '{command.target_province_id}'"
+                )
                 continue
 
         valid.append(effect)
+
+    if len(valid) != len(effects):
+        logger.warning(
+            f"[{agent_id}] {len(valid)}/{len(effects)} effects passed validation, "
+            f"{len(effects) - len(valid)} filtered out"
+        )
 
     return valid
 
