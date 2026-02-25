@@ -146,11 +146,19 @@ class AgentEventHandler:
 
     async def _on_execute_requested(self, event: ControlEvent) -> None:
         """处理执行请求事件。"""
+        from decimal import Decimal
+
         from simu_emperor.engine.models.base_data import NationalBaseData
+        from simu_emperor.engine.models.events import AgentEvent, EventSource
 
         payload = event.payload
         national_data_raw = payload.get("national_data")
         command_data = payload.get("command")
+
+        logger.debug(
+            f"Agent {self.agent_id} received execute request: "
+            f"turn={event.turn}, command_type={command_data.get('command_type') if command_data else None}"
+        )
 
         if isinstance(national_data_raw, NationalBaseData):
             national_data = national_data_raw
@@ -159,12 +167,28 @@ class AgentEventHandler:
 
         command = PlayerEvent.model_validate(command_data)
 
-        agent_event = await self.runtime.execute(
-            agent_id=self.agent_id,
-            turn=event.turn,
-            command=command,
-            national_data=national_data,
-        )
+        try:
+            agent_event = await self.runtime.execute(
+                agent_id=self.agent_id,
+                turn=event.turn,
+                command=command,
+                national_data=national_data,
+            )
+        except Exception as e:
+            logger.error(
+                f"Agent {self.agent_id} execute failed: {e}. "
+                f"Creating fallback AgentEvent."
+            )
+            # 创建一个降级的 AgentEvent
+            agent_event = AgentEvent(
+                source=EventSource.AGENT,
+                turn_created=event.turn,
+                description=f"[执行失败] {command.description} - 因技术原因未能执行：{e}",
+                effects=[],
+                agent_event_type=command.command_type,
+                agent_id=self.agent_id,
+                fidelity=Decimal("0"),
+            )
 
         await self.event_bus.publish(
             event_type=EventType.AGENT_EXECUTE_COMPLETED,

@@ -475,6 +475,9 @@ class OpenAIProvider(LLMProvider):
         某些模型（如 Qwen thinking 模式）不支持 tool_choice 参数。
         """
         import json
+        import logging
+
+        logger = logging.getLogger(__name__)
 
         system_prompt = build_system_prompt(context)
         user_prompt = build_user_prompt(context)
@@ -510,8 +513,24 @@ class OpenAIProvider(LLMProvider):
                 lines = lines[:-1]
             content = "\n".join(lines).strip()
 
+        # 检查空内容
+        if not content:
+            logger.error(
+                f"LLM returned empty content for structured output. "
+                f"agent_id={context.agent_id}, model={self._model}"
+            )
+            raise ValueError("LLM returned empty content for structured output")
+
         # 解析 JSON 并构造模型实例
-        data = json.loads(content)
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Failed to parse LLM response as JSON: {e}. "
+                f"Content preview: {content[:500]}"
+            )
+            raise
+
         return response_model(**data)
 
     async def generate_with_tools(
