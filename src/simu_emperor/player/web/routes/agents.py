@@ -164,8 +164,10 @@ async def send_command_to_agent(
         direct=body.direct,
     )
 
-    # 添加到活跃事件列表
-    state.active_events.append(event)
+    # 使用 submit_command 正确处理命令
+    # direct=True -> 直接加入 active_events
+    # direct=False -> 加入 _pending_commands，等待执行阶段由 Agent 处理
+    loop.submit_command(event)
 
     return CommandResponse(
         status="accepted",
