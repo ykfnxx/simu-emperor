@@ -8,11 +8,9 @@ import asyncio
 import logging
 from pathlib import Path
 
-from simu_emperor.cli.app import EmperorCLI
-from simu_emperor.core.calculator import Calculator
 from simu_emperor.event_bus.core import EventBus
+from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.logger import FileEventLogger
-from simu_emperor.llm.mock import MockProvider
 from simu_emperor.config import settings
 
 
@@ -45,7 +43,6 @@ async def main() -> None:
     # TODO: 根据配置选择 Provider
     # 如果有 ANTHROPIC_API_KEY，使用 AnthropicProvider
     # 否则使用 MockProvider
-    llm_provider = MockProvider(response="Mock response")
 
     logger.info("LLM provider initialized")
 
@@ -60,6 +57,7 @@ async def main() -> None:
     # 4. 初始化 CLI
     # TODO: 需要等待 persistence 模块完成
     # repository = ...
+    # from simu_emperor.cli.app import EmperorCLI
     # cli = EmperorCLI(event_bus, repository)
 
     logger.info("CLI initialized")
@@ -77,8 +75,6 @@ async def main() -> None:
     event_bus.subscribe("test", test_handler)
 
     # 发送测试事件
-    from simu_emperor.event_bus.event import Event
-
     test_event = Event(
         src="test",
         dst=["test"],
