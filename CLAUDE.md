@@ -11,123 +11,350 @@ uv sync
 # Run tests
 uv run pytest tests/                    # All tests
 uv run pytest tests/unit/               # Unit tests only
-uv run pytest tests/unit/engine/        # Single test directory
-uv run pytest tests/unit/engine/test_formulas.py  # Single file
-uv run pytest tests/unit/engine/test_formulas.py::test_name -v  # Single test
+uv run pytest tests/unit/event_bus/     # Single test directory
+uv run pytest tests/unit/event_bus/test_core.py  # Single file
+uv run pytest tests/unit/event_bus/test_core.py::test_name -v  # Single test
 
 # Lint and format
 uv run ruff check .
 uv run ruff format .
 
-# Run web UI
+# Run CLI game
 uv run simu-emperor
 ```
 
 ## Architecture
 
-Turn-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands.
+**V2: Event-Driven Multi-Agent Architecture**
+
+Turn-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules.
+
+### Core Principles
+
+| Principle | Description |
+|-----------|-------------|
+| **Event-Driven** | All interactions via EventBus (src/dst routing) |
+| **Fully Async** | asyncio-based, fire-and-forget by default |
+| **Shared Data Reads** | Modules read directly from persistence (per permissions) |
+| **Unified Writes** | Only Calculator can modify game state |
+| **Passive Agents** | Agents only respond to events, never initiate |
 
 ### Directory Structure
 
 ```
 src/simu_emperor/
 ├── __init__.py
-├── config.py                          # pydantic-settings 全局配置
-├── game.py                            # 游戏循环编排器（阶段推进）
-├── engine/                            # 模块一：计算逻辑（纯函数，无 I/O）
-│   ├── models/
-│   │   ├── base_data.py               # 基础数据：Population/Agriculture/Commerce/Trade/Military/Consumption/Administration/Taxation/Province/NationalBaseData
-│   │   ├── metrics.py                 # 回合计算指标：ProvinceTurnMetrics, NationalTurnMetrics
-│   │   ├── events.py                  # 事件层级：PlayerEvent/AgentEvent/RandomEvent（discriminated union）
-│   │   ├── state.py                   # GameState, TurnRecord
-│   │   ├── effects.py                 # EventEffect（target 字段路径 + add/multiply 操作）
-│   │   └── event_templates.py         # 随机事件模板池定义
-│   ├── calculator.py                  # resolve_turn()：应用事件效果→计算指标→回写反馈→约束校验
-│   ├── formulas.py                    # 经济公式（13个纯函数）：粮食生产/需求/田赋/商税/关税/军费/幸福度/人口/士气/商业/财政
-│   └── event_generator.py            # 随机事件生成（接受 seeded Random）
-├── agents/                            # 模块二：文件驱动 AI 官员系统
-│   ├── models/
-│   │   └── roles.py                   # 角色枚举（系统层面标识 agent 类型）
-│   ├── runtime.py                     # AgentRuntime：三阶段生命周期（summarize/respond/execute）
-│   ├── file_manager.py                # 读写 agent 目录的文件操作
-│   ├── context_builder.py             # 组装 LLM 调用上下文（含 data_scope 解析和数据提取）
-│   ├── memory_manager.py              # 记忆管理：短期写入/清理（保留 3 回合）+ 长期读取
-│   ├── agent_manager.py               # 动态管理：初始化/增删/存档/恢复
-│   └── llm/
-│       ├── providers.py               # LLMProvider 抽象 + 实现（Anthropic/OpenAI/Mock）
-│       └── client.py                  # LLM 调用封装
-├── player/                            # 模块三：玩家交互
-│   ├── schemas.py                     # API 请求/响应 schema
-│   └── web/
-│       ├── app.py                     # FastAPI 应用工厂 + main() 入口
-│       ├── routes/
-│       │   ├── game.py                # /api/state, /api/turn/advance, /api/history
-│       │   ├── agents.py              # /api/agents/{id}/chat
-│       │   └── reports.py             # /api/reports, /api/provinces
-│       ├── templates/                 # Jinja2 模板
-│       └── static/                    # CSS/JS
-└── persistence/                       # 持久化层
-    ├── database.py                    # SQLite 连接与 schema 初始化（aiosqlite）
-    ├── repositories.py                # Repository 模式 CRUD
-    └── serialization.py               # GameState ↔ DB 序列化
+├── main.py                           # CLI entry point
+├── config.py                         # pydantic-settings global config
+│
+├── event_bus/                        # Module: Event routing infrastructure
+│   ├── core.py                       # EventBus implementation
+│   ├── event.py                      # Event dataclass (src/dst/type/payload)
+│   ├── event_types.py                # EventType constants
+│   └── logger.py                     # EventLogger (JSONL format)
+│
+├── core/                             # Module: Calculator (game state manager)
+│   ├── calculator.py                 # Calculator class (turn coordination)
+│   ├── turn_coordinator.py           # Turn resolution logic
+│   └── event_handlers.py             # Event handlers for game actions
+│
+├── agents/                           # Module: AI officials
+│   ├── agent.py                      # Agent base class
+│   ├── manager.py                    # Agent lifecycle (init/add/remove)
+│   ├── context_builder.py            # LLM context assembly (data_scope parsing)
+│   ├── memory_manager.py             # Memory: short-term (3 turns) + long-term
+│   ├── file_manager.py               # File I/O for agent files
+│   └── response_parser.py            # Parse LLM structured output
+│
+├── cli/                              # Module: Player interface
+│   ├── app.py                        # EmperorCLI main class
+│   ├── ui.py                         # TUI components (rich/textual)
+│   ├── commands.py                   # Command handlers (/help, /chat, /end_turn)
+│   └── intent_parser.py              # LLM-based natural language parsing
+│
+├── persistence/                      # Module: Data persistence
+│   ├── database.py                   # SQLite connection (aiosqlite)
+│   ├── repositories.py               # Repository pattern CRUD
+│   └── serialization.py              # GameState ↔ DB conversion
+│
+├── llm/                              # Module: LLM providers
+│   ├── base.py                       # LLMProvider interface
+│   ├── anthropic.py                  # Anthropic Claude implementation
+│   ├── openai.py                     # OpenAI GPT implementation
+│   └── mock.py                       # Mock provider (testing)
+│
+├── interfaces/                       # Module: Interface definitions
+│   ├── events.py                     # Event-related interfaces
+│   ├── repositories.py               # Repository interfaces
+│   └── llm.py                        # LLM interfaces
+│
+└── engine/                           # Module: Economic formulas (reused from V1)
+    ├── models/                       # Pydantic data models
+    │   ├── base_data.py              # ProvinceBaseData, NationalBaseData
+    │   ├── metrics.py                # ProvinceTurnMetrics, NationalTurnMetrics
+    │   ├── events.py                 # EventEffect (target path + add/multiply)
+    │   └── state.py                  # GameState, TurnRecord
+    ├── formulas.py                   # 13 pure economic functions
+    └── calculator.py                 # resolve_turn() engine
 
 data/
-├── skills/                            # 通用 skill 模板（所有 Agent 共享）
+├── skills/                           # Universal skill templates (all agents share)
 │   ├── query_data.md
 │   ├── write_report.md
 │   └── execute_command.md
-├── default_agents/                    # Agent 模板（随代码版本管理）
+│
+├── default_agents/                   # Agent templates (version-controlled)
 │   └── {agent_id}/
-│       ├── soul.md                    # 角色定义
-│       └── data_scope.yaml            # 数据权限声明（per-skill 白名单）
-├── initial_provinces.json             # 初始省份配置
-└── event_templates.json               # 随机事件模板池
-
-data/agent/                            # Agent 活跃工作区（运行时生成）
-└── {agent_id}/
-    ├── soul.md
-    ├── data_scope.yaml
-    ├── memory/
-    │   ├── summary.md                 # 长期记忆
-    │   └── recent/                    # 短期记忆（保留最近 3 回合）
-    └── workspace/                     # 玩家可见的文档归档
+│       ├── soul.md                   # Role definition (personality, behavior)
+│       └── data_scope.yaml           # Data access permissions (per-skill whitelist)
+│
+├── agent/                            # Active agent workspace (runtime)
+│   └── {agent_id}/
+│       ├── soul.md                   # Copied from template (mutable during game)
+│       ├── data_scope.yaml           # Copied from template
+│       ├── memory/
+│       │   ├── summary.md            # Long-term memory
+│       │   └── recent/               # Short-term memory (last 3 turns)
+│       │       ├── turn_005.md
+│       │       ├── turn_006.md
+│       │       └── turn_007.md
+│       └── workspace/                # Player-visible documents
+│           ├── 005_report.md
+│           ├── 006_exec_adjust_tax.md
+│           └── 007_report.md
+│
+├── logs/                             # Log directory
+│   ├── events/                       # JSONL event logs
+│   │   ├── events_20260226.jsonl
+│   │   └── events_20260227.jsonl
+│   ├── errors/                       # Error logs
+│   └── debug/                        # Debug logs
+│
+└── saves/                            # Save games
+    └── game-001/
+        ├── turn_005/
+        └── turn_010/
 
 tests/
-├── conftest.py                        # 共享 fixtures + 工厂函数
-├── unit/{engine,agents,persistence}/  # 单元测试（无 I/O、无 LLM）
-├── integration/                       # 集成测试（多模块协作）
-└── e2e/                               # 端到端测试（FastAPI TestClient）
+├── conftest.py                       # Shared fixtures + factories
+├── unit/                             # Unit tests (no I/O, no LLM)
+│   ├── test_event_bus/
+│   ├── test_core/
+│   ├── test_agents/
+│   ├── test_cli/
+│   ├── test_persistence/
+│   └── test_llm/
+├── integration/                      # Integration tests (multi-module)
+└── e2e/                              # End-to-end tests (full game flow)
 ```
 
-### Three Modules
+### Module Dependencies
 
-**Engine** (`engine/`) — Pure computation, no I/O. Province-level economic simulation with population, agriculture, commerce, trade, military, consumption, administration, taxation subsystems. Turn resolution: apply EventEffects → run 13 economic formulas → write back feedback (population/happiness/morale/commerce changes) → clamp bounded values. All formulas are pure functions in `formulas.py`; per-turn derived values stored in `ProvinceTurnMetrics`/`NationalTurnMetrics` (not in base data).
+```
+CLI
+  ↓
+EventBus ← (subscribe) ← Calculator
+  ↓                      ↓
+Agent  ───────────────→ Repository
+  ↓                      ↓
+LLM                   SQLite + filesystem
+```
 
-**Agents** (`agents/`) — File-driven AI officials. Each agent is defined by markdown files (`soul.md` for personality, `data_scope.yaml` for data access permissions, `memory/` for context), not Python classes. Shared skill templates live in `data/skills/`, per-agent data permissions in `data_scope.yaml`. Deception emerges from LLM reading soul.md personality descriptions. Templates live in `data/default_agents/`, active state in `data/agent/`. Three-phase lifecycle per turn: summarize (produce report) → interact (answer player questions) → execute (carry out commands, possibly poorly).
+**Dependency Rules:**
+- Upper layers can call lower layers
+- Same-layer modules communicate via EventBus only
+- Lower layers NEVER call upper layers
+- No circular dependencies
 
-**Player** (`player/`) — FastAPI web UI. Routes in `web/routes/` for game state, agent chat, reports, commands. Phase-locked: API rejects operations invalid for the current game phase.
+### Core Modules
 
-### Supporting Layers
+**EventBus** (`event_bus/`) — Event routing infrastructure. Routes events by src/dst matching, supports broadcast via `"*"`, fully async via `asyncio.create_task()`. Events logged to JSONL format. No business logic.
 
-- **Persistence** (`persistence/`) — async SQLite via aiosqlite, repository pattern. Tables: game_saves, event_log, agent_reports, chat_history, player_commands.
-- **Game Loop** (`game.py`) — Orchestrator enforcing phase order: RESOLUTION → SUMMARY → INTERACTION → EXECUTION → repeat.
-- **Config** (`config.py`) — pydantic-settings.
+**Calculator** (`core/`) — Game state manager. Special EventBus subscriber that coordinates turn resolution (waits for all `ready` events), executes economic formulas (reused from V1 engine), modifies database exclusively. Publishes `turn_resolved` events.
+
+**Agents** (`agents/`) — File-driven AI officials. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist). Deception emerges from LLM reading soul.md. Universal skill templates in `data/skills/`. Three-phase workflow: summarize (write memory) → respond (answer queries) → execute (carry out commands). All phases triggered by events.
+
+**CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
+
+**Persistence** (`persistence/`) — Data access layer. Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, event_log. Shared by all modules for reads, exclusive writes by Calculator.
+
+**LLM** (`llm/`) — LLM provider abstraction. Supports Anthropic Claude, OpenAI GPT, and Mock (testing). Single interface: `async call(prompt, system_prompt, temperature, max_tokens) -> str`.
+
+**Engine** (`engine/`) — Economic formulas (reused from V1). 13 pure functions: grain production/demand/balance, taxes, military upkeep, happiness, population, morale, commerce, treasury. No I/O, no side effects.
+
+### Event Format
+
+All events use this JSON structure:
+
+```json
+{
+    "event_id": "evt_20260226120000_a1b2c3d4",
+    "src": "player",
+    "dst": ["agent:revenue_minister"],
+    "type": "command",
+    "payload": {"intent": "adjust_tax", "province": "zhili", "rate": 0.05},
+    "timestamp": "2026-02-26T12:00:00.123456Z"
+}
+```
+
+**ID Naming:**
+- Player: `"player"`
+- Agent: `"agent:{agent_id}"` (e.g., `"agent:revenue_minister"`)
+- Calculator: `"system:calculator"`
+- Broadcast: `"*"`
+
+**Event Types:**
+- `command` — Player → Agent (execute command)
+- `query` — Player → Agent (query information)
+- `chat` — Player → Agent (enter conversation)
+- `response` — Agent → Player (narrative response)
+- `agent_message` — Agent → Agent (inter-agent communication)
+- `adjust_tax` / `build_irrigation` / `recruit_troops` — Agent → Calculator (game actions)
+- `ready` — Agent → Calculator (turn preparation complete)
+- `turn_resolved` — Calculator → * (turn calculation complete)
+- `end_turn` — Player → * (advance to next turn)
+
+### Turn Resolution Flow
+
+```
+1. Player → {"type": "end_turn", "dst": ["*"]}
+
+2. All Agents receive "end_turn"
+   ├─ Agent A → {"type": "ready", "dst": ["system:calculator"]}
+   ├─ Agent B → {"type": "ready", "dst": ["system:calculator"]}
+   └─ Agent C → {"type": "ready", "dst": ["system:calculator"]}
+
+3. Calculator receives all "ready" → resolve_turn()
+   - Load current state
+   - Run 13 economic formulas
+   - Save new state
+   - Save turn metrics
+
+4. Calculator → {"type": "turn_resolved", "dst": ["*"], "payload": {"turn": 5}}
+
+5. All Agents receive "turn_resolved" → write summary to memory/
+```
+
+**Synchronization:** Calculator manages `pending_ready` set with 5s timeout. Missing agents trigger warning but don't block turn resolution.
 
 ### Key Patterns
 
-- Pydantic v2 models with `Decimal` precision and field constraints for all game data
-- Discriminated union for events: `GameEvent = PlayerEvent | AgentEvent | RandomEvent` (discriminator: `source`)
-- Province data hierarchy: `ProvinceBaseData` contains `PopulationData`, `AgricultureData`, `CommerceData`, `TradeData`, `MilitaryData`, `TaxationData`, `ConsumptionData`, `AdministrationData` plus `granary_stock`/`local_treasury`
-- `NationalBaseData` aggregates all provinces plus `imperial_treasury`, `national_tax_modifier`, and `tribute_rate`
-- Turn metrics separation: `ProvinceTurnMetrics`/`NationalTurnMetrics` hold per-turn derived values (food production, tax revenue, expenditure, population change etc.), computed by formulas but not stored in base data
-- `resolve_turn()` returns `tuple[NationalBaseData, NationalTurnMetrics]`
-- Agent execution uses single structured output (ExecutionResult: narrative + effects + fidelity)
-- Engine is deterministic: random functions take seeded `random.Random` for reproducibility
+- **Pydantic v2** models with `Decimal` precision for all game data
+- **Event sourcing:** All state changes logged as events (JSONL format)
+- **File-driven agents:** Personality/permissions defined by markdown/YAML, not code
+- **Memory management:** Dual-layer — long-term (summary.md, agent-maintained) + short-term (recent/, 3-turn sliding window)
+- **LLM emergence:** Deception/slacking emerges from soul.md personality, no hardcoded numbers
+- **Repository pattern:** All data access through Repository interface
+- **Async everywhere:** asyncio, aiosqlite, aiofiles
+- **Deterministic engine:** Random functions accept seeded `random.Random` for reproducibility
 
-### Planning Docs
+### Data Models
 
-Architecture specs are in `.plan/rewrite_plan_v1.1.md` (full system), `.plan/eco_system_design.md` (economic system formulas and data model), and `.plan/agent_design_v1.1.md` (agent module detail). Original proposals in `.proposal/`. Design reviews in `.review/`.
+**Province Hierarchy:**
+```
+ProvinceBaseData
+├── province_id, name
+├── population: PopulationData (total, happiness, growth_rate)
+├── agriculture: AgricultureData (crops[], irrigation_level)
+├── commerce: CommerceData (merchant_households, market_prosperity)
+├── trade: TradeData (trade_volume, trade_route_quality)
+├── military: MilitaryData (soldiers, morale, upkeep_per_soldier)
+├── taxation: TaxationData (land_tax_rate, commercial_tax_rate, tariff_rate)
+├── consumption: ConsumptionData (civilian_grain_per_capita, military_grain_per_soldier)
+├── administration: AdministrationData (official_count, official_salary, infrastructure_value)
+└── granary_stock, local_treasury
+```
+
+**National Aggregation:**
+```
+NationalBaseData
+├── turn (current turn number)
+├── provinces: list[ProvinceBaseData]
+├── imperial_treasury
+├── national_tax_modifier
+└── tribute_rate
+```
+
+**Turn Metrics (not stored in base data):**
+```
+NationalTurnMetrics
+├── total_food_production
+├── total_food_consumption
+├── total_tax_revenue
+├── total_expenditure
+├── net_treasury_change
+├── total_population_change
+└── ... (13 formula outputs)
+```
+
+### Import Rules
+
+```python
+# ✅ Correct: upper imports lower
+from simu_emperor.event_bus.core import EventBus
+from simu_emperor.core.calculator import Calculator
+from simu_emperor.agents.agent import Agent
+
+# ✅ Correct: same-level imports
+from simu_emperor.agents.context_builder import build_context
+from simu_emperor.agents.memory_manager import MemoryManager
+
+# ❌ Wrong: lower imports upper
+from simu_emperor.cli.app import EmperorCLI  # core must not import cli
+```
+
+### Documentation
+
+**V2 Architecture:**
+- `.prd/V2_PRD.md` — Product requirements (event-driven architecture)
+- `.design/V2_TDD.md` — Technical design document (detailed specs)
+
+**V1 Architecture (deprecated, reference for engine reuse):**
+- `.plan/rewrite_plan_v1.1.md` — Full system architecture
+- `.plan/eco_system_design.md` — Economic system formulas + data model
+- `.plan/agent_design_v1.1.md` — Agent module design
+- `.review/` — Design reviews
 
 ## Development Workflow
 
-Implementation follows the step-by-step plan defined in `.plan/rewrite_plan_v1.1.md` (实施顺序 section). After completing each step, write a summary to `.summary/stepNN_<name>.md` documenting what was implemented, key decisions made, and verification results. Existing summaries serve as context for subsequent steps — read them before continuing work.
+V2 implementation follows the phases defined in `.prd/V2_PRD.md` (§8.1):
+
+**Phase 1: EventBus** — Event routing, async handling, logging
+**Phase 2: Calculator** — Reuse V1 engine, turn coordination, persistence
+**Phase 3: Agents** — File-driven agents, LLM integration, memory
+**Phase 4: CLI** — Rich TUI, natural language parsing
+**Phase 5: Integration** — E2E testing, performance optimization
+
+When implementing features:
+1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`)
+2. Check existing tests for patterns
+3. Write unit tests before implementation
+4. Run `uv run ruff check .` and `uv run pytest` before committing
+5. Update this CLAUDE.md if architecture changes
+
+## Testing Strategy
+
+- **Unit tests:** Mock all I/O and LLM calls. Test pure logic.
+- **Integration tests:** Real database (in-memory), mock LLM. Test event flows.
+- **E2E tests:** Full game loop, mock LLM. Test multi-turn scenarios.
+- **No external dependencies:** All tests runnable without API keys.
+
+## Key Differences from V1
+
+| Aspect | V1 (Phase-Driven) | V2 (Event-Driven) |
+|--------|-------------------|-------------------|
+| **Communication** | Direct function calls | EventBus (async) |
+| **Game Loop** | GameLoop enforces phases | Calculator coordinates turns |
+| **Phases** | RESOLUTION → SUMMARY → INTERACTION → EXECUTION | None (event-triggered) |
+| **Player UI** | FastAPI + Vue.js | Rich CLI |
+| **Agent Initiation** | None (passive) | None (passive) |
+| **State Writes** | GameLoop → Repository | Calculator only |
+| **Concurrency** | Phase-locked, agents parallel within phase | Fully async, event-driven |
+| **Event Logging** | Database tables | JSONL files |
+
+**Preserved from V1:**
+- Economic formulas (engine/)
+- Data models (ProvinceBaseData, NationalBaseData)
+- Agent file-driven design (soul.md, data_scope.yaml)
+- Memory management (summary.md + recent/)
+- Deception via LLM emergence
