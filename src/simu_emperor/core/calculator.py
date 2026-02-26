@@ -175,33 +175,44 @@ class Calculator:
         logger.info("Resolving turn")
 
         try:
-            # TODO: 实现 actual turn resolution logic
-            # 这里需要等待 engine 和 persistence 模块完成
-
             # 加载当前状态
-            # state = await self.repository.load_state()
+            state = await self.repository.load_state()
+            current_turn = state.get("turn", 0)
 
-            # 运行经济公式
+            # TODO: 运行经济公式
+            # 需要等待 engine 模块适配
+            # from simu_emperor.engine.calculator import resolve_turn
             # metrics = resolve_turn(state)
 
+            # 暂时使用空指标
+            metrics = {
+                "turn": current_turn + 1,
+                "total_food_production": 0,
+                "total_food_consumption": 0,
+                "total_tax_revenue": 0,
+                "total_expenditure": 0,
+            }
+
+            # 更新回合数
+            new_turn = await self.repository.increment_turn()
+            state["turn"] = new_turn
+
             # 保存新状态
-            # await self.repository.save_state(state)
-            # await self.repository.save_turn_metrics(metrics)
+            await self.repository.save_state(state)
+
+            # 保存回合指标
+            await self.repository.save_turn_metrics(new_turn, metrics)
 
             # 发布 turn_resolved 事件
-            # 获取当前回合数
-            # turn = state.turn
-            turn = 1  # 占位符
-
             event = Event(
                 src="system:calculator",
                 dst=["*"],
                 type=EventType.TURN_RESOLVED,
-                payload={"turn": turn},
+                payload={"turn": new_turn},
             )
             await self.event_bus.send_event(event)
 
-            logger.info(f"Turn {turn} resolved")
+            logger.info(f"Turn {new_turn} resolved")
 
         except Exception as e:
             logger.error(f"Error resolving turn: {e}", exc_info=True)
@@ -216,12 +227,17 @@ class Calculator:
         if event.type != EventType.ADJUST_TAX:
             return
 
-        # TODO: 实现税率调整逻辑
-        # province = event.payload.get("province")
-        # rate = event.payload.get("rate")
-        # await self.repository.update_tax_rate(province, rate)
+        province = event.payload.get("province")
+        rate = event.payload.get("rate")
 
-        logger.info(f"Tax adjustment requested: {event.payload}")
+        if province and rate is not None:
+            # 更新税率
+            await self.repository.update_province_data(
+                province, "taxation", {"land_tax_rate": rate}
+            )
+            logger.info(f"Tax rate updated: {province} -> {rate}")
+        else:
+            logger.warning(f"Invalid tax adjustment payload: {event.payload}")
 
     async def _on_build_irrigation(self, event: Event) -> None:
         """
@@ -264,6 +280,4 @@ class Calculator:
         Returns:
             Agent ID 列表
         """
-        # TODO: 从 repository 获取活跃 Agent
-        # return await self.repository.get_active_agents()
-        return []  # 占位符
+        return await self.repository.get_active_agents()

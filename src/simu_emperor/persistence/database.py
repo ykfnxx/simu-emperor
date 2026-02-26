@@ -1,14 +1,24 @@
-"""SQLite 数据库连接与 schema 初始化。"""
+"""
+SQLite 数据库连接与 schema 初始化（V2）
+
+V2 简化设计：
+- 移除阶段相关的表
+- 移除 Agent 报告、聊天历史、玩家命令（由文件系统替代）
+- 保留游戏状态、回合指标、Agent 状态
+"""
 
 import aiosqlite
 from aiosqlite import Connection
+import logging
+
+logger = logging.getLogger(__name__)
 
 _db_connection: Connection | None = None
 _db_path: str = "game.db"
 
 
 async def init_database(db_path: str = "game.db") -> Connection:
-    """初始化数据库连接并创建 schema。
+    """初始化数据库连接并创建 V2 schema。
 
     Args:
         db_path: 数据库文件路径，默认为 "game.db"
@@ -22,77 +32,51 @@ async def init_database(db_path: str = "game.db") -> Connection:
     _db_connection = await aiosqlite.connect(db_path)
 
     await _create_schema(_db_connection)
+    logger.info(f"Database initialized at {db_path}")
     return _db_connection
 
 
 async def _create_schema(conn: Connection) -> None:
-    """创建数据库 schema（5 张表 + 索引）。"""
+    """创建 V2 数据库 schema（3 张表 + 索引）。"""
     await conn.executescript("""
-        -- 游戏存档
-        CREATE TABLE IF NOT EXISTS game_saves (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            turn INTEGER NOT NULL,
+        -- 游戏状态
+        CREATE TABLE IF NOT EXISTS game_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            game_id TEXT NOT NULL DEFAULT 'default',
+            turn INTEGER NOT NULL DEFAULT 0,
             state_json TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 回合指标
+        CREATE TABLE IF NOT EXISTS turn_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL DEFAULT 'default',
+            turn INTEGER NOT NULL,
+            metrics_json TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(game_id, turn)
         );
 
-        -- 事件日志
-        CREATE TABLE IF NOT EXISTS event_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            turn INTEGER NOT NULL,
-            event_id TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            event_json TEXT NOT NULL,
-            action TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        -- Agent 状态
+        CREATE TABLE IF NOT EXISTS agent_state (
+            agent_id TEXT PRIMARY KEY,
+            is_active INTEGER NOT NULL DEFAULT 0,
+            soul_markdown TEXT,
+            data_scope_yaml TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Agent 报告
-        CREATE TABLE IF NOT EXISTS agent_reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            turn INTEGER NOT NULL,
-            agent_id TEXT NOT NULL,
-            report_type TEXT NOT NULL DEFAULT 'report',
-            file_name TEXT,
-            report_markdown TEXT NOT NULL,
-            real_data_json TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- 对话历史
-        CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            agent_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- 玩家命令
-        CREATE TABLE IF NOT EXISTS player_commands (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            turn INTEGER NOT NULL,
-            command_type TEXT NOT NULL,
-            target_province_id TEXT,
-            parameters_json TEXT,
-            result_event_json TEXT,
-            fidelity REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        -- 插入默认游戏状态
+        INSERT OR IGNORE INTO game_state (id, game_id, turn, state_json)
+        VALUES (1, 'default', 0, '{}');
 
         -- 索引
-        CREATE INDEX IF NOT EXISTS idx_game_saves_game_id ON game_saves(game_id);
-        CREATE INDEX IF NOT EXISTS idx_event_log_game_turn ON event_log(game_id, turn);
-        CREATE INDEX IF NOT EXISTS idx_agent_reports_game_turn ON agent_reports(game_id, turn);
-        CREATE INDEX IF NOT EXISTS idx_chat_history_agent ON chat_history(game_id, agent_id);
+        CREATE INDEX IF NOT EXISTS idx_turn_metrics_game_turn ON turn_metrics(game_id, turn);
+        CREATE INDEX IF NOT EXISTS idx_agent_state_active ON agent_state(is_active);
     """)
     await conn.commit()
+    logger.info("Database schema created")
 
 
 async def get_connection() -> Connection:
@@ -115,3 +99,4 @@ async def close_database() -> None:
     if _db_connection is not None:
         await _db_connection.close()
         _db_connection = None
+        logger.info("Database connection closed")

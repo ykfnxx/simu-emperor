@@ -25,6 +25,11 @@ def mock_repository():
     """Mock Repository"""
     repo = MagicMock()
     repo.get_active_agents = AsyncMock(return_value=[])
+    repo.load_state = AsyncMock(return_value={"turn": 0, "provinces": {}})
+    repo.save_state = AsyncMock()
+    repo.save_turn_metrics = AsyncMock()
+    repo.increment_turn = AsyncMock(return_value=1)
+    repo.update_province_data = AsyncMock()
     return repo
 
 
@@ -126,7 +131,7 @@ class TestCalculator:
         assert calculator.pending_ready == {"agent:a"}
 
     @pytest.mark.asyncio
-    async def test_on_adjust_tax(self, calculator):
+    async def test_on_adjust_tax(self, calculator, mock_repository):
         """测试税率调整"""
         calculator.start()
 
@@ -139,7 +144,8 @@ class TestCalculator:
 
         await calculator._on_adjust_tax(event)
 
-        # 不应该抛出异常
+        # 应该调用 repository 更新方法
+        assert mock_repository.update_province_data.called
 
     @pytest.mark.asyncio
     async def test_on_build_irrigation(self, calculator):
@@ -174,11 +180,17 @@ class TestCalculator:
         # 不应该抛出异常
 
     @pytest.mark.asyncio
-    async def test_resolve_turn(self, calculator, mock_event_bus):
+    async def test_resolve_turn(self, calculator, mock_event_bus, mock_repository):
         """测试回合结算"""
         calculator.start()
 
         await calculator._resolve_turn()
+
+        # 应该调用 repository 方法
+        assert mock_repository.load_state.called
+        assert mock_repository.save_state.called
+        assert mock_repository.save_turn_metrics.called
+        assert mock_repository.increment_turn.called
 
         # 应该发送 turn_resolved 事件
         assert mock_event_bus.send_event.called
