@@ -61,4 +61,4 @@ htmlcov/
 
 # Config
 config.yaml
-prometheus.yml
+prometheus.ymlfrontend/
