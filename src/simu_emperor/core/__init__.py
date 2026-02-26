@@ -1,19 +1,11 @@
-"""核心模块：事件总线等基础设施。"""
+"""
+Core 模块 - 计算核心
 
-from simu_emperor.core.event_bus import (
-    ControlEvent,
-    EventFilter,
-    EventHandler,
-    EventBus,
-    EventPriority,
-    EventType,
-)
+包含 Calculator 和回合协调逻辑。
+"""
+
+from simu_emperor.core.calculator import Calculator
 
 __all__ = [
-    "ControlEvent",
-    "EventFilter",
-    "EventHandler",
-    "EventBus",
-    "EventPriority",
-    "EventType",
+    "Calculator",
 ]
