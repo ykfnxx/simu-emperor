@@ -9,6 +9,7 @@ Agents 模块 - AI 官员系统
 """
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.manager import AgentManager
 from simu_emperor.agents.response_parser import (
     parse_chat_result,
     parse_execution_result,
@@ -17,6 +18,7 @@ from simu_emperor.agents.response_parser import (
 
 __all__ = [
     "Agent",
+    "AgentManager",
     "parse_execution_result",
     "parse_query_result",
     "parse_chat_result",
