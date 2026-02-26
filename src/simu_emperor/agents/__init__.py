@@ -1,35 +1,23 @@
-"""Agent 模块公开 API。"""
+"""
+Agents 模块 - AI 官员系统
 
-from simu_emperor.agents.agent_manager import AgentManager
-from simu_emperor.agents.context_builder import (
-    AgentContext,
-    ConfigurationError,
-    ContextBuilder,
-    DataScope,
-    SkillScope,
+文件驱动的被动 Agent：
+- 只响应事件，不主动发起
+- personality 和权限由文件定义（soul.md, data_scope.yaml）
+- 三个工作流：summarize → respond → execute
+- 使用 LLM 生成响应
+"""
+
+from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.response_parser import (
+    parse_chat_result,
+    parse_execution_result,
+    parse_query_result,
 )
-from simu_emperor.agents.file_manager import FileManager
-from simu_emperor.agents.llm.client import LLMClient
-from simu_emperor.agents.llm.providers import ExecutionResult, LLMProvider, MockProvider
-from simu_emperor.agents.memory_manager import MemoryContext, MemoryManager
-from simu_emperor.agents.models.roles import AgentRole
-from simu_emperor.agents.runtime import AgentRuntime, validate_effects
 
 __all__ = [
-    "AgentContext",
-    "AgentManager",
-    "AgentRole",
-    "AgentRuntime",
-    "ConfigurationError",
-    "ContextBuilder",
-    "DataScope",
-    "ExecutionResult",
-    "FileManager",
-    "LLMClient",
-    "LLMProvider",
-    "MemoryContext",
-    "MemoryManager",
-    "MockProvider",
-    "SkillScope",
-    "validate_effects",
+    "Agent",
+    "parse_execution_result",
+    "parse_query_result",
+    "parse_chat_result",
 ]
