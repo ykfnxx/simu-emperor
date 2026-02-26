@@ -56,6 +56,8 @@ htmlcov/
 .doc/
 .review/
 .claude/
+.prd/
+.design/
 
 # Config
 config.yaml
