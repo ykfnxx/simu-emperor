@@ -24,20 +24,25 @@ class OpenAIProvider(LLMProvider):
     使用 openai SDK 调用 GPT API。
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4"):
+    def __init__(self, api_key: str, model: str = "gpt-4", base_url: str | None = None):
         """
         初始化 OpenAI 提供商
 
         Args:
             api_key: OpenAI API 密钥
             model: 模型名称（默认 gpt-4）
+            base_url: API Base URL（可选，用于兼容 OpenAI 格式的服务）
         """
         if not OPENAI_AVAILABLE:
             raise ImportError("openai package is required. Install with: pip install openai")
 
-        self.client = openai.AsyncOpenAI(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        self.client = openai.AsyncOpenAI(**client_kwargs)
         self.model = model
-        logger.info(f"OpenAIProvider initialized with model: {model}")
+        logger.info(f"OpenAIProvider initialized with model: {model}, base_url: {base_url or 'default'}")
 
     async def call(
         self,

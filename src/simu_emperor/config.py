@@ -60,6 +60,7 @@ class GameConfig(BaseSettings):
 
     db_path: str = Field(default="game.db", description="SQLite 数据库路径")
     data_dir: Path = Field(default=Path("data"), description="数据根目录")
+    log_dir: Path = Field(default=Path("data/logs"), description="日志根目录")
     seed: int | None = Field(default=None, description="随机种子（None 为随机）")
     max_random_events_per_turn: int = Field(default=2, ge=0, description="每回合最大随机事件数")
     log_sensitive_data: bool = Field(default=False, description="敏感数据脱敏开关")
@@ -125,3 +126,7 @@ class _YamlSettingsSource(PydanticBaseSettingsSource):
 
     def __call__(self) -> dict[str, Any]:
         return self._load_yaml()
+
+
+# 全局配置实例
+settings = GameConfig()

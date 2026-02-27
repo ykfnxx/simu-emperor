@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-simu-emperor = "simu_emperor.player.web.app:main"
+simu-emperor = "simu_emperor.main:entrypoint"
 
 [build-system]
 requires = ["hatchling"]

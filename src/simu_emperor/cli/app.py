@@ -28,16 +28,18 @@ class EmperorCLI:
         _chat_agent_id: 当前对话的 Agent ID
     """
 
-    def __init__(self, event_bus: EventBus, repository: Any):
+    def __init__(self, event_bus: EventBus, repository: Any, agent_manager: Any = None):
         """
         初始化 CLI
 
         Args:
             event_bus: 事件总线
             repository: 数据库仓储
+            agent_manager: Agent 管理器（可选）
         """
         self.event_bus = event_bus
         self.repository = repository
+        self.agent_manager = agent_manager
         self._running = False
         self._chat_mode = False
         self._chat_agent_id = ""
@@ -187,13 +189,32 @@ class EmperorCLI:
             agent_id: Agent ID，如果为 None 则显示可用 Agent
         """
         if agent_id is None:
-            # TODO: 显示可用 Agent 列表
-            print("可用 Agent: -")
+            # 显示可用 Agent 列表
+            if self.agent_manager:
+                active_agents = self.agent_manager.get_active_agents()
+                if active_agents:
+                    print("\n=== 可用的 Agent ===")
+                    for aid in active_agents:
+                        display_name = self._get_agent_display_name(aid)
+                        print(f"  - {aid}: {display_name}")
+                    print("\n使用方法: /chat <agent_id>")
+                    print("例如: /chat governor_zhili")
+                else:
+                    print("\n当前没有活跃的 Agent")
+            else:
+                print("\nAgentManager 未初始化")
+            return
+
+        # 验证 agent 是否存在
+        if self.agent_manager and agent_id not in self.agent_manager.get_active_agents():
+            print(f"\n错误: Agent '{agent_id}' 不存在或未激活")
+            print("使用 /chat 查看可用的 Agent")
             return
 
         self._chat_mode = True
         self._chat_agent_id = agent_id
-        print(f"\n进入与 {agent_id} 的对话模式")
+        display_name = self._get_agent_display_name(agent_id)
+        print(f"\n=== 进入与 {display_name} ({agent_id}) 的对话模式 ===")
         print("输入 /exit 退出对话模式")
 
     def _exit_chat_mode(self) -> None:

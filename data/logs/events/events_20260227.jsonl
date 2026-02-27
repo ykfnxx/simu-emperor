@@ -1,0 +1,2 @@
+{"event_id":"evt_20260227122043_9329ee4b","src":"player","dst":["agent:zhili"],"type":"chat","payload":{"message":"你是谁"},"timestamp":"2026-02-27T12:20:43.891413+00:00"}
+{"event_id":"evt_20260227122130_de9047ed","src":"player","dst":["agent:governer_zhili"],"type":"chat","payload":{"message":"你是谁"},"timestamp":"2026-02-27T12:21:30.650565+00:00"}
