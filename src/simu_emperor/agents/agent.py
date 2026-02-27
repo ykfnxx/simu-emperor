@@ -148,9 +148,44 @@ class Agent:
         Args:
             event: chat 事件
         """
-        logger.info(f"Agent {self.agent_id} received chat: {event.payload}")
+        message = event.payload.get("message", "")
+        logger.info(f"Agent {self.agent_id} received chat: {message}")
 
-        # TODO: 实现 chat 处理逻辑
+        try:
+            # 构建提示词
+            system_prompt = self._soul or "You are a loyal official."
+            prompt = f"Player says: {message}\n\nPlease respond in character."
+
+            # 调用 LLM
+            response_text = await self.llm_provider.call(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=0.7,
+                max_tokens=500,
+            )
+
+            # 发送响应事件给 player
+            response_event = Event(
+                src=f"agent:{self.agent_id}",
+                dst=["player"],
+                type=EventType.RESPONSE,
+                payload={"narrative": response_text},
+            )
+            await self.event_bus.send_event(response_event)
+
+            logger.info(f"Agent {self.agent_id} sent response")
+
+        except Exception as e:
+            logger.error(f"Error in _handle_chat: {e}", exc_info=True)
+
+            # 发送错误响应
+            error_event = Event(
+                src=f"agent:{self.agent_id}",
+                dst=["player"],
+                type=EventType.RESPONSE,
+                payload={"narrative": f"（系统错误：{str(e)}）"},
+            )
+            await self.event_bus.send_event(error_event)
 
     async def _handle_agent_message(self, event: Event) -> None:
         """

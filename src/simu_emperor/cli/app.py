@@ -5,6 +5,7 @@ EmperorCLI - 命令行界面主类
 import asyncio
 import logging
 from typing import Any
+from asyncio import Queue
 
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
@@ -43,6 +44,7 @@ class EmperorCLI:
         self._running = False
         self._chat_mode = False
         self._chat_agent_id = ""
+        self._response_queue: Queue = Queue()
 
         # 订阅响应事件
         self.event_bus.subscribe("player", self._on_response)
@@ -54,12 +56,16 @@ class EmperorCLI:
         运行 CLI 主循环
 
         - 显示游戏状态
+        - 处理队列中的响应
         - 获取用户输入
         - 处理命令/自然语言
         """
         self._running = True
 
         logger.info("EmperorCLI started")
+
+        # 启动后台任务处理响应
+        response_task = asyncio.create_task(self._response_loop())
 
         try:
             while self._running:
@@ -78,8 +84,37 @@ class EmperorCLI:
         except KeyboardInterrupt:
             logger.info("Received KeyboardInterrupt, shutting down...")
         finally:
+            # 停止后台任务
+            response_task.cancel()
+            try:
+                await response_task
+            except asyncio.CancelledError:
+                pass
             self._running = False
             logger.info("EmperorCLI stopped")
+
+    async def _response_loop(self) -> None:
+        """
+        后台循环：持续处理响应队列
+
+        这个任务在后台运行，不断检查并显示 Agent 的响应。
+        """
+        while self._running:
+            try:
+                # 等待响应（带超时，以便可以定期检查 _running 标志）
+                event = await asyncio.wait_for(
+                    self._response_queue.get(),
+                    timeout=0.5
+                )
+
+                narrative = event.payload.get("narrative", "")
+                print(f"\n{event.src}: {narrative}\n")
+            except asyncio.TimeoutError:
+                # 超时是正常的，继续下一次循环
+                continue
+            except asyncio.CancelledError:
+                # 任务被取消，退出循环
+                break
 
     def _display_status(self) -> None:
         """
@@ -271,9 +306,8 @@ class EmperorCLI:
         if event.type != EventType.RESPONSE:
             return
 
-        # 显示响应
-        narrative = event.payload.get("narrative", "")
-        print(f"\n{event.src}: {narrative}")
+        # 将响应放入队列，由主循环显示
+        await self._response_queue.put(event)
 
     def _get_agent_display_name(self, agent_id: str) -> str:
         """
