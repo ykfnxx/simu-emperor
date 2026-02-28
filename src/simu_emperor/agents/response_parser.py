@@ -20,9 +20,13 @@ def parse_execution_result(response: str) -> dict[str, Any]:
     {
         "narrative": "叙述性文本",
         "action": "动作名称",
-        "params": {"key": "value"}
+        "effects": [...],
+        "fidelity": 1.0,
+        "notifications": ["agent1", "agent2"]
     }
     ```
+
+    所有额外字段（effects, fidelity, notifications）都会被放入 params 中。
 
     Args:
         response: LLM 响应文本
@@ -35,14 +39,25 @@ def parse_execution_result(response: str) -> dict[str, Any]:
     try:
         data = json.loads(response.strip())
         if isinstance(data, dict):
-            if _validate_result(data):
-                # 确保 params 字段存在
-                if "params" not in data:
-                    data["params"] = {}
-                return data
-            else:
-                logger.warning(f"Invalid result structure: {data}")
-        return _get_default_result(response)
+            # 提取必需字段
+            narrative = data.get("narrative", response)
+            action = data.get("action", "unknown")
+
+            # 提取可选字段到 params
+            params = {}
+            for key in ["effects", "fidelity", "notifications"]:
+                if key in data:
+                    params[key] = data[key]
+
+            # 如果有 params 字段，合并它
+            if "params" in data and isinstance(data["params"], dict):
+                params.update(data["params"])
+
+            return {
+                "narrative": narrative,
+                "action": action,
+                "params": params,
+            }
     except json.JSONDecodeError:
         pass
 
@@ -51,11 +66,26 @@ def parse_execution_result(response: str) -> dict[str, Any]:
     if json_match:
         try:
             data = json.loads(json_match.group(1).strip())
-            if isinstance(data, dict) and _validate_result(data):
-                # 确保 params 字段存在
-                if "params" not in data:
-                    data["params"] = {}
-                return data
+            if isinstance(data, dict):
+                # 提取必需字段
+                narrative = data.get("narrative", response)
+                action = data.get("action", "unknown")
+
+                # 提取可选字段到 params
+                params = {}
+                for key in ["effects", "fidelity", "notifications"]:
+                    if key in data:
+                        params[key] = data[key]
+
+                # 如果有 params 字段，合并它
+                if "params" in data and isinstance(data["params"], dict):
+                    params.update(data["params"])
+
+                return {
+                    "narrative": narrative,
+                    "action": action,
+                    "params": params,
+                }
         except json.JSONDecodeError:
             pass
 

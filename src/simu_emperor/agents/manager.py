@@ -32,6 +32,7 @@ class AgentManager:
         llm_provider: LLMProvider,
         template_dir: Path | str = Path("data/default_agents"),
         agent_dir: Path | str = Path("data/agent"),
+        repository=None,
     ):
         """
         初始化 AgentManager
@@ -41,11 +42,13 @@ class AgentManager:
             llm_provider: LLM 提供商
             template_dir: Agent 模板目录
             agent_dir: Agent 工作目录
+            repository: GameRepository（用于数据查询）
         """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
         self.template_dir = Path(template_dir)
         self.agent_dir = Path(agent_dir)
+        self.repository = repository
 
         # 活跃的 Agent 实例
         self._active_agents: dict[str, Any] = {}
@@ -115,6 +118,7 @@ class AgentManager:
             event_bus=self.event_bus,
             llm_provider=self.llm_provider,
             data_dir=agent_path,
+            repository=self.repository,
         )
 
         # 启动 Agent

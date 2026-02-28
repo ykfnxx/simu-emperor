@@ -22,10 +22,71 @@ def mock_event_bus():
 
 @pytest.fixture
 def mock_repository():
-    """Mock Repository"""
+    """Mock Repository with valid game state"""
+    from decimal import Decimal
+
     repo = MagicMock()
     repo.get_active_agents = AsyncMock(return_value=[])
-    repo.load_state = AsyncMock(return_value={"turn": 0, "provinces": {}})
+
+    # 返回有效的 NationalBaseData 格式
+    repo.load_state = AsyncMock(return_value={
+        "turn": 0,
+        "imperial_treasury": "100000",
+        "national_tax_modifier": "1.0",
+        "tribute_rate": "0.1",
+        "provinces": [
+            {
+                "province_id": "zhili",
+                "name": "直隶",
+                "population": {
+                    "total": "2600000",
+                    "happiness": "0.7",
+                    "growth_rate": "0.002",
+                    "labor_ratio": "0.55",
+                },
+                "agriculture": {
+                    "crops": [
+                        {"crop_type": "wheat", "area_mu": "300000", "yield_per_mu": "1.3"},
+                        {"crop_type": "rice", "area_mu": "100000", "yield_per_mu": "3"},
+                    ],
+                    "irrigation_level": "0.3",
+                },
+                "commerce": {
+                    "merchant_households": "150000",
+                    "market_prosperity": "0.7",
+                },
+                "trade": {
+                    "trade_volume": "500000",
+                    "trade_route_quality": "0.6",
+                },
+                "military": {
+                    "soldiers": "50000",
+                    "morale": "0.7",
+                    "garrison_size": "30000",
+                    "equipment_level": "0.5",
+                    "upkeep": "150000",
+                    "upkeep_per_soldier": "3",
+                },
+                "taxation": {
+                    "land_tax_rate": "0.03",
+                    "commercial_tax_rate": "0.05",
+                    "tariff_rate": "0.1",
+                },
+                "consumption": {
+                    "civilian_grain_per_capita": "3",
+                    "military_grain_per_soldier": "5",
+                },
+                "administration": {
+                    "official_count": "5000",
+                    "official_salary": "20",
+                    "infrastructure_value": "0.5",
+                },
+                "granary_stock": "1200000",
+                "local_treasury": "80000",
+            }
+        ],
+    })
+
     repo.save_state = AsyncMock()
     repo.save_turn_metrics = AsyncMock()
     repo.increment_turn = AsyncMock(return_value=1)
@@ -190,10 +251,12 @@ class TestCalculator:
         assert mock_repository.load_state.called
         assert mock_repository.save_state.called
         assert mock_repository.save_turn_metrics.called
-        assert mock_repository.increment_turn.called
+        # 注意：increment_turn 不再被调用（回合数在 engine 中递增）
 
         # 应该发送 turn_resolved 事件
         assert mock_event_bus.send_event.called
         sent_event = mock_event_bus.send_event.call_args[0][0]
         assert sent_event.type == EventType.TURN_RESOLVED
         assert sent_event.src == "system:calculator"
+        # 验证回合数已递增
+        assert sent_event.payload.get("turn") == 1
