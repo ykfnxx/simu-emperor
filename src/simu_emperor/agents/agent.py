@@ -534,10 +534,23 @@ class Agent:
 
 皇帝想和你聊天，你需要：
 1. 以角色身份回应（根据 soul.md 中的性格定义）
-2. 使用 respond_to_player function 发送回复
-3. 保持历史官员的语言风格（使用"臣"、"陛下"、"圣上"等称呼）
+2. 如果问题涉及数据查询，使用 query_* functions 查询相关信息
+3. 使用 respond_to_player function 发送回复
+4. 保持历史官员的语言风格（使用"臣"、"陛下"、"圣上"等称呼）
 
-重要：聊天时不要调用其他 functions，只返回对话内容。""",
+可用查询函数：
+- query_province_data: 查询省份数据（人口、农业、商业、军事、税收等）
+- query_national_data: 查询国家级数据（国库、回合、税率等）
+- list_provinces: 列出所有省份
+
+示例：
+- 皇帝问"户部尚书是谁"：你需要知道官员信息，可以礼貌地回答或说明你需要查询
+- 皇帝问"直隶情况如何"：调用 query_province_data 查询直隶省数据，然后回答
+- 皇帝说"你好"：直接用 respond_to_player 回应，无需查询
+
+重要：
+- 不要调用 send_game_event（聊天不是执行命令）
+- 可以调用查询函数来获取信息，让回答更准确""",
             EventType.AGENT_MESSAGE: """# 当前任务
 其他官员发来消息，你需要：
 1. 处理消息内容
