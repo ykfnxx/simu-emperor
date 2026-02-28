@@ -85,3 +85,81 @@ class OpenAIProvider(LLMProvider):
         except Exception as e:
             logger.error(f"Error calling OpenAI API: {e}", exc_info=True)
             raise
+
+    async def call_with_functions(
+        self,
+        prompt: str | None = None,
+        functions: list[dict] | None = None,
+        system_prompt: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        messages: list[dict] | None = None,
+    ) -> dict:
+        """
+        调用 GPT API 并支持 function calling
+
+        Args:
+            prompt: 用户提示词（如果提供了messages，此参数会被忽略）
+            functions: 可用函数列表（OpenAI 格式）
+            system_prompt: 系统提示词（可选）
+            temperature: 温度参数
+            max_tokens: 最大生成 token 数
+            messages: 历史消息列表（用于多轮对话）
+
+        Returns:
+            包含 response_text 和 tool_calls 的字典
+        """
+        try:
+            # 如果没有提供messages，创建新的
+            if messages is None:
+                messages = []
+
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+
+                if prompt:
+                    messages.append({"role": "user", "content": prompt})
+            else:
+                # 如果提供了messages，确保有system prompt
+                if system_prompt and not any(msg.get("role") == "system" for msg in messages):
+                    messages.insert(0, {"role": "system", "content": system_prompt})
+
+            # 转换为 OpenAI 的 tools 格式
+            tools = [
+                {
+                    "type": "function",
+                    "function": func
+                }
+                for func in functions
+            ]
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            message = response.choices[0].message
+
+            # 提取 tool_calls
+            tool_calls = []
+            if message.tool_calls:
+                for tc in message.tool_calls:
+                    tool_calls.append({
+                        "id": tc.id,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    })
+
+            return {
+                "response_text": message.content or "",
+                "tool_calls": tool_calls
+            }
+
+        except Exception as e:
+            logger.error(f"Error calling OpenAI API with functions: {e}", exc_info=True)
+            raise
