@@ -332,6 +332,66 @@ When implementing features:
 4. Run `uv run ruff check .` and `uv run pytest` before committing
 5. Update this CLAUDE.md if architecture changes
 
+## Coding Standards
+
+### Error Handling
+
+**❌ FORBIDDEN: Silent Failures with Hardcoded Fallbacks**
+
+Do NOT use hardcoded fallback values when data is missing or operations fail. This hides bugs and misleads users.
+
+```python
+# ❌ WRONG: Hardcoded fallback
+async def get_user_info(user_id: str) -> str:
+    try:
+        return await database.fetch_user(user_id)
+    except Exception:
+        # Hardcoded fallback - misleading!
+        return "John Doe (admin)"
+
+# ❌ WRONG: Silent fallback with default data
+if not role_map_path.exists():
+    return """朝廷现任官员：
+- 直隶巡抚 李卫: ...
+- 户部尚书 张廷玉: ..."""
+```
+
+**✅ CORRECT: Explicit Error Messages**
+
+```python
+# ✅ GOOD: Explicit error
+async def get_user_info(user_id: str) -> str:
+    user = await database.fetch_user(user_id)
+    if not user:
+        return f"❌ 用户 {user_id} 不存在"
+    return user.format_info()
+
+# ✅ GOOD: Fail fast with clear message
+if not role_map_path.exists():
+    return "❌ 无法查询官员信息：role_map.md 文件不存在"
+
+# ✅ GOOD: Parse failure with actionable message
+if not agents_info:
+    return "❌ role_map.md 解析失败：未找到任何官员信息，请检查文件格式"
+```
+
+**Rationale:**
+- Hardcoded fallbacks mask data issues
+- Users receive incorrect information without knowing it's an error
+- Debugging becomes harder when errors are silently hidden
+- Explicit errors force developers to fix root causes
+
+**Exceptions:** The only acceptable fallback is:
+1. Testing/Mock mode (explicitly enabled)
+2. Feature flags with user consent
+3. Cached data with explicit TTL and staleness warning
+
+### Logging
+
+- Use structured logging with clear context
+- Include `request_id` / `event_id` for traceability
+- Log levels: DEBUG (dev info), INFO (normal ops), WARNING (recoverable issues), ERROR (failures)
+
 ## Testing Strategy
 
 - **Unit tests:** Mock all I/O and LLM calls. Test pure logic.

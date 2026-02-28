@@ -1162,16 +1162,12 @@ class Agent:
 
     async def _handle_list_agents_with_result(self, args: dict, event: Event) -> str:
         """列出所有活跃的 Agent（官员）并返回结果（用于多轮function calling）"""
+        role_map_path = Path(self.data_dir) / "role_map.md"
+
+        if not role_map_path.exists():
+            return "❌ 无法查询官员信息：role_map.md 文件不存在"
+
         try:
-            # 读取 role_map.md 文件
-            role_map_path = Path(self.data_dir) / "role_map.md"
-
-            if not role_map_path.exists():
-                # Fallback 到硬编码列表
-                return """朝廷现任官员：
-- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
-- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
-
             # 读取并解析 role_map.md
             with open(role_map_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -1222,17 +1218,11 @@ class Agent:
                 logger.info(f"Agent {self.agent_id} listed agents from role_map.md: {[a['agent_id'] for a in agents_info]}")
                 return "\n".join(result_lines)
             else:
-                # 解析失败，返回默认列表
-                return """朝廷现任官员：
-- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
-- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
+                return "❌ role_map.md 解析失败：未找到任何官员信息"
 
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error listing agents: {e}", exc_info=True)
-            # Fallback 到硬编码列表
-            return """朝廷现任官员：
-- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
-- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
+            return f"❌ 查询官员列表失败：{str(e)}"
 
     async def _handle_get_agent_info_with_result(self, args: dict, event: Event) -> str:
         """获取某个 Agent 的详细信息（职责、性格等）并返回结果（用于多轮function calling）"""
@@ -1241,18 +1231,12 @@ class Agent:
         if not agent_id:
             return "❌ 请提供 agent_id 参数"
 
+        role_map_path = Path(self.data_dir) / "role_map.md"
+
+        if not role_map_path.exists():
+            return f"❌ 无法查询官员信息：role_map.md 文件不存在"
+
         try:
-            # 读取 role_map.md 文件
-            role_map_path = Path(self.data_dir) / "role_map.md"
-
-            if not role_map_path.exists():
-                # Fallback 到硬编码信息
-                fallback_info = {
-                    "governor_zhili": "直隶巡抚 李卫\n\n职责：直隶省民政、农桑、商贸、治安\n适用命令：地方治理、粮食调度、商税征收、民情上报",
-                    "minister_of_revenue": "户部尚书 张廷玉\n\n职责：全国财政、税收、粮储\n适用命令：国库调拨、税率调整、赈灾拨款、财政报告",
-                }
-                return fallback_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
-
             # 读取并解析 role_map.md
             with open(role_map_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -1294,16 +1278,11 @@ class Agent:
                 logger.info(f"Agent {self.agent_id} retrieved info for {agent_id} from role_map.md")
                 return result
             else:
-                # 没找到，返回 fallback
-                fallback_info = {
-                    "governor_zhili": "直隶巡抚 李卫\n\n职责：直隶省民政、农桑、商贸、治安\n适用命令：地方治理、粮食调度、商税征收、民情上报",
-                    "minister_of_revenue": "户部尚书 张廷玉\n\n职责：全国财政、税收、粮储\n适用命令：国库调拨、税率调整、赈灾拨款、财政报告",
-                }
-                return fallback_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
+                return f"❌ 未找到官员 {agent_id} 的信息，请检查 role_map.md 中是否包含该职位"
 
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error getting agent info: {e}", exc_info=True)
-            return f"❌ 查询失败：{str(e)}"
+            return f"❌ 查询官员信息失败：{str(e)}"
 
     async def _handle_list_agents(self, args: dict, event: Event) -> None:
         """列出所有活跃的 Agent（单轮模式，此函数为空实现，应使用 with_result 版本）"""
