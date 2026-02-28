@@ -29,25 +29,29 @@ class Calculator:
     Attributes:
         event_bus: 事件总线
         repository: 数据库仓储
+        agent_manager: Agent 管理器（可选）
         pending_ready: 等待中的 Agent ID 集合
         ready_timeout: ready 超时时间（秒）
         _running: 是否运行中
     """
 
-    def __init__(self, event_bus: EventBus, repository: Any):
+    def __init__(self, event_bus: EventBus, repository: Any, agent_manager: Any = None):
         """
         初始化 Calculator
 
         Args:
             event_bus: 事件总线
             repository: 数据库仓储对象
+            agent_manager: Agent 管理器对象（可选，用于获取活跃 Agent）
         """
         self.event_bus = event_bus
         self.repository = repository
+        self.agent_manager = agent_manager
         self.pending_ready: set[str] = set()
         self.ready_timeout: float = 5.0  # 5 秒超时
         self._running: bool = False
         self._ready_timeout_task: asyncio.Task | None = None
+        self._current_turn_chat_id: int | None = None  # 存储当前回合的 chat_id
 
         logger.info("Calculator initialized")
 
@@ -58,6 +62,7 @@ class Calculator:
         订阅相关事件：
         - end_turn: 玩家结束回合
         - ready: Agent 准备就绪
+        - allocate_funds: 拨款
         - adjust_tax: 调整税率
         - build_irrigation: 建设水利
         - recruit_troops: 招募军队
@@ -69,6 +74,7 @@ class Calculator:
         self.event_bus.subscribe("system:calculator", self._on_ready)
 
         # 订阅游戏动作事件
+        self.event_bus.subscribe("system:calculator", self._on_allocate_funds)
         self.event_bus.subscribe("system:calculator", self._on_adjust_tax)
         self.event_bus.subscribe("system:calculator", self._on_build_irrigation)
         self.event_bus.subscribe("system:calculator", self._on_recruit_troops)
@@ -93,6 +99,9 @@ class Calculator:
         """
         if event.type != EventType.END_TURN:
             return
+
+        # 保存 chat_id 用于后续通知
+        self._current_turn_chat_id = event.payload.get("chat_id")
 
         logger.info("Received end_turn event, collecting agent ready signals")
 
@@ -175,47 +184,93 @@ class Calculator:
         logger.info("Resolving turn")
 
         try:
-            # 加载当前状态
-            state = await self.repository.load_state()
-            current_turn = state.get("turn", 0)
+            # 加载当前状态（dict 格式）
+            state_dict = await self.repository.load_state()
+            current_turn = state_dict.get("turn", 0)
 
-            # TODO: 运行经济公式
-            # 需要等待 engine 模块适配
-            # from simu_emperor.engine.calculator import resolve_turn
-            # metrics = resolve_turn(state)
+            # 转换为 Pydantic 模型
+            from simu_emperor.engine.models.base_data import NationalBaseData
+            from simu_emperor.engine.calculator import resolve_turn
 
-            # 暂时使用空指标
-            metrics = {
-                "turn": current_turn + 1,
-                "total_food_production": 0,
-                "total_food_consumption": 0,
-                "total_tax_revenue": 0,
-                "total_expenditure": 0,
-            }
+            current_data = NationalBaseData.model_validate(state_dict)
+            logger.info(f"Loaded game state for turn {current_turn}")
 
-            # 更新回合数
-            new_turn = await self.repository.increment_turn()
-            state["turn"] = new_turn
+            # 运行经济公式（暂时无活跃事件）
+            new_data, national_metrics = resolve_turn(current_data, active_events=[])
 
-            # 保存新状态
-            await self.repository.save_state(state)
+            # 转换回 dict 格式并保存
+            new_state_dict = new_data.model_dump(mode='json')
+            await self.repository.save_state(new_state_dict)
 
             # 保存回合指标
-            await self.repository.save_turn_metrics(new_turn, metrics)
+            metrics_dict = national_metrics.model_dump(mode='json')
+            await self.repository.save_turn_metrics(new_data.turn, metrics_dict)
 
-            # 发布 turn_resolved 事件
+            # 发布 turn_resolved 事件（包含 chat_id 用于通知）
+            payload = {
+                "turn": new_data.turn,
+                "metrics": metrics_dict,
+            }
+            if self._current_turn_chat_id is not None:
+                payload["chat_id"] = self._current_turn_chat_id
+
             event = Event(
                 src="system:calculator",
                 dst=["*"],
                 type=EventType.TURN_RESOLVED,
-                payload={"turn": new_turn},
+                payload=payload,
             )
             await self.event_bus.send_event(event)
 
-            logger.info(f"Turn {new_turn} resolved")
+            logger.info(
+                f"Turn {new_data.turn} resolved - "
+                f"Food: {national_metrics.imperial_treasury_change}, "
+                f"Treasury: {new_data.imperial_treasury}"
+            )
+
+            # 清除 chat_id
+            self._current_turn_chat_id = None
 
         except Exception as e:
             logger.error(f"Error resolving turn: {e}", exc_info=True)
+
+    async def _on_allocate_funds(self, event: Event) -> None:
+        """
+        处理拨款事件
+
+        Args:
+            event: allocate_funds 事件
+        """
+        if event.type != EventType.ALLOCATE_FUNDS:
+            return
+
+        province = event.payload.get("province")
+        amount = event.payload.get("amount")
+
+        if province and amount is not None:
+            state = await self.repository.load_state()
+
+            # 检查国库余额
+            imperial_treasury = state.get("imperial_treasury", 0)
+            if imperial_treasury < amount:
+                logger.warning(f"Insufficient funds in imperial treasury: {imperial_treasury} < {amount}")
+                return
+
+            # 扣除国库
+            state["imperial_treasury"] = imperial_treasury - amount
+
+            # 增加省库
+            provinces = state.get("provinces", [])
+            for p in provinces:
+                if p.get("province_id") == province:
+                    current_local = p.get("local_treasury", 0)
+                    p["local_treasury"] = current_local + amount
+                    break
+
+            await self.repository.save_state(state)
+            logger.info(f"Allocated {amount} from imperial treasury to {province}")
+        else:
+            logger.warning(f"Invalid allocation payload: {event.payload}")
 
     async def _on_adjust_tax(self, event: Event) -> None:
         """
@@ -280,4 +335,11 @@ class Calculator:
         Returns:
             Agent ID 列表
         """
-        return await self.repository.get_active_agents()
+        # 优先从 AgentManager 获取
+        if self.agent_manager:
+            return self.agent_manager.get_active_agents()
+
+        # 如果没有 AgentManager，尝试从数据库获取
+        # 或者返回空列表（无 Agent 场景）
+        logger.warning("No AgentManager available, returning empty agent list")
+        return []
