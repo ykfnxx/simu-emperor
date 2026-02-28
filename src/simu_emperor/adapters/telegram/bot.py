@@ -14,7 +14,6 @@ from typing import Any, Callable, Awaitable
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-import httpx
 
 from simu_emperor.adapters.telegram.session import SessionManager
 
@@ -62,23 +61,21 @@ class TelegramBotService:
         logger.info("🤖 [Bot] ========== Initializing Telegram Bot ==========")
 
         try:
-            # 配置 httpx 客户端，增加超时时间以避免连接超时
-            timeout = httpx.Timeout(
-                connect=30.0,  # 连接超时 30 秒
-                read=60.0,     # 读取超时 60 秒
-                write=30.0,    # 写入超时 30 秒
-                pool=10.0,     # 连接池超时 10 秒
-            )
-            # 创建自定义 httpx 客户端
-            client = httpx.AsyncClient(timeout=timeout)
-
+            # 配置超时时间以避免连接超时
             self.application = (
                 Application.builder()
                 .token(self.token)
-                .httpx_client(client)  # 使用自定义客户端
+                .connect_timeout(30.0)     # 连接超时 30 秒（默认 5 秒）
+                .read_timeout(60.0)        # 读取超时 60 秒（默认 5 秒）
+                .write_timeout(30.0)       # 写入超时 30 秒（默认 5 秒）
+                .pool_timeout(10.0)        # 连接池超时 10 秒（默认 1 秒）
+                .get_updates_connect_timeout(30.0)  # get_updates 连接超时
+                .get_updates_read_timeout(60.0)     # get_updates 读取超时
+                .get_updates_write_timeout(30.0)    # get_updates 写入超时
+                .get_updates_pool_timeout(10.0)     # get_updates 连接池超时
                 .build()
             )
-            logger.info("✅ [Bot] Application builder created with custom timeout")
+            logger.info("✅ [Bot] Application builder created with custom timeout (30s/60s)")
 
         except Exception as e:
             logger.error(f"❌ [Bot] Failed to build application: {e}", exc_info=True)
@@ -141,12 +138,6 @@ class TelegramBotService:
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
-
-            # 关闭自定义 httpx 客户端
-            if hasattr(self.application, 'httpx_client') and self.application.httpx_client:
-                await self.application.httpx_client.aclose()
-                logger.info("HTTPX client closed")
-
             logger.info("Telegram Bot stopped")
 
     async def _cmd_start(self, update: Update, context: Any) -> None:
