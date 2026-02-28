@@ -27,6 +27,7 @@ Thumbs.db
 data/agent/*
 !data/agent/.gitkeep
 data/log/
+data/logs/
 data/saves/
 
 # Database
