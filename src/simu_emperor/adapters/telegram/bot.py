@@ -8,11 +8,13 @@ Telegram Bot 服务
 - 处理传入消息
 """
 
+import asyncio
 import logging
 from typing import Any, Callable, Awaitable
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
+import httpx
 
 from simu_emperor.adapters.telegram.session import SessionManager
 
@@ -60,8 +62,23 @@ class TelegramBotService:
         logger.info("🤖 [Bot] ========== Initializing Telegram Bot ==========")
 
         try:
-            self.application = Application.builder().token(self.token).build()
-            logger.info("✅ [Bot] Application builder created")
+            # 配置 httpx 客户端，增加超时时间以避免连接超时
+            timeout = httpx.Timeout(
+                connect=30.0,  # 连接超时 30 秒
+                read=60.0,     # 读取超时 60 秒
+                write=30.0,    # 写入超时 30 秒
+                pool=10.0,     # 连接池超时 10 秒
+            )
+            # 创建自定义 httpx 客户端
+            client = httpx.AsyncClient(timeout=timeout)
+
+            self.application = (
+                Application.builder()
+                .token(self.token)
+                .httpx_client(client)  # 使用自定义客户端
+                .build()
+            )
+            logger.info("✅ [Bot] Application builder created with custom timeout")
 
         except Exception as e:
             logger.error(f"❌ [Bot] Failed to build application: {e}", exc_info=True)
@@ -124,6 +141,12 @@ class TelegramBotService:
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
+
+            # 关闭自定义 httpx 客户端
+            if hasattr(self.application, 'httpx_client') and self.application.httpx_client:
+                await self.application.httpx_client.aclose()
+                logger.info("HTTPX client closed")
+
             logger.info("Telegram Bot stopped")
 
     async def _cmd_start(self, update: Update, context: Any) -> None:

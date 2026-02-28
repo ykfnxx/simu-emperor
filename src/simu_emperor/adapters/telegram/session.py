@@ -199,16 +199,33 @@ class GameSession:
 
         logger.info(f"📨 Received response from {agent_name}: {narrative[:50]}...")
 
-        try:
-            await self.bot_application.bot.send_message(
-                chat_id=self.chat_id,
-                text=f"📜 <b>{agent_name}</b>:\n\n{narrative}",
-                parse_mode="HTML",
-            )
-            logger.info(f"✅ Sent response from {agent_name} to chat {self.chat_id}")
-        except Exception as e:
-            logger.error(f"❌ Failed to send response: {e}", exc_info=True)
-            logger.error(f"Failed to send message to {self.chat_id}: {e}")
+        # 重试配置
+        max_retries = 3
+        base_delay = 1.0  # 基础延迟时间（秒）
+
+        for attempt in range(max_retries):
+            try:
+                await self.bot_application.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=f"📜 <b>{agent_name}</b>:\n\n{narrative}",
+                    parse_mode="HTML",
+                )
+                logger.info(f"✅ Sent response from {agent_name} to chat {self.chat_id}")
+                return  # 成功发送，退出
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # 计算指数退避延迟
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"⚠️  Failed to send response (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    # 最后一次尝试失败
+                    logger.error(f"❌ Failed to send response after {max_retries} attempts: {e}", exc_info=True)
+                    logger.error(f"Failed to send message to {self.chat_id}: {e}")
 
     async def _on_turn_resolved(self, event: Event) -> None:
         """
@@ -227,15 +244,32 @@ class GameSession:
 
         turn = event.payload.get("turn", 0)
 
-        try:
-            await self.bot_application.bot.send_message(
-                chat_id=self.chat_id,
-                text=f"✅ <b>第 {turn} 回合结算完成</b>\n\n可以继续与官员交互或再次结束回合。",
-                parse_mode="HTML",
-            )
-            logger.info(f"Sent turn resolved notification to chat {self.chat_id} for turn {turn}")
-        except Exception as e:
-            logger.error(f"Failed to send turn resolved message to {self.chat_id}: {e}")
+        # 重试配置
+        max_retries = 3
+        base_delay = 1.0  # 基础延迟时间（秒）
+
+        for attempt in range(max_retries):
+            try:
+                await self.bot_application.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=f"✅ <b>第 {turn} 回合结算完成</b>\n\n可以继续与官员交互或再次结束回合。",
+                    parse_mode="HTML",
+                )
+                logger.info(f"Sent turn resolved notification to chat {self.chat_id} for turn {turn}")
+                return  # 成功发送，退出
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # 计算指数退避延迟
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"⚠️  Failed to send turn notification (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    # 最后一次尝试失败
+                    logger.error(f"Failed to send turn resolved message to {self.chat_id} after {max_retries} attempts: {e}")
 
     async def _initialize_game_state(self) -> None:
         """初始化游戏状态（如果数据库为空）"""
