@@ -266,6 +266,9 @@ class TelegramBotService:
             dst=["*"],
             type=EventType.END_TURN,
             payload={"chat_id": chat_id},
+            session_id=session.session_id,  # ✅ 添加 session_id
+            parent_event_id=None,           # ✅ 根事件
+            root_event_id="",                # ✅ EventBus 自动设置
         )
 
         await session.event_bus.send_event(event)

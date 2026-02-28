@@ -12,6 +12,7 @@ from typing import Any, Callable, Awaitable
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.adapters.telegram.session import GameSession
+from simu_emperor.adapters.telegram.session_context import EventCategory
 
 
 logger = logging.getLogger(__name__)
@@ -70,38 +71,47 @@ class MessageRouter:
             await reply_func("❌ 格式错误。使用 /help 查看帮助。")
             return
 
-        # 2. 检测命令类型
+        # 2. 检测命令类型并确定事件类别
         if text.strip().startswith("/cmd "):
             # /cmd @agent1 @agent2 command
             intent, payload = self._parse_command(text)
             targets = [f"agent:{agent}" for agent in mentions] if mentions != ["all"] else ["*"]
             event_type = EventType.COMMAND
+            event_category = EventCategory.COMMAND  # 命令事件
             logger.info(f"📋 [Router:{request_id}] Detected COMMAND event, targets: {targets}")
         elif mentions:
             # @agent message 或 @all message
             intent, payload = self._parse_chat(text)
             targets = [f"agent:{agent}" for agent in mentions] if mentions != ["all"] else ["*"]
             event_type = EventType.CHAT
+            event_category = EventCategory.CHAT  # 聊天事件
             logger.info(f"💬 [Router:{request_id}] Detected CHAT event, targets: {targets}")
         else:
             # 没有提及任何 agent
             await reply_func("❌ 请使用 @agent_name 或 @all 来发送消息。使用 /help 查看帮助。")
             return
 
-        # 3. 发送事件
+        # 3. 获取对应的 session_id
+        session_id = await self.session.get_session_id_for_event(event_category)
+        logger.debug(f"🏷️  [Router:{request_id}] Using session_id: {session_id}")
+
+        # 4. 发送事件
         payload_with_tracking = {**payload, "chat_id": chat_id, "_request_id": request_id}
         event = Event(
             src=self.session.player_id,
             dst=targets,
             type=event_type,
             payload=payload_with_tracking,
+            session_id=session_id,  # ✅ 使用动态 session_id
+            parent_event_id=None,   # ✅ 根事件
+            root_event_id="",        # ✅ EventBus 自动设置
         )
 
         logger.info(f"📤 [Router:{request_id}] Sending {event_type} event to EventBus: src={self.session.player_id}, dst={targets}")
         await self.session.event_bus.send_event(event)
         logger.info(f"✅ [Router:{request_id}] Event sent successfully")
 
-        # 4. 确认发送
+        # 5. 确认发送
         target_display = ", ".join(mentions) if mentions != ["all"] else "所有官员"
         await reply_func(f"✅ 消息已发送给: {target_display}")
 

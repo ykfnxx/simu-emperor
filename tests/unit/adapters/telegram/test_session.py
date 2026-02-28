@@ -209,6 +209,7 @@ async def test_game_session_response_handler(mock_settings, mock_bot_application
         dst=[session.player_id],
         type=EventType.RESPONSE,
         payload={"narrative": "你好，陛下！"},
+        session_id=session.session_id,
     )
 
     await session._on_response(event)

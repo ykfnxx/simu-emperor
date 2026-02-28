@@ -20,6 +20,8 @@ from simu_emperor.persistence.repositories import GameRepository
 from simu_emperor.core.calculator import Calculator
 from simu_emperor.agents.manager import AgentManager
 from simu_emperor.llm.base import LLMProvider
+from simu_emperor.adapters.telegram.session_context import SessionContextManager
+from simu_emperor.adapters.telegram.session_context import EventCategory
 
 
 logger = logging.getLogger(__name__)
@@ -35,10 +37,12 @@ class GameSession:
     - 独立的 Repository
     - 独立的 Calculator
     - 独立的 AgentManager
+    - Session 上下文管理器（用于 session 切换）
 
     Attributes:
         chat_id: Telegram 聊天 ID
         player_id: 玩家 ID（格式：player:telegram:{chat_id}）
+        session_id: 基础会话 ID（格式：session:telegram:{chat_id}）
         settings: 游戏配置
         db_path: 数据库路径
         event_bus: 事件总线
@@ -47,6 +51,7 @@ class GameSession:
         agent_manager: Agent 管理器
         bot_application: Telegram Bot 应用实例
         llm_provider: LLM 提供商
+        session_context_manager: Session 上下文管理器
     """
 
     def __init__(
@@ -84,6 +89,9 @@ class GameSession:
         self.agent_manager: AgentManager | None = None
         self._running: bool = False
 
+        # Session 上下文管理器
+        self.session_context_manager: SessionContextManager | None = None
+
         logger.info(f"GameSession created for chat_id={chat_id}")
 
     async def start(self) -> None:
@@ -93,6 +101,16 @@ class GameSession:
             return
 
         logger.info(f"Starting session for chat_id={self.chat_id}")
+
+        # 0. 初始化 SessionContextManager
+        self.session_context_manager = SessionContextManager(
+            chat_id=self.chat_id,
+            base_session_id=self.session_id,
+            chat_ttl_hours=24,
+            command_ttl_hours=1,
+        )
+        await self.session_context_manager.start_cleanup_task(interval_seconds=3600)
+        logger.info("SessionContextManager initialized")
 
         # 1. 初始化数据库
         conn = await init_database(self.db_path)
@@ -156,6 +174,9 @@ class GameSession:
 
         if self.calculator:
             self.calculator.stop()
+
+        if self.session_context_manager:
+            await self.session_context_manager.stop_cleanup_task()
 
         if self.repository:
             await close_database()
@@ -306,6 +327,28 @@ class GameSession:
         await self.repository.save_state(state_dict)
 
         logger.info(f"Initialized game state with {len(initial_state.provinces)} province(s)")
+
+    async def get_session_id_for_event(
+        self,
+        event_category: str = "other"
+    ) -> str:
+        """
+        根据事件类型返回对应的 session_id
+
+        Args:
+            event_category: 事件类别
+                - "chat": CHAT/QUERY 事件，使用聊天会话
+                - "command": COMMAND 事件，使用命令会话
+                - "other": 其他事件，使用基础会话 ID
+
+        Returns:
+            session_id
+        """
+        if self.session_context_manager is None:
+            # 回退到基础 session_id
+            return self.session_id
+
+        return await self.session_context_manager.get_session_for_event(event_category)
 
 
 class SessionManager:

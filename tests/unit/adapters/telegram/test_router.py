@@ -15,8 +15,11 @@ def mock_session():
     session = MagicMock()
     session.player_id = "player:telegram:123"
     session.chat_id = 123
+    session.session_id = "session:telegram:123"
     session.event_bus = MagicMock()
     session.event_bus.send_event = AsyncMock()
+    # Mock the async get_session_id_for_event method
+    session.get_session_id_for_event = AsyncMock(return_value="session:telegram:123")
     return session
 
 
