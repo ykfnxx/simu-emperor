@@ -1163,105 +1163,76 @@ class Agent:
     async def _handle_list_agents_with_result(self, args: dict, event: Event) -> str:
         """列出所有活跃的 Agent（官员）并返回结果（用于多轮function calling）"""
         try:
-            # 通过 agent 目录扫描获取所有 agent
-            agent_dir = Path(self.data_dir) / "agent"
+            # 读取 role_map.md 文件
+            role_map_path = Path(self.data_dir) / "role_map.md"
 
-            # 如果是 Telegram session，检查特定目录
-            if hasattr(self, 'session_id') and 'telegram' in self.session_id:
-                # 尝试多个可能的目录
-                possible_dirs = [
-                    agent_dir / f"telegram_{self.session_id.split(':')[-1]}",
-                    agent_dir / "telegram_*",
-                    self.data_dir / "default_agents"
-                ]
+            if not role_map_path.exists():
+                # Fallback 到硬编码列表
+                return """朝廷现任官员：
+- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
+- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
 
-                agents_info = []
-                for dir_path in possible_dirs:
-                    if '*' in str(dir_path):
-                        # 处理通配符
-                        from glob import glob
-                        matched_dirs = glob(str(dir_path))
-                        for matched_dir in matched_dirs:
-                            agents_info.extend(self._scan_agents_dir(Path(matched_dir)))
-                    elif dir_path.exists():
-                        agents_info.extend(self._scan_agents_dir(dir_path))
-                        if agents_info:
-                            break  # 找到 agents 就停止
-            else:
-                # 默认扫描 default_agents
-                default_agents_dir = self.data_dir / "default_agents"
-                agents_info = self._scan_agents_dir(default_agents_dir) if default_agents_dir.exists() else []
+            # 读取并解析 role_map.md
+            with open(role_map_path, 'r', encoding='utf-8') as f:
+                content = f.read()
 
-            if not agents_info:
-                # 如果没有找到，返回硬编码的默认列表
-                agents_info = [
-                    {"agent_id": "governor_zhili", "name": "直隶总督 李卫", "description": "负责直隶省的军政事务"},
-                    {"agent_id": "minister_of_revenue", "name": "户部尚书", "description": "负责国家财政、税收、国库管理"},
-                ]
+            # 解析每个官员的信息
+            agents_info = []
+            current_section = None
+
+            for line in content.split('\n'):
+                line = line.strip()
+
+                # 匹配 ## 职位名称 (agent_id)
+                if line.startswith('## '):
+                    if current_section:
+                        agents_info.append(current_section)
+                    # 提取职位和 agent_id
+                    title_line = line[3:].strip()
+                    if '(' in title_line and ')' in title_line:
+                        title = title_line[:title_line.index('(')].strip()
+                        agent_id = title_line[title_line.index('(')+1:title_line.index(')')].strip()
+                        current_section = {"title": title, "agent_id": agent_id, "name": None, "duty": None}
+
+                # 匹配 - 姓名：xxx
+                elif line.startswith('- 姓名：') or line.startswith('- 姓名:'):
+                    if current_section:
+                        current_section["name"] = line.split('：', 1)[-1].split(':', 1)[-1].strip()
+
+                # 匹配 - 职责：xxx
+                elif line.startswith('- 职责：') or line.startswith('- 职责:'):
+                    if current_section:
+                        current_section["duty"] = line.split('：', 1)[-1].split(':', 1)[-1].strip()
+
+            # 添加最后一个 section
+            if current_section:
+                agents_info.append(current_section)
 
             # 构建返回结果
-            result_lines = ["朝廷现任官员："]
-            for agent in agents_info:
-                result_lines.append(f"- {agent.get('name', agent['agent_id'])}（ID: {agent['agent_id']}）: {agent.get('description', '暂无描述')}")
+            if agents_info:
+                result_lines = ["朝廷现任官员："]
+                for agent in agents_info:
+                    name = agent.get('name', '未知')
+                    title = agent.get('title', '未知职位')
+                    agent_id = agent.get('agent_id', 'unknown')
+                    duty = agent.get('duty', '暂无职责描述')
 
-            logger.info(f"Agent {self.agent_id} listed agents: {[a['agent_id'] for a in agents_info]}")
+                    result_lines.append(f"- {title} {name}（ID: {agent_id}）: {duty}")
 
-            return "\n".join(result_lines)
+                logger.info(f"Agent {self.agent_id} listed agents from role_map.md: {[a['agent_id'] for a in agents_info]}")
+                return "\n".join(result_lines)
+            else:
+                # 解析失败，返回默认列表
+                return """朝廷现任官员：
+- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
+- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
 
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error listing agents: {e}", exc_info=True)
-            # 返回硬编码的默认列表作为 fallback
-            return "朝廷现任官员：\n- 直隶总督 李卫（ID: governor_zhili）: 负责直隶省的军政事务\n- 户部尚书（ID: minister_of_revenue）: 负责国家财政、税收、国库管理"
-
-    def _scan_agents_dir(self, dir_path: Path) -> list[dict]:
-        """扫描 agent 目录，获取所有 agent 信息"""
-        agents_info = []
-
-        if not dir_path.exists():
-            return agents_info
-
-        for agent_path in dir_path.iterdir():
-            if not agent_path.is_dir():
-                continue
-
-            agent_id = agent_path.name
-            soul_path = agent_path / "soul.md"
-
-            # 读取 soul.md 获取名称和描述
-            name = agent_id
-            description = "暂无描述"
-
-            if soul_path.exists():
-                try:
-                    with open(soul_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        # 简单提取名称（第一行或 # 开头的行）
-                        for line in content.split('\n')[:10]:
-                            line = line.strip()
-                            if line.startswith('#'):
-                                name = line.lstrip('#').strip()
-                                break
-                            elif line and not line.startswith('#'):
-                                name = line
-                                break
-
-                        # 提取描述（包含"职责"、"负责"等关键词的行）
-                        for line in content.split('\n'):
-                            if '职责' in line or '负责' in line or 'description' in line.lower():
-                                description = line.strip()
-                                if description.startswith('#') or description.startswith('-') or description.startswith('*'):
-                                    description = description.lstrip('#-*').strip()
-                                break
-                except Exception as e:
-                    logger.warning(f"Failed to read soul.md for {agent_id}: {e}")
-
-            agents_info.append({
-                "agent_id": agent_id,
-                "name": name,
-                "description": description
-            })
-
-        return agents_info
+            # Fallback 到硬编码列表
+            return """朝廷现任官员：
+- 直隶巡抚 李卫（ID: governor_zhili）: 直隶省民政、农桑、商贸、治安
+- 户部尚书 张廷玉（ID: minister_of_revenue）: 全国财政、税收、粮储"""
 
     async def _handle_get_agent_info_with_result(self, args: dict, event: Event) -> str:
         """获取某个 Agent 的详细信息（职责、性格等）并返回结果（用于多轮function calling）"""
@@ -1271,37 +1242,64 @@ class Agent:
             return "❌ 请提供 agent_id 参数"
 
         try:
-            # 尝试从多个可能的目录查找 agent
-            agent_dir = Path(self.data_dir) / "agent"
-            possible_dirs = []
+            # 读取 role_map.md 文件
+            role_map_path = Path(self.data_dir) / "role_map.md"
 
-            if hasattr(self, 'session_id') and 'telegram' in self.session_id:
-                chat_id = self.session_id.split(':')[-1]
-                possible_dirs.append(agent_dir / f"telegram_{chat_id}")
-
-            possible_dirs.append(self.data_dir / "default_agents")
-
-            soul_content = None
-            for dir_path in possible_dirs:
-                soul_path = dir_path / agent_id / "soul.md"
-                if soul_path.exists():
-                    try:
-                        with open(soul_path, 'r', encoding='utf-8') as f:
-                            soul_content = f.read()
-                        break
-                    except Exception as e:
-                        logger.warning(f"Failed to read {soul_path}: {e}")
-
-            if soul_content:
-                # 返回完整的 soul.md 内容
-                return f"【{agent_id} 的详细信息】\n\n{soul_content}"
-            else:
-                # 返回硬编码的默认信息
-                default_info = {
-                    "governor_zhili": "直隶总督 李卫\n\n职责：负责直隶省的军政事务，包括维护治安、征收税款、管理民政、执行朝廷命令。",
-                    "minister_of_revenue": "户部尚书\n\n职责：负责国家财政、税收、国库管理。管理各省税收，统筹财政收支，为朝廷提供财政建议。",
+            if not role_map_path.exists():
+                # Fallback 到硬编码信息
+                fallback_info = {
+                    "governor_zhili": "直隶巡抚 李卫\n\n职责：直隶省民政、农桑、商贸、治安\n适用命令：地方治理、粮食调度、商税征收、民情上报",
+                    "minister_of_revenue": "户部尚书 张廷玉\n\n职责：全国财政、税收、粮储\n适用命令：国库调拨、税率调整、赈灾拨款、财政报告",
                 }
-                return default_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
+                return fallback_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
+
+            # 读取并解析 role_map.md
+            with open(role_map_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 查找对应的 agent section
+            current_section = None
+            result_info = []
+
+            for line in content.split('\n'):
+                line = line.strip()
+
+                # 匹配 ## 职位名称 (agent_id)
+                if line.startswith('## '):
+                    # 如果已经找到了目标 section，返回结果
+                    if current_section and current_section.get('agent_id') == agent_id:
+                        break
+
+                    # 开始新的 section
+                    title_line = line[3:].strip()
+                    if '(' in title_line and ')' in title_line:
+                        title = title_line[:title_line.index('(')].strip()
+                        section_agent_id = title_line[title_line.index('(')+1:title_line.index(')')].strip()
+                        current_section = {"title": title, "agent_id": section_agent_id, "info": []}
+
+                # 如果在目标 section 中，收集信息
+                elif current_section and current_section.get('agent_id') == agent_id:
+                    if line.startswith('-'):
+                        result_info.append(line)
+                    elif result_info:  # 遇到空行或新 section
+                        break
+
+            # 构建返回结果
+            if result_info and current_section:
+                title = current_section.get('title', '')
+                name = next((line.split('：', 1)[-1].split(':', 1)[-1].strip()
+                           for line in result_info if line.startswith('- 姓名') or line.startswith('- 姓名:')), '')
+
+                result = f"【{title} - {name}】\n\n" + "\n".join(result_info)
+                logger.info(f"Agent {self.agent_id} retrieved info for {agent_id} from role_map.md")
+                return result
+            else:
+                # 没找到，返回 fallback
+                fallback_info = {
+                    "governor_zhili": "直隶巡抚 李卫\n\n职责：直隶省民政、农桑、商贸、治安\n适用命令：地方治理、粮食调度、商税征收、民情上报",
+                    "minister_of_revenue": "户部尚书 张廷玉\n\n职责：全国财政、税收、粮储\n适用命令：国库调拨、税率调整、赈灾拨款、财政报告",
+                }
+                return fallback_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
 
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error getting agent info: {e}", exc_info=True)
