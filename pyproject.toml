@@ -15,6 +15,7 @@ dependencies = [
     "instructor>=1.5",
     "pyyaml>=6.0",
     "filelock>=3.0",
+    "python-telegram-bot>=22.0",
 ]
 
 [project.scripts]
