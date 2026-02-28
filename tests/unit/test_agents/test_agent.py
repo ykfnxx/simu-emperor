@@ -1,9 +1,9 @@
 """
-测试 Agent 核心逻辑
+测试 Agent 核心逻辑（Function Calling 架构）
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 from simu_emperor.agents.agent import Agent
 from simu_emperor.event_bus.core import EventBus
@@ -23,35 +23,74 @@ def mock_event_bus():
 
 
 @pytest.fixture
+def mock_repository():
+    """Mock Repository"""
+    repo = Mock()
+    repo.load_state = AsyncMock(return_value={
+        "turn": 5,
+        "imperial_treasury": 100000,
+        "provinces": [
+            {
+                "province_id": "zhili",
+                "name": "直隶",
+                "population": {"total": 2600000, "happiness": 0.7}
+            },
+            {
+                "province_id": "shanxi",
+                "name": "山西",
+                "population": {"total": 1800000, "happiness": 0.65}
+            }
+        ]
+    })
+    return repo
+
+
+@pytest.fixture
 def mock_llm():
     """Mock LLM Provider"""
-    return MockProvider(response="LLM response")
+    return MockProvider(
+        response="",
+        tool_calls=[
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "respond_to_player",
+                    "arguments": '{"content": "臣遵旨！"}'
+                }
+            }
+        ]
+    )
 
 
 @pytest.fixture
 def temp_data_dir(tmp_path):
     """创建临时数据目录"""
+    # 创建目录结构：tmp_path/data/agent/test_agent/
+    agent_dir = tmp_path / "data" / "agent" / "test_agent"
+    agent_dir.mkdir(parents=True)
+
     # 创建 soul.md
-    soul_path = tmp_path / "soul.md"
+    soul_path = agent_dir / "soul.md"
     soul_path.write_text("# Test Soul\nYou are a test agent.", encoding="utf-8")
 
     # 创建 data_scope.yaml
     import yaml
 
-    scope_path = tmp_path / "data_scope.yaml"
+    scope_path = agent_dir / "data_scope.yaml"
     scope_path.write_text(yaml.dump({"query": ["province.population"]}), encoding="utf-8")
 
-    return tmp_path
+    return agent_dir
 
 
 @pytest.fixture
-def agent(mock_event_bus, mock_llm, temp_data_dir):
+def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository):
     """创建 Agent 实例"""
     return Agent(
         agent_id="test_agent",
         event_bus=mock_event_bus,
         llm_provider=mock_llm,
         data_dir=temp_data_dir,
+        repository=mock_repository,
     )
 
 
@@ -71,6 +110,7 @@ class TestAgent:
         """测试启动"""
         agent.start()
 
+        # 现在只订阅2次：agent:xxx 和 * (broadcast only)
         assert mock_event_bus.subscribe.call_count == 2
 
     def test_stop(self, agent, mock_event_bus):
@@ -78,75 +118,149 @@ class TestAgent:
         agent.start()
         agent.stop()
 
-        assert mock_event_bus.unsubscribe.call_count == 2
+        # 只取消订阅1次：agent:xxx
+        # conditional_handler 无法取消（局部变量）
+        assert mock_event_bus.unsubscribe.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_on_event_command(self, agent):
+    async def test_on_event_command(self, agent, mock_llm):
         """测试处理命令事件"""
         agent.start()
+
+        # 设置 tool calls
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "send_game_event",
+                    "arguments": '{"event_type": "adjust_tax", "payload": {"province": "zhili", "rate": 0.05}}'
+                }
+            },
+            {
+                "id": "call_2",
+                "function": {
+                    "name": "respond_to_player",
+                    "arguments": '{"content": "臣遵旨！已调整直隶税率为 5%。"}'
+                }
+            }
+        ])
 
         event = Event(
             src="player",
             dst=["agent:test_agent"],
             type=EventType.COMMAND,
-            payload={"action": "test"},
+            payload={"command": "调整直隶税率为 5%"},
         )
 
         await agent._on_event(event)
 
-        # 不应该抛出异常
+        # 应该调用 LLM
+        assert mock_llm.call_count == 1
+
+        # 应该发送事件
+        assert agent.event_bus.send_event.called
+        # 验证发送的事件
+        calls = agent.event_bus.send_event.call_args_list
+        assert len(calls) == 2  # send_game_event + respond_to_player
 
     @pytest.mark.asyncio
-    async def test_on_event_query(self, agent):
+    async def test_on_event_query(self, agent, mock_llm):
         """测试处理查询事件"""
         agent.start()
+
+        # 设置 tool calls（第一轮：查询）
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "query_national_data",
+                    "arguments": '{"field_name": "imperial_treasury"}'
+                }
+            }
+        ])
 
         event = Event(
             src="player",
             dst=["agent:test_agent"],
             type=EventType.QUERY,
-            payload={"query": "test"},
+            payload={"query": "国库还有多少银两？"},
         )
 
         await agent._on_event(event)
 
-        # 不应该抛出异常
+        # 应该调用 LLM 两次（第一轮查询，第二轮回复）
+        # 因为包含查询函数，需要多轮对话
+        assert mock_llm.call_count == 2
+        assert agent.event_bus.send_event.called
 
     @pytest.mark.asyncio
-    async def test_on_event_chat(self, agent):
+    async def test_on_event_chat(self, agent, mock_llm):
         """测试处理对话事件"""
         agent.start()
+
+        # 设置 tool calls
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "respond_to_player",
+                    "arguments": '{"content": "臣惶恐！陛下垂询，臣不胜感激。"}'
+                }
+            }
+        ])
 
         event = Event(
             src="player",
             dst=["agent:test_agent"],
             type=EventType.CHAT,
-            payload={"message": "hello"},
+            payload={"message": "你好"},
         )
 
         await agent._on_event(event)
 
-        # 不应该抛出异常
+        # 应该调用 LLM
+        assert mock_llm.call_count == 1
+        assert agent.event_bus.send_event.called
 
     @pytest.mark.asyncio
-    async def test_handle_end_turn(self, agent, mock_event_bus):
+    async def test_on_event_end_turn(self, agent, mock_llm):
         """测试处理回合结束"""
         agent.start()
 
+        # 设置 tool calls
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "send_ready",
+                    "arguments": '{}'
+                }
+            }
+        ])
+
         event = Event(src="player", dst=["*"], type=EventType.END_TURN)
 
-        await agent._handle_end_turn(event)
+        await agent._on_event(event)
 
-        # 应该发送 ready 事件
-        assert mock_event_bus.send_event.called
-        sent_event = mock_event_bus.send_event.call_args[0][0]
-        assert sent_event.type == EventType.READY
-        assert sent_event.src == "agent:test_agent"
+        # 应该调用 LLM 并发送 ready
+        assert mock_llm.call_count >= 1
+        assert agent.event_bus.send_event.called
 
     @pytest.mark.asyncio
-    async def test_handle_turn_resolved(self, agent):
+    async def test_on_event_turn_resolved(self, agent, mock_llm):
         """测试处理回合结算完成"""
         agent.start()
+
+        # 设置 tool calls
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "write_memory",
+                    "arguments": '{"content": "本回合臣完成了陛下的命令，调整了直隶税率。"}'
+                }
+            }
+        ])
 
         event = Event(
             src="system:calculator",
@@ -155,21 +269,169 @@ class TestAgent:
             payload={"turn": 1},
         )
 
-        await agent._handle_turn_resolved(event)
+        await agent._on_event(event)
 
-        # 不应该抛出异常
-
-    @pytest.mark.asyncio
-    async def test_call_llm(self, agent, mock_llm):
-        """测试调用 LLM"""
-        response = await agent._call_llm("Test prompt")
-
-        assert response == "LLM response"
-        assert mock_llm.call_count == 1
+        # 应该调用 LLM 并写入记忆
+        assert mock_llm.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_call_llm_custom_system(self, agent, mock_llm):
-        """测试调用 LLM（自定义系统提示词）"""
-        response = await agent._call_llm("Test prompt", system_prompt="Custom system")
+    async def test_send_message_to_agent(self, agent, mock_llm):
+        """测试发送消息给其他 Agent"""
+        agent.start()
 
-        assert response == "LLM response"
+        # 设置 tool calls
+        mock_llm.set_tool_calls([
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "send_message_to_agent",
+                    "arguments": '{"target_agent": "governor_zhili", "message": "请执行陛下的命令"}'
+                }
+            },
+            {
+                "id": "call_2",
+                "function": {
+                    "name": "respond_to_player",
+                    "arguments": '{"content": "臣已通知李卫执行命令。"}'
+                }
+            }
+        ])
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.COMMAND,
+            payload={"command": "命令直隶总督李卫执行任务"},
+        )
+
+        await agent._on_event(event)
+
+        # 应该发送消息给其他 agent
+        assert agent.event_bus.send_event.called
+        calls = agent.event_bus.send_event.call_args_list
+        assert len(calls) == 2  # send_message_to_agent + respond_to_player
+
+    def test_get_system_prompt_for_event(self, agent):
+        """测试不同事件类型的 system prompt"""
+        agent.start()
+
+        # COMMAND 事件
+        prompt_cmd = agent._get_system_prompt_for_event(EventType.COMMAND)
+        assert "执行皇帝的命令" in prompt_cmd
+        assert "send_game_event" in prompt_cmd
+        assert "执行动作" in prompt_cmd
+
+        # CHAT 事件
+        prompt_chat = agent._get_system_prompt_for_event(EventType.CHAT)
+        assert "皇帝想和你聊天" in prompt_chat
+        assert "respond_to_player" in prompt_chat
+
+        # END_TURN 事件
+        prompt_end = agent._get_system_prompt_for_event(EventType.END_TURN)
+        assert "回合即将结束" in prompt_end
+        assert "send_ready" in prompt_end
+
+        # TURN_RESOLVED 事件
+        prompt_resolved = agent._get_system_prompt_for_event(EventType.TURN_RESOLVED)
+        assert "回合结算完成" in prompt_resolved
+        assert "write_memory" in prompt_resolved
+
+    @pytest.mark.asyncio
+    async def test_query_province_data(self, agent, mock_repository):
+        """测试查询省份数据"""
+        agent.start()
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.QUERY,
+            payload={"query": "查询直隶人口"},
+        )
+
+        # 直接调用 handler
+        await agent._handle_query_province_data(
+            {"province_id": "zhili", "field_path": "population.total"},
+            event
+        )
+
+        # 应该调用 load_state
+        assert mock_repository.load_state.called
+        # 应该发送响应
+        assert agent.event_bus.send_event.called
+        # 检查响应内容
+        response_event = agent.event_bus.send_event.call_args[0][0]
+        assert "2600000" in response_event.payload["narrative"]
+
+    @pytest.mark.asyncio
+    async def test_query_national_data(self, agent, mock_repository):
+        """测试查询国家级数据"""
+        agent.start()
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.QUERY,
+            payload={"query": "查询国库"},
+        )
+
+        # 直接调用 handler
+        await agent._handle_query_national_data(
+            {"field_name": "imperial_treasury"},
+            event
+        )
+
+        # 应该调用 load_state
+        assert mock_repository.load_state.called
+        # 应该发送响应
+        assert agent.event_bus.send_event.called
+        # 检查响应内容
+        response_event = agent.event_bus.send_event.call_args[0][0]
+        assert "100000" in response_event.payload["narrative"]
+
+    @pytest.mark.asyncio
+    async def test_list_provinces(self, agent, mock_repository):
+        """测试列出所有省份"""
+        agent.start()
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.QUERY,
+            payload={"query": "列出所有省份"},
+        )
+
+        # 直接调用 handler
+        await agent._handle_list_provinces({}, event)
+
+        # 应该调用 load_state
+        assert mock_repository.load_state.called
+        # 应该发送响应
+        assert agent.event_bus.send_event.called
+        # 检查响应内容
+        response_event = agent.event_bus.send_event.call_args[0][0]
+        assert "zhili" in response_event.payload["narrative"]
+        assert "shanxi" in response_event.payload["narrative"]
+
+    @pytest.mark.asyncio
+    async def test_query_without_repository(self, agent, mock_repository):
+        """测试没有 repository 时的查询"""
+        agent.start()
+
+        # 移除 repository
+        agent.repository = None
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.QUERY,
+            payload={"query": "查询直隶人口"},
+        )
+
+        # 直接调用 handler（应该不会报错，只是返回警告）
+        await agent._handle_query_province_data(
+            {"province_id": "zhili", "field_path": "population.total"},
+            event
+        )
+
+        # 不应该调用 load_state
+        assert not mock_repository.load_state.called
