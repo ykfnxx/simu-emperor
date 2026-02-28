@@ -10,6 +10,8 @@ Agent 基类 - 文件驱动的 AI 官员
 
 import json
 import logging
+import logging.handlers
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -174,6 +176,8 @@ class Agent:
         llm_provider: LLMProvider,
         data_dir: str | Path,
         repository=None,
+        session_id: str | None = None,
+        db_logger=None,
     ):
         """
         初始化 Agent
@@ -184,12 +188,16 @@ class Agent:
             llm_provider: LLM 提供商
             data_dir: 数据目录（包含 soul.md 和 data_scope.yaml）
             repository: GameRepository（用于数据查询）
+            session_id: 会话标识符（用于 Context 组装）
+            db_logger: 数据库日志记录器（用于查询历史事件）
         """
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.llm_provider = llm_provider
         self.data_dir = Path(data_dir)
         self.repository = repository
+        self.session_id = session_id
+        self._db_logger = db_logger
 
         # 加载 soul 和 data_scope
         self._soul: str | None = None
@@ -197,7 +205,59 @@ class Agent:
         self._load_soul()
         self._load_data_scope()
 
+        # 初始化独立日志
+        self._init_agent_logger()
+
         logger.info(f"Agent {agent_id} initialized")
+
+    def _init_agent_logger(self) -> None:
+        """初始化 Agent 独立日志"""
+        log_dir = Path("logs/agents")
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # 常规日志（按天轮转，保留 7 天）
+        self._agent_logger = logging.getLogger(f"agent.{self.agent_id}")
+        handler = logging.handlers.TimedRotatingFileHandler(
+            log_dir / f"{self.agent_id}.log",
+            when="midnight",
+            interval=1,
+            backupCount=7,
+            encoding="utf-8"
+        )
+        formatter = logging.Formatter(
+            "[%(asctime)s] [%(levelname)s] %(message)s"
+        )
+        handler.setFormatter(formatter)
+        self._agent_logger.addHandler(handler)
+        self._agent_logger.setLevel(logging.INFO)
+
+        # LLM 日志文件路径
+        self._llm_log_path = log_dir / f"{self.agent_id}_llm.jsonl"
+
+    def _log_event(self, action: str, event: Event, message: str = "") -> None:
+        """记录事件日志"""
+        event_short = event.event_id[:8] if event.event_id else "unknown"
+        session_short = event.session_id[-8:] if event.session_id else "unknown"
+        msg = f"[EVT:{event_short}] [SES:{session_short}] [{action}] {message}"
+        self._agent_logger.info(msg)
+
+    def _log_llm_call(
+        self, event_id: str, session_id: str, iteration: int,
+        request: dict, response: dict, duration_ms: float
+    ) -> None:
+        """记录 LLM 调用详情到 JSONL"""
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_id": event_id,
+            "session_id": session_id,
+            "iteration": iteration,
+            "model": getattr(self.llm_provider, 'model', 'unknown'),
+            "duration_ms": duration_ms,
+            "request": request,
+            "response": response
+        }
+        with open(self._llm_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def start(self) -> None:
         """
@@ -262,21 +322,28 @@ class Agent:
             "*" not in event.dst):
             return
 
+        # 记录事件日志
+        self._log_event("RECV", event, f"{event.type} from {event.src}")
+
         logger.info(f"📨 [Agent:{self.agent_id}:{request_id}] Received {event.type} event (id={event_id}) from {event.src}")
 
         try:
-            # 1. 选择 system prompt
-            system_prompt = self._get_system_prompt_for_event(event.type)
-            logger.debug(f"📝 [Agent:{self.agent_id}:{request_id}] System prompt selected for {event.type}")
+            # 1-2. 构建 Context（包含历史事件）
+            if self._db_logger:
+                # 使用数据库查询构建完整 Context
+                messages = await self._build_context(event, history_limit=20)
+            else:
+                # 回退到单事件模式
+                system_prompt = self._get_system_prompt_for_event(event.type)
+                user_prompt = self._build_user_prompt(event)
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
 
-            # 2. 构建 user prompt
-            user_prompt = self._build_user_prompt(event)
+            logger.debug(f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages")
 
             # 3-4. 多轮 function calling 循环
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
             max_iterations = 10  # 防止无限循环
             iteration = 0
 
@@ -284,12 +351,26 @@ class Agent:
                 iteration += 1
                 logger.info(f"🔄 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: Calling LLM...")
 
+                # 记录 LLM 调用开始时间
+                start_time = datetime.now(timezone.utc)
+
                 # 调用 LLM（传递完整的messages历史）
                 result = await self.llm_provider.call_with_functions(
                     functions=AVAILABLE_FUNCTIONS,
-                    messages=messages,  # 传递历史消息（包含system prompt）
+                    messages=messages,
                     temperature=0.7,
                     max_tokens=1000,
+                )
+
+                # 记录 LLM 调用详情
+                duration_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                self._log_llm_call(
+                    event_id=event.event_id,
+                    session_id=event.session_id,
+                    iteration=iteration,
+                    request={"messages": messages, "functions": AVAILABLE_FUNCTIONS},
+                    response=result,
+                    duration_ms=duration_ms
                 )
 
                 tool_calls = result.get("tool_calls", [])
@@ -305,6 +386,7 @@ class Agent:
                     # 发送最终响应
                     if response_text:
                         logger.info(f"💬 [Agent:{self.agent_id}:{request_id}] Sending final response: {response_text[:50]}...")
+                        self._log_event("SEND", event, f"RESPONSE to {event.src}: {response_text[:50]}...")
                         await self._send_response(response_text, event)
                     break
 
@@ -481,7 +563,7 @@ class Agent:
             User prompt
         """
         parts = [
-            f"# 收到的事件",
+            "# 收到的事件",
             f"- 来源: {event.src}",
             f"- 类型: {event.type}",
             f"- 时间: {event.timestamp}",
@@ -492,30 +574,100 @@ class Agent:
         if event.type == EventType.COMMAND and event.payload:
             command = event.payload.get("command", "")
             if command:
-                parts.append(f"\n# 皇帝的命令：")
-                parts.append(f"``")
+                parts.append("\n# 皇帝的命令：")
+                parts.append("``")
                 parts.append(command)
-                parts.append(f"```")
-                parts.append(f"\n**重要**：你需要**执行**这个命令，不仅仅是查询数据！")
+                parts.append("```")
+                parts.append("\n**重要**：你需要**执行**这个命令，不仅仅是查询数据！")
 
         # 对于 CHAT 事件，显示消息内容
         if event.type == EventType.CHAT and event.payload:
             message = event.payload.get("message", "")
             if message:
-                parts.append(f"\n# 皇帝的消息：")
-                parts.append(f"``")
+                parts.append("\n# 皇帝的消息：")
+                parts.append("``")
                 parts.append(message)
-                parts.append(f"```")
+                parts.append("```")
 
         if event.payload:
             # 显示其他 payload 信息（但隐藏内部字段）
             display_payload = {k: v for k, v in event.payload.items() if not k.startswith("_")}
             if display_payload and command:  # 只在有命令时显示其他信息
-                parts.append(f"\n# 其他信息：")
+                parts.append("\n# 其他信息：")
                 payload_json = json.dumps(display_payload, ensure_ascii=False, indent=2)
                 parts.append(f"```json\n{payload_json}\n```")
 
         return "\n".join(parts)
+
+    def _format_event_as_message(self, event: Event, is_current: bool = False) -> str:
+        """
+        将事件格式化为 LLM 可读文本
+
+        Args:
+            event: 事件对象
+            is_current: 是否为当前事件
+
+        Returns:
+            格式化的文本
+        """
+        prefix = "[当前事件]\n" if is_current else ""
+        return f"""{prefix}事件ID: {event.event_id}
+来源: {event.src}
+目标: {', '.join(event.dst)}
+类型: {event.type}
+时间: {event.timestamp}
+负载: {json.dumps(event.payload, ensure_ascii=False, indent=2)}
+---"""
+
+    async def _build_context(
+        self, current_event: Event, history_limit: int = 20
+    ) -> list[dict]:
+        """
+        基于 Session 内可见事件组装 LLM Context
+
+        Args:
+            current_event: 当前事件
+            history_limit: 历史事件数量限制
+
+        Returns:
+            OpenAI 格式的 messages 列表
+        """
+        messages = []
+
+        # 1. System prompt
+        system_content = self._get_system_prompt_for_event(current_event.type)
+        messages.append({"role": "system", "content": system_content})
+
+        # 2. 如果有 db_logger，查询可见历史事件
+        if self._db_logger:
+            try:
+                history = await self._db_logger.get_agent_visible_events(
+                    session_id=current_event.session_id,
+                    agent_id=self.agent_id,
+                    limit=history_limit
+                )
+
+                # 3. 将历史事件转为 messages（从旧到新）
+                for event in reversed(history):
+                    if event.event_id == current_event.event_id:
+                        continue
+                    messages.append({
+                        "role": "user",
+                        "content": self._format_event_as_message(event)
+                    })
+
+            except Exception as e:
+                logger.warning(f"Failed to build context from database: {e}")
+                # 如果数据库查询失败，回退到单事件模式
+                pass
+
+        # 4. 当前事件
+        messages.append({
+            "role": "user",
+            "content": self._format_event_as_message(current_event, is_current=True)
+        })
+
+        return messages
 
     async def _call_function(self, function_name: str, arguments: dict, original_event: Event) -> None:
         """
@@ -714,6 +866,9 @@ class Agent:
             dst=["system:calculator"],
             type=event_type,
             payload=payload,
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ [Agent:{self.agent_id}] Sent {event_type_str} event to system:calculator")
@@ -733,6 +888,9 @@ class Agent:
             dst=[target_agent],
             type=EventType.AGENT_MESSAGE,
             payload={"message": message},
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent AGENT_MESSAGE to {target_agent}")
@@ -748,6 +906,9 @@ class Agent:
             dst=[event.src],
             type=EventType.RESPONSE,
             payload={"narrative": content},
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {event.src}")
@@ -759,6 +920,9 @@ class Agent:
             dst=["system:calculator"],
             type=EventType.READY,
             payload={},
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent READY to system:calculator")
@@ -793,6 +957,9 @@ class Agent:
             dst=[event.src],
             type=EventType.RESPONSE,
             payload={"narrative": content},
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent RESPONSE to {event.src}")

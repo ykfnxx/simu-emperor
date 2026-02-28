@@ -33,6 +33,8 @@ class AgentManager:
         template_dir: Path | str = Path("data/default_agents"),
         agent_dir: Path | str = Path("data/agent"),
         repository=None,
+        session_id: str | None = None,
+        db_logger=None,
     ):
         """
         初始化 AgentManager
@@ -43,12 +45,16 @@ class AgentManager:
             template_dir: Agent 模板目录
             agent_dir: Agent 工作目录
             repository: GameRepository（用于数据查询）
+            session_id: 会话标识符
+            db_logger: 数据库日志记录器
         """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
         self.template_dir = Path(template_dir)
         self.agent_dir = Path(agent_dir)
         self.repository = repository
+        self.session_id = session_id
+        self.db_logger = db_logger
 
         # 活跃的 Agent 实例
         self._active_agents: dict[str, Any] = {}
@@ -119,6 +125,8 @@ class AgentManager:
             llm_provider=self.llm_provider,
             data_dir=agent_path,
             repository=self.repository,
+            session_id=self.session_id,
+            db_logger=self.db_logger,
         )
 
         # 启动 Agent

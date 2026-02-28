@@ -29,7 +29,7 @@ class EmperorCLI:
         _chat_agent_id: 当前对话的 Agent ID
     """
 
-    def __init__(self, event_bus: EventBus, repository: Any, agent_manager: Any = None):
+    def __init__(self, event_bus: EventBus, repository: Any, agent_manager: Any = None, session_id: str = "session:cli:default"):
         """
         初始化 CLI
 
@@ -37,10 +37,12 @@ class EmperorCLI:
             event_bus: 事件总线
             repository: 数据库仓储
             agent_manager: Agent 管理器（可选）
+            session_id: 会话标识符
         """
         self.event_bus = event_bus
         self.repository = repository
         self.agent_manager = agent_manager
+        self.session_id = session_id
         self._running = False
         self._chat_mode = False
         self._chat_agent_id = ""
@@ -209,6 +211,9 @@ class EmperorCLI:
                 dst=[f"agent:{self._chat_agent_id}"],
                 type=EventType.CHAT,
                 payload={"message": user_input},
+                session_id=self.session_id,
+                parent_event_id=None,  # 根事件
+                root_event_id="",  # EventBus 自动设置
             )
             await self.event_bus.send_event(event)
         else:
@@ -269,6 +274,9 @@ class EmperorCLI:
             dst=["*"],
             type=EventType.END_TURN,
             payload={},
+            session_id=self.session_id,
+            parent_event_id=None,  # 根事件
+            root_event_id="",  # EventBus 自动设置
         )
         await self.event_bus.send_event(event)
 

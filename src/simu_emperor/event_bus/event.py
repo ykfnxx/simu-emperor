@@ -23,6 +23,9 @@ class Event:
         type: 事件类型（参见 EventType 类）
         payload: 事件负载数据（任意 JSON 可序列化数据）
         timestamp: 事件时间戳（自动生成，UTC 时间）
+        session_id: 会话标识符（Required，用于多用户隔离）
+        parent_event_id: 父事件标识符（Optional，用于事件链追踪）
+        root_event_id: 根事件标识符（Auto-calculated，指向事件链的根）
     """
 
     event_id: str = field(
@@ -35,6 +38,14 @@ class Event:
     type: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    session_id: str = ""
+    parent_event_id: str | None = None
+    root_event_id: str = ""
+
+    def __post_init__(self):
+        """初始化后验证"""
+        if not self.session_id:
+            raise ValueError("event.session_id is required")
 
     def to_json(self) -> str:
         """
@@ -51,6 +62,9 @@ class Event:
                 "type": self.type,
                 "payload": self.payload,
                 "timestamp": self.timestamp,
+                "session_id": self.session_id,
+                "parent_event_id": self.parent_event_id,
+                "root_event_id": self.root_event_id,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -66,6 +80,9 @@ class Event:
 
         Returns:
             Event 对象
+
+        Note:
+            支持向后兼容旧日志（没有 session_id 等字段）
         """
         data = json.loads(json_str)
         return cls(
@@ -75,6 +92,9 @@ class Event:
             type=data["type"],
             payload=data["payload"],
             timestamp=data["timestamp"],
+            session_id=data.get("session_id", "legacy"),
+            parent_event_id=data.get("parent_event_id"),
+            root_event_id=data.get("root_event_id", data.get("event_id", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,6 +111,9 @@ class Event:
             "type": self.type,
             "payload": self.payload,
             "timestamp": self.timestamp,
+            "session_id": self.session_id,
+            "parent_event_id": self.parent_event_id,
+            "root_event_id": self.root_event_id,
         }
 
     @classmethod
@@ -103,6 +126,9 @@ class Event:
 
         Returns:
             Event 对象
+
+        Note:
+            支持向后兼容旧数据（没有 session_id 等字段）
         """
         return cls(
             event_id=data["event_id"],
@@ -111,6 +137,9 @@ class Event:
             type=data["type"],
             payload=data["payload"],
             timestamp=data["timestamp"],
+            session_id=data.get("session_id", "legacy"),
+            parent_event_id=data.get("parent_event_id"),
+            root_event_id=data.get("root_event_id", data.get("event_id", "")),
         )
 
     def __str__(self) -> str:

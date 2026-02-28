@@ -17,6 +17,7 @@ class TestEvent:
             dst=["agent:revenue_minister"],
             type="command",
             payload={"action": "adjust_tax", "rate": 0.1},
+            session_id="session:test",
         )
 
         assert event.src == "player"
@@ -25,18 +26,19 @@ class TestEvent:
         assert event.payload == {"action": "adjust_tax", "rate": 0.1}
         assert event.event_id.startswith("evt_")
         assert event.timestamp is not None
+        assert event.session_id == "session:test"
 
     def test_event_auto_id(self):
         """测试自动生成 event_id"""
-        event1 = Event(src="player", dst=["*"], type="test")
-        event2 = Event(src="player", dst=["*"], type="test")
+        event1 = Event(src="player", dst=["*"], type="test", session_id="session:test")
+        event2 = Event(src="player", dst=["*"], type="test", session_id="session:test")
 
         assert event1.event_id != event2.event_id
 
     def test_event_auto_timestamp(self):
         """测试自动生成 timestamp"""
         before = datetime.now(timezone.utc)
-        event = Event(src="player", dst=["*"], type="test")
+        event = Event(src="player", dst=["*"], type="test", session_id="session:test")
         after = datetime.now(timezone.utc)
 
         timestamp = datetime.fromisoformat(event.timestamp)
@@ -49,12 +51,14 @@ class TestEvent:
             dst=["agent:revenue_minister"],
             type="command",
             payload={"action": "adjust_tax"},
+            session_id="session:test",
         )
 
         json_str = event.to_json()
         assert "player" in json_str
         assert "agent:revenue_minister" in json_str
         assert "command" in json_str
+        assert "session:test" in json_str
 
     def test_from_json(self):
         """测试从 JSON 反序列化"""
@@ -63,6 +67,7 @@ class TestEvent:
             dst=["agent:revenue_minister"],
             type="command",
             payload={"action": "adjust_tax", "rate": 0.1},
+            session_id="session:test",
         )
 
         json_str = original.to_json()
@@ -73,6 +78,7 @@ class TestEvent:
         assert restored.type == original.type
         assert restored.payload == original.payload
         assert restored.event_id == original.event_id
+        assert restored.session_id == original.session_id
 
     def test_to_dict(self):
         """测试转换为字典"""
@@ -81,6 +87,7 @@ class TestEvent:
             dst=["agent:revenue_minister"],
             type="command",
             payload={"action": "adjust_tax"},
+            session_id="session:test",
         )
 
         data = event.to_dict()
@@ -88,6 +95,7 @@ class TestEvent:
         assert data["dst"] == ["agent:revenue_minister"]
         assert data["type"] == "command"
         assert data["payload"] == {"action": "adjust_tax"}
+        assert data["session_id"] == "session:test"
 
     def test_from_dict(self):
         """测试从字典创建"""
@@ -114,6 +122,7 @@ class TestEvent:
             dst=["agent:revenue_minister"],
             type="command",
             event_id="evt_test",
+            session_id="session:test",
         )
 
         str_repr = str(event)

@@ -36,6 +36,7 @@ class TestFileEventLogger:
             dst=["agent:revenue_minister"],
             type=EventType.COMMAND,
             payload={"action": "adjust_tax", "rate": 0.1},
+            session_id="session:test",
         )
 
     def test_logger_init(self, temp_log_dir):
@@ -62,9 +63,9 @@ class TestFileEventLogger:
     def test_log_multiple_events(self, logger):
         """测试记录多个事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command"),
-            Event(src="agent:a", dst=["player"], type="response"),
-            Event(src="player", dst=["agent:b"], type="query"),
+            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
+            Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
 
         for event in events:
@@ -83,7 +84,7 @@ class TestFileEventLogger:
         logger = FileEventLogger(temp_log_dir)
 
         # 记录事件
-        event = Event(src="player", dst=["*"], type="test")
+        event = Event(src="player", dst=["*"], type="test", session_id="session:test")
         logger.log(event)
 
         # 验证文件名格式
@@ -94,9 +95,9 @@ class TestFileEventLogger:
     def test_query_events_by_type(self, logger):
         """测试按类型查询事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command"),
-            Event(src="agent:a", dst=["player"], type="response"),
-            Event(src="player", dst=["agent:b"], type="command"),
+            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
+            Event(src="player", dst=["agent:b"], type="command", session_id="session:test"),
         ]
 
         for event in events:
@@ -113,9 +114,9 @@ class TestFileEventLogger:
     def test_query_events_by_src(self, logger):
         """测试按源查询事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command"),
-            Event(src="agent:a", dst=["player"], type="response"),
-            Event(src="player", dst=["agent:b"], type="query"),
+            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
+            Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
 
         for event in events:
@@ -132,9 +133,9 @@ class TestFileEventLogger:
     def test_query_events_by_dst(self, logger):
         """测试按目标查询事件"""
         events = [
-            Event(src="system", dst=["player"], type="notification"),
-            Event(src="player", dst=["agent:a"], type="command"),
-            Event(src="system", dst=["player"], type="alert"),
+            Event(src="system", dst=["player"], type="notification", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="system", dst=["player"], type="alert", session_id="session:test"),
         ]
 
         for event in events:
@@ -147,9 +148,9 @@ class TestFileEventLogger:
     def test_query_events_with_limit(self, logger):
         """测试限制返回数量"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command"),
-            Event(src="agent:a", dst=["player"], type="response"),
-            Event(src="player", dst=["agent:b"], type="query"),
+            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
+            Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
 
         for event in events:
@@ -169,7 +170,7 @@ class TestFileEventLogger:
         """测试获取日志文件列表"""
         # 记录一些事件
         for i in range(3):
-            event = Event(src="test", dst=["*"], type=f"test_{i}")
+            event = Event(src="test", dst=["*"], type=f"test_{i}", session_id="session:test")
             logger.log(event)
 
         files = logger.get_log_files()

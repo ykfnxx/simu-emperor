@@ -14,7 +14,7 @@ from simu_emperor.config import GameConfig
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
-from simu_emperor.event_bus.logger import FileEventLogger
+from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
 from simu_emperor.core.calculator import Calculator
@@ -67,6 +67,7 @@ class GameSession:
         """
         self.chat_id = chat_id
         self.player_id = f"player:telegram:{chat_id}"
+        self.session_id = f"session:telegram:{chat_id}"
         self.settings = settings
         self.bot_application = bot_application
         self.llm_provider = llm_provider
@@ -101,11 +102,15 @@ class GameSession:
         # 1.5. 初始化游戏状态（如果为空）
         await self._initialize_game_state()
 
-        # 2. 初始化事件总线
+        # 2. 初始化事件日志记录器
         log_dir = self.settings.log_dir / "events"
         log_dir.mkdir(parents=True, exist_ok=True)
-        event_logger = FileEventLogger(log_dir)
-        self.event_bus = EventBus(event_logger=event_logger)
+        file_logger = FileEventLogger(log_dir)
+        db_logger = DatabaseEventLogger(conn)
+        logger.info("Event loggers initialized")
+
+        # 2.5. 初始化事件总线
+        self.event_bus = EventBus(file_logger=file_logger, db_logger=db_logger)
 
         # 订阅响应事件
         self.event_bus.subscribe(self.player_id, self._on_response)
@@ -120,6 +125,8 @@ class GameSession:
             template_dir=self.settings.data_dir / "default_agents",
             agent_dir=self.settings.data_dir / "agent" / f"telegram_{self.chat_id}",
             repository=self.repository,
+            session_id=self.session_id,
+            db_logger=db_logger,
         )
 
         # 初始化并启动默认 agents

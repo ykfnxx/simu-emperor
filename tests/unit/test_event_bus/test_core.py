@@ -64,7 +64,7 @@ class TestEventBus:
 
         event_bus.subscribe("player", handler)
 
-        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE)
+        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE, session_id="session:test")
         await event_bus.send_event(event)
 
         # 等待异步任务完成
@@ -83,7 +83,7 @@ class TestEventBus:
 
         event_bus.subscribe("*", handler)
 
-        event = Event(src="player", dst=["agent:test"], type=EventType.COMMAND)
+        event = Event(src="player", dst=["agent:test"], type=EventType.COMMAND, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -100,7 +100,7 @@ class TestEventBus:
 
         event_bus.subscribe("agent:*", handler)
 
-        event = Event(src="player", dst=["agent:revenue_minister"], type=EventType.COMMAND)
+        event = Event(src="player", dst=["agent:revenue_minister"], type=EventType.COMMAND, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -122,7 +122,7 @@ class TestEventBus:
         event_bus.subscribe("player", handler_1)
         event_bus.subscribe("player", handler_2)
 
-        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE)
+        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -134,7 +134,7 @@ class TestEventBus:
     async def test_no_handler_for_event(self, event_bus):
         """测试没有处理器的事件"""
         # 不应该抛出异常
-        event = Event(src="player", dst=["non_existent"], type=EventType.COMMAND)
+        event = Event(src="player", dst=["non_existent"], type=EventType.COMMAND, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -151,7 +151,7 @@ class TestEventBus:
         event_bus.subscribe("*", handler)
         event_bus.subscribe("player", handler)
 
-        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE)
+        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -169,7 +169,7 @@ class TestEventBus:
 
         event_bus.subscribe("player", handler)
 
-        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE)
+        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE, session_id="session:test")
         await event_bus.send_event(event)
 
         await asyncio.sleep(0.1)
@@ -211,6 +211,7 @@ class TestEventBus:
             src="system",
             dst=["player", "agent:test"],
             type=EventType.TURN_RESOLVED,
+            session_id="session:test",
         )
         await event_bus.send_event(event)
 
@@ -228,7 +229,7 @@ class TestEventBus:
 
         event_bus.subscribe("player", handler)
 
-        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE)
+        event = Event(src="agent:test", dst=["player"], type=EventType.RESPONSE, session_id="session:test")
         event_bus.send_event_sync(event)
 
         # 由于是 fire-and-forget，需要等待事件循环

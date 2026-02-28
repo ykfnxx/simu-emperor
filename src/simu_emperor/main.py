@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from simu_emperor.event_bus.core import EventBus
-from simu_emperor.event_bus.logger import FileEventLogger
+from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.config import settings
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
@@ -161,12 +161,19 @@ async def main() -> None:
     else:
         logger.info(f"Game state already loaded with {len(state.get('provinces', []))} province(s)")
 
-    # 2. 初始化事件总线
+    # 2. 初始化事件日志记录器
     log_dir = Path(settings.log_dir) / "events"
     log_dir.mkdir(parents=True, exist_ok=True)
-    event_logger = FileEventLogger(log_dir)
-    event_bus = EventBus(event_logger=event_logger)
+    file_logger = FileEventLogger(log_dir)
+    db_logger = DatabaseEventLogger(conn)
+    logger.info("Event loggers initialized")
+
+    # 2.5. 初始化事件总线
+    event_bus = EventBus(file_logger=file_logger, db_logger=db_logger)
     logger.info("EventBus initialized")
+
+    # 定义会话 ID
+    session_id = "session:cli:default"
 
     # 3. 初始化 LLM Provider
     try:
@@ -185,6 +192,8 @@ async def main() -> None:
         template_dir=settings.data_dir / "default_agents",
         agent_dir=settings.data_dir / "agent",
         repository=repository,
+        session_id=session_id,
+        db_logger=db_logger,
     )
 
     # 初始化并启动默认 agents
@@ -202,7 +211,7 @@ async def main() -> None:
     logger.info("Calculator started")
 
     # 6. 初始化 CLI
-    cli = EmperorCLI(event_bus, repository, agent_manager)
+    cli = EmperorCLI(event_bus, repository, agent_manager, session_id=session_id)
     logger.info("CLI initialized")
 
     # 7. 启动 CLI 主循环

@@ -33,18 +33,25 @@ class EventBus:
 
     Attributes:
         _subscribers: 订阅者字典 {dst: [handlers]}
-        _event_logger: 事件日志记录器
+        _file_logger: 文件日志记录器（可选）
+        _db_logger: 数据库日志记录器（可选）
     """
 
-    def __init__(self, event_logger: EventLogger | None = None):
+    def __init__(
+        self,
+        file_logger: EventLogger | None = None,
+        db_logger: EventLogger | None = None,
+    ):
         """
         初始化 EventBus
 
         Args:
-            event_logger: 事件日志记录器（可选）
+            file_logger: 文件日志记录器（可选）
+            db_logger: 数据库日志记录器（可选）
         """
         self._subscribers: dict[str, list[EventHandler]] = defaultdict(list)
-        self._event_logger = event_logger
+        self._file_logger = file_logger
+        self._db_logger = db_logger
         logger.info("EventBus initialized")
 
     def subscribe(self, dst: str, handler: EventHandler) -> None:
@@ -163,13 +170,17 @@ class EventBus:
         Args:
             event: 事件对象
 
+        Raises:
+            ValueError: 如果 event.session_id 为空
+
         Example:
             ```python
             event = Event(
                 src="player",
                 dst=["agent:revenue_minister"],
                 type=EventType.COMMAND,
-                payload={"action": "adjust_tax", "rate": 0.1}
+                payload={"action": "adjust_tax", "rate": 0.1},
+                session_id="session:cli:default"
             )
             await event_bus.send_event(event)
             ```
@@ -177,12 +188,28 @@ class EventBus:
         request_id = event.payload.get("_request_id", "unknown")
         logger.debug(f"📤 [EventBus:{request_id}] send_event called: {event.type} -> {event.dst}")
 
-        # 记录日志
-        if self._event_logger:
+        # 验证 session_id
+        if not event.session_id:
+            raise ValueError("event.session_id is required")
+
+        # 自动计算 root_event_id（如果未设置）
+        if event.parent_event_id is None:
+            # 没有父事件，自己是根事件
+            event.root_event_id = event.event_id
+        # 如果有 parent_event_id，root_event_id 由发送方从 original_event 继承
+
+        # 双写日志（文件和数据库）
+        if self._file_logger:
             try:
-                self._event_logger.log(event)
+                self._file_logger.log(event)
             except Exception as e:
-                logger.error(f"Failed to log event: {e}")
+                logger.error(f"Failed to log event to file: {e}")
+
+        if self._db_logger:
+            try:
+                await self._db_logger.log_async(event)
+            except Exception as e:
+                logger.error(f"Failed to log event to database: {e}")
 
         # 路由事件
         handlers = self._route_event(event)

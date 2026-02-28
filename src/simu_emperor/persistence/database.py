@@ -37,7 +37,7 @@ async def init_database(db_path: str = "game.db") -> Connection:
 
 
 async def _create_schema(conn: Connection) -> None:
-    """创建 V2 数据库 schema（3 张表 + 索引）。"""
+    """创建 V2 数据库 schema（4 张表 + 索引）。"""
     await conn.executescript("""
         -- 游戏状态
         CREATE TABLE IF NOT EXISTS game_state (
@@ -67,6 +67,20 @@ async def _create_schema(conn: Connection) -> None:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- 事件日志（用于 Session 隔离和事件链追踪）
+        CREATE TABLE IF NOT EXISTS events (
+            event_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            root_event_id TEXT NOT NULL,
+            parent_event_id TEXT,
+            src TEXT NOT NULL,
+            dst TEXT NOT NULL,
+            type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- 插入默认游戏状态
         INSERT OR IGNORE INTO game_state (id, game_id, turn, state_json)
         VALUES (1, 'default', 0, '{}');
@@ -74,6 +88,13 @@ async def _create_schema(conn: Connection) -> None:
         -- 索引
         CREATE INDEX IF NOT EXISTS idx_turn_metrics_game_turn ON turn_metrics(game_id, turn);
         CREATE INDEX IF NOT EXISTS idx_agent_state_active ON agent_state(is_active);
+
+        -- 事件表索引（用于快速查询）
+        CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_events_root_event ON events(root_event_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_events_parent ON events(parent_event_id);
+        CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+        CREATE INDEX IF NOT EXISTS idx_events_src_dst ON events(src, dst);
     """)
     await conn.commit()
     logger.info("Database schema created")

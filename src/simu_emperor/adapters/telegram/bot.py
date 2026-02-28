@@ -303,7 +303,7 @@ class TelegramBotService:
         # 路由消息
         from simu_emperor.adapters.telegram.router import MessageRouter
 
-        logger.debug(f"🔀 [Bot] Routing message to MessageRouter")
+        logger.debug("🔀 [Bot] Routing message to MessageRouter")
         router = MessageRouter(session)
         await router.route_and_send(text, chat_id, update.message.reply_text)
 

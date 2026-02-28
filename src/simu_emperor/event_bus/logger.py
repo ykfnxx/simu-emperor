@@ -190,20 +190,19 @@ class FileEventLogger(EventLogger):
 
 class DatabaseEventLogger(EventLogger):
     """
-    数据库事件日志记录器（可选实现）
+    数据库事件日志记录器
 
-    将事件记录到数据库表中。
-    注意：此类为占位符，实际实现需要根据 persistence 模块的完成情况。
+    将事件记录到数据库 events 表中，支持 Session 隔离和事件链追踪。
     """
 
-    def __init__(self, repository: Any):
+    def __init__(self, db_connection: Any):
         """
         初始化数据库事件日志记录器
 
         Args:
-            repository: 数据库仓储对象
+            db_connection: aiosqlite.Connection 对象
         """
-        self.repository = repository
+        self._db = db_connection
 
     def log(self, event: Event) -> None:
         """
@@ -212,9 +211,20 @@ class DatabaseEventLogger(EventLogger):
         Args:
             event: 事件对象
         """
-        # TODO: 实现数据库日志记录
-        # 需要等待 persistence 模块完成
-        raise NotImplementedError("DatabaseEventLogger not implemented yet")
+        import asyncio
+
+        # 在同步上下文中运行异步方法
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果事件循环正在运行，使用 create_task
+                asyncio.ensure_future(self.log_async(event))
+            else:
+                # 如果事件循环未运行，直接运行
+                loop.run_until_complete(self.log_async(event))
+        except RuntimeError:
+            # 没有事件循环，创建一个新的
+            asyncio.run(self.log_async(event))
 
     async def log_async(self, event: Event) -> None:
         """
@@ -223,5 +233,87 @@ class DatabaseEventLogger(EventLogger):
         Args:
             event: 事件对象
         """
-        # TODO: 实现异步数据库日志记录
-        raise NotImplementedError("DatabaseEventLogger not implemented yet")
+        import json
+
+        await self._db.execute(
+            """INSERT INTO events
+               (event_id, session_id, root_event_id, parent_event_id,
+                src, dst, type, payload, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event.event_id,
+                event.session_id,
+                event.root_event_id,
+                event.parent_event_id,
+                event.src,
+                json.dumps(event.dst),
+                event.type,
+                json.dumps(event.payload),
+                event.timestamp,
+            ),
+        )
+        await self._db.commit()
+
+    async def get_agent_visible_events(
+        self,
+        session_id: str,
+        agent_id: str,
+        limit: int = 20,
+    ) -> list[Event]:
+        """
+        查询 Agent 在 Session 内可见的最近事件
+
+        Args:
+            session_id: 会话标识符
+            agent_id: Agent 标识符（如 "revenue_minister"）
+            limit: 返回事件数量限制
+
+        Returns:
+            事件列表（按时间倒序）
+        """
+        import json
+
+        # Agent 可见的事件包括：
+        # 1. dst 是 "agent:{agent_id}"
+        # 2. dst 是 "agent:*"
+        # 3. dst 是 "*"
+        # 4. src 是 "agent:{agent_id}"（Agent 发送的事件）
+        cursor = await self._db.execute(
+            """SELECT event_id, session_id, root_event_id, parent_event_id,
+                      src, dst, type, payload, timestamp
+               FROM events
+               WHERE session_id = ?
+                 AND (
+                     dst LIKE ? OR dst LIKE ? OR dst LIKE ? OR src = ?
+                 )
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (
+                session_id,
+                f'%agent:{agent_id}%',
+                '%agent:*%',
+                '%*%',
+                f'agent:{agent_id}',
+                limit,
+            ),
+        )
+
+        rows = await cursor.fetchall()
+        events = []
+
+        for row in rows:
+            events.append(
+                Event(
+                    event_id=row[0],
+                    session_id=row[1],
+                    root_event_id=row[2],
+                    parent_event_id=row[3],
+                    src=row[4],
+                    dst=json.loads(row[5]),
+                    type=row[6],
+                    payload=json.loads(row[7]),
+                    timestamp=row[8],
+                )
+            )
+
+        return events
