@@ -1162,9 +1162,21 @@ class Agent:
 
     async def _handle_list_agents_with_result(self, args: dict, event: Event) -> str:
         """列出所有活跃的 Agent（官员）并返回结果（用于多轮function calling）"""
-        role_map_path = Path(self.data_dir) / "role_map.md"
+        # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
+        # 尝试多个可能的路径
+        possible_paths = [
+            Path("data/role_map.md"),           # 相对于项目根目录
+            Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
+            Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
+        ]
 
-        if not role_map_path.exists():
+        role_map_path = None
+        for path in possible_paths:
+            if path.exists():
+                role_map_path = path
+                break
+
+        if not role_map_path:
             return "❌ 无法查询官员信息：role_map.md 文件不存在"
 
         try:
@@ -1231,9 +1243,21 @@ class Agent:
         if not agent_id:
             return "❌ 请提供 agent_id 参数"
 
-        role_map_path = Path(self.data_dir) / "role_map.md"
+        # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
+        # 尝试多个可能的路径
+        possible_paths = [
+            Path("data/role_map.md"),           # 相对于项目根目录
+            Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
+            Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
+        ]
 
-        if not role_map_path.exists():
+        role_map_path = None
+        for path in possible_paths:
+            if path.exists():
+                role_map_path = path
+                break
+
+        if not role_map_path:
             return f"❌ 无法查询官员信息：role_map.md 文件不存在"
 
         try:
