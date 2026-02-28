@@ -167,22 +167,51 @@ class GameRepository:
 
         Args:
             province_id: 省份 ID
-            field_path: 字段路径（如 "taxation.land_tax_rate"）
-            value: 新值
+            field_path: 字段路径（如 "taxation"）
+            value: 新值（可以是具体值或 dict，用于批量更新）
         """
         state = await self.load_state()
 
+        # provinces 是 list，需要找到匹配的省份
+        provinces = state.get("provinces", [])
+        province_data = None
+        province_index = -1
+
+        for idx, p in enumerate(provinces):
+            if p.get("province_id") == province_id:
+                province_data = p
+                province_index = idx
+                break
+
+        if province_data is None:
+            logger.warning(f"Province {province_id} not found in state")
+            return
+
         # 解析并更新嵌套字段
         parts = field_path.split(".")
-        current = state.get("provinces", {}).get(province_id, {})
 
-        # 简化实现：只支持两级路径
-        if len(parts) == 2:
-            category, field = parts
-            if category not in current:
-                current[category] = {}
-            current[field] = value
-            state["provinces"][province_id] = current
+        # 导航到目标字段
+        current = province_data
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+
+        # 更新值
+        target_field = parts[-1]
+
+        if isinstance(value, dict):
+            # 批量更新：合并 dict
+            if target_field not in current:
+                current[target_field] = {}
+            current[target_field].update(value)
+        else:
+            # 单个值：直接赋值
+            current[target_field] = value
+
+        # 更新 provinces list
+        provinces[province_index] = province_data
+        state["provinces"] = provinces
 
         await self.save_state(state)
         logger.debug(f"Updated {province_id}.{field_path} = {value}")
