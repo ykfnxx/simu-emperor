@@ -125,21 +125,30 @@ class OpenAIProvider(LLMProvider):
                     messages.insert(0, {"role": "system", "content": system_prompt})
 
             # 转换为 OpenAI 的 tools 格式
-            tools = [
-                {
-                    "type": "function",
-                    "function": func
-                }
-                for func in functions
-            ]
+            # 只有当 functions 非空时才传递 tools 参数（某些 API 如阿里云 DashScope 不接受空 tools）
+            tools = None
+            if functions and len(functions) > 0:
+                tools = [
+                    {
+                        "type": "function",
+                        "function": func
+                    }
+                    for func in functions
+                ]
 
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            # 构建 API 调用参数
+            api_params = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+
+            # 只有当 tools 非空时才添加到参数中
+            if tools:
+                api_params["tools"] = tools
+
+            response = await self.client.chat.completions.create(**api_params)
 
             message = response.choices[0].message
 

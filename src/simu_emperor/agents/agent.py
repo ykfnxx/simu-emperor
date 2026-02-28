@@ -329,10 +329,14 @@ class Agent:
 
         try:
             # 1-2. 构建 Context（包含历史事件）
+            logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Starting context build...")
+
             if self._db_logger:
+                logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Using db_logger to build context")
                 # 使用数据库查询构建完整 Context
                 messages = await self._build_context(event, history_limit=20)
             else:
+                logger.info(f"⚠️  [Agent:{self.agent_id}:{request_id}] No db_logger, using single event mode")
                 # 回退到单事件模式
                 system_prompt = self._get_system_prompt_for_event(event.type)
                 user_prompt = self._build_user_prompt(event)
@@ -341,7 +345,7 @@ class Agent:
                     {"role": "user", "content": user_prompt}
                 ]
 
-            logger.debug(f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages")
+            logger.info(f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages")
 
             # 3-4. 多轮 function calling 循环
             max_iterations = 10  # 防止无限循环
@@ -635,17 +639,20 @@ class Agent:
         messages = []
 
         # 1. System prompt
+        logger.info(f"🔧 [Agent:{self.agent_id}] Building system prompt for event type: {current_event.type}")
         system_content = self._get_system_prompt_for_event(current_event.type)
         messages.append({"role": "system", "content": system_content})
 
         # 2. 如果有 db_logger，查询可见历史事件
         if self._db_logger:
             try:
+                logger.info(f"🔧 [Agent:{self.agent_id}] Querying db_logger for history (session={current_event.session_id[:8]}...)")
                 history = await self._db_logger.get_agent_visible_events(
                     session_id=current_event.session_id,
                     agent_id=self.agent_id,
                     limit=history_limit
                 )
+                logger.info(f"🔧 [Agent:{self.agent_id}] Found {len(history)} historical events")
 
                 # 3. 将历史事件转为 messages（从旧到新）
                 for event in reversed(history):
@@ -657,8 +664,9 @@ class Agent:
                     })
 
             except Exception as e:
-                logger.warning(f"Failed to build context from database: {e}")
+                logger.error(f"❌ [Agent:{self.agent_id}] Failed to build context from database: {e}", exc_info=True)
                 # 如果数据库查询失败，回退到单事件模式
+                logger.warning(f"⚠️  [Agent:{self.agent_id}] Falling back to single event mode")
                 pass
 
         # 4. 当前事件
@@ -667,6 +675,7 @@ class Agent:
             "content": self._format_event_as_message(current_event, is_current=True)
         })
 
+        logger.info(f"✅ [Agent:{self.agent_id}] Context build complete: {len(messages)} messages")
         return messages
 
     async def _call_function(self, function_name: str, arguments: dict, original_event: Event) -> None:
