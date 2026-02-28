@@ -26,6 +26,7 @@ class EventType:
     AGENT_MESSAGE = "agent_message"  # Agent → Agent (Agent 间通信)
 
     # 游戏动作事件 (Agent → Calculator)
+    ALLOCATE_FUNDS = "allocate_funds"  # 拨款（从国库到省库）
     ADJUST_TAX = "adjust_tax"  # 调整税率
     BUILD_IRRIGATION = "build_irrigation"  # 建设水利
     RECRUIT_TROOPS = "recruit_troops"  # 招募军队
@@ -44,6 +45,7 @@ class EventType:
             cls.CHAT,
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
+            cls.ALLOCATE_FUNDS,
             cls.ADJUST_TAX,
             cls.BUILD_IRRIGATION,
             cls.RECRUIT_TROOPS,
@@ -68,6 +70,7 @@ class EventType:
         return [
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
+            cls.ALLOCATE_FUNDS,
             cls.ADJUST_TAX,
             cls.BUILD_IRRIGATION,
             cls.RECRUIT_TROOPS,
