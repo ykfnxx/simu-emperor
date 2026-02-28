@@ -70,6 +70,29 @@ AVAILABLE_FUNCTIONS = [
         }
     },
     {
+        "name": "list_agents",
+        "description": "列出所有活跃的官员（Agent）及其职责",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_agent_info",
+        "description": "获取某个官员的详细信息（职责、性格等）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "Agent ID（如 'governor_zhili', 'minister_of_revenue'）"
+                }
+            },
+            "required": ["agent_id"]
+        }
+    },
+    {
         "name": "send_game_event",
         "description": "【执行动作】发送游戏事件到 Calculator。这是修改游戏状态的唯一方式！执行命令时必须调用此函数。",
         "parameters": {
@@ -534,7 +557,7 @@ class Agent:
 
 皇帝想和你聊天，你需要：
 1. 以角色身份回应（根据 soul.md 中的性格定义）
-2. 如果问题涉及数据查询，使用 query_* functions 查询相关信息
+2. 如果问题涉及数据查询，使用查询 functions 获取相关信息
 3. 使用 respond_to_player function 发送回复
 4. 保持历史官员的语言风格（使用"臣"、"陛下"、"圣上"等称呼）
 
@@ -542,15 +565,18 @@ class Agent:
 - query_province_data: 查询省份数据（人口、农业、商业、军事、税收等）
 - query_national_data: 查询国家级数据（国库、回合、税率等）
 - list_provinces: 列出所有省份
+- list_agents: 列出所有活跃的官员及其职责
+- get_agent_info: 获取某个官员的详细信息（职责、性格等）
 
 示例：
-- 皇帝问"户部尚书是谁"：你需要知道官员信息，可以礼貌地回答或说明你需要查询
-- 皇帝问"直隶情况如何"：调用 query_province_data 查询直隶省数据，然后回答
+- 皇帝问"户部尚书是谁"：调用 list_agents 或 get_agent_info 查询官员列表
+- 皇帝问"朝中都有哪些官员"：调用 list_agents 获取所有官员信息
+- 皇帝问"直隶情况如何"：调用 query_province_data 查询直隶省数据
 - 皇帝说"你好"：直接用 respond_to_player 回应，无需查询
 
 重要：
 - 不要调用 send_game_event（聊天不是执行命令）
-- 可以调用查询函数来获取信息，让回答更准确""",
+- 优先使用查询函数来获取准确信息，而不是猜测或编造""",
             EventType.AGENT_MESSAGE: """# 当前任务
 其他官员发来消息，你需要：
 1. 处理消息内容
@@ -709,6 +735,8 @@ class Agent:
             "query_province_data": self._handle_query_province_data,
             "query_national_data": self._handle_query_national_data,
             "list_provinces": self._handle_list_provinces,
+            "list_agents": self._handle_list_agents,
+            "get_agent_info": self._handle_get_agent_info,
             "send_game_event": self._handle_send_game_event,
             "send_message_to_agent": self._handle_send_message_to_agent,
             "respond_to_player": self._handle_respond_to_player,
@@ -751,6 +779,10 @@ class Agent:
                 return await self._handle_query_national_data_with_result(arguments, original_event)
             elif function_name == "list_provinces":
                 return await self._handle_list_provinces_with_result(arguments, original_event)
+            elif function_name == "list_agents":
+                return await self._handle_list_agents_with_result(arguments, original_event)
+            elif function_name == "get_agent_info":
+                return await self._handle_get_agent_info_with_result(arguments, original_event)
 
             # Action 类函数执行后返回成功消息
             elif function_name == "send_game_event":
@@ -1127,3 +1159,162 @@ class Agent:
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error listing provinces: {e}")
             return f"❌ 查询失败：{str(e)}"
+
+    async def _handle_list_agents_with_result(self, args: dict, event: Event) -> str:
+        """列出所有活跃的 Agent（官员）并返回结果（用于多轮function calling）"""
+        try:
+            # 通过 agent 目录扫描获取所有 agent
+            agent_dir = Path(self.data_dir) / "agent"
+
+            # 如果是 Telegram session，检查特定目录
+            if hasattr(self, 'session_id') and 'telegram' in self.session_id:
+                # 尝试多个可能的目录
+                possible_dirs = [
+                    agent_dir / f"telegram_{self.session_id.split(':')[-1]}",
+                    agent_dir / "telegram_*",
+                    self.data_dir / "default_agents"
+                ]
+
+                agents_info = []
+                for dir_path in possible_dirs:
+                    if '*' in str(dir_path):
+                        # 处理通配符
+                        from glob import glob
+                        matched_dirs = glob(str(dir_path))
+                        for matched_dir in matched_dirs:
+                            agents_info.extend(self._scan_agents_dir(Path(matched_dir)))
+                    elif dir_path.exists():
+                        agents_info.extend(self._scan_agents_dir(dir_path))
+                        if agents_info:
+                            break  # 找到 agents 就停止
+            else:
+                # 默认扫描 default_agents
+                default_agents_dir = self.data_dir / "default_agents"
+                agents_info = self._scan_agents_dir(default_agents_dir) if default_agents_dir.exists() else []
+
+            if not agents_info:
+                # 如果没有找到，返回硬编码的默认列表
+                agents_info = [
+                    {"agent_id": "governor_zhili", "name": "直隶总督 李卫", "description": "负责直隶省的军政事务"},
+                    {"agent_id": "minister_of_revenue", "name": "户部尚书", "description": "负责国家财政、税收、国库管理"},
+                ]
+
+            # 构建返回结果
+            result_lines = ["朝廷现任官员："]
+            for agent in agents_info:
+                result_lines.append(f"- {agent.get('name', agent['agent_id'])}（ID: {agent['agent_id']}）: {agent.get('description', '暂无描述')}")
+
+            logger.info(f"Agent {self.agent_id} listed agents: {[a['agent_id'] for a in agents_info]}")
+
+            return "\n".join(result_lines)
+
+        except Exception as e:
+            logger.error(f"Agent {self.agent_id} error listing agents: {e}", exc_info=True)
+            # 返回硬编码的默认列表作为 fallback
+            return "朝廷现任官员：\n- 直隶总督 李卫（ID: governor_zhili）: 负责直隶省的军政事务\n- 户部尚书（ID: minister_of_revenue）: 负责国家财政、税收、国库管理"
+
+    def _scan_agents_dir(self, dir_path: Path) -> list[dict]:
+        """扫描 agent 目录，获取所有 agent 信息"""
+        agents_info = []
+
+        if not dir_path.exists():
+            return agents_info
+
+        for agent_path in dir_path.iterdir():
+            if not agent_path.is_dir():
+                continue
+
+            agent_id = agent_path.name
+            soul_path = agent_path / "soul.md"
+
+            # 读取 soul.md 获取名称和描述
+            name = agent_id
+            description = "暂无描述"
+
+            if soul_path.exists():
+                try:
+                    with open(soul_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # 简单提取名称（第一行或 # 开头的行）
+                        for line in content.split('\n')[:10]:
+                            line = line.strip()
+                            if line.startswith('#'):
+                                name = line.lstrip('#').strip()
+                                break
+                            elif line and not line.startswith('#'):
+                                name = line
+                                break
+
+                        # 提取描述（包含"职责"、"负责"等关键词的行）
+                        for line in content.split('\n'):
+                            if '职责' in line or '负责' in line or 'description' in line.lower():
+                                description = line.strip()
+                                if description.startswith('#') or description.startswith('-') or description.startswith('*'):
+                                    description = description.lstrip('#-*').strip()
+                                break
+                except Exception as e:
+                    logger.warning(f"Failed to read soul.md for {agent_id}: {e}")
+
+            agents_info.append({
+                "agent_id": agent_id,
+                "name": name,
+                "description": description
+            })
+
+        return agents_info
+
+    async def _handle_get_agent_info_with_result(self, args: dict, event: Event) -> str:
+        """获取某个 Agent 的详细信息（职责、性格等）并返回结果（用于多轮function calling）"""
+        agent_id = args.get("agent_id")
+
+        if not agent_id:
+            return "❌ 请提供 agent_id 参数"
+
+        try:
+            # 尝试从多个可能的目录查找 agent
+            agent_dir = Path(self.data_dir) / "agent"
+            possible_dirs = []
+
+            if hasattr(self, 'session_id') and 'telegram' in self.session_id:
+                chat_id = self.session_id.split(':')[-1]
+                possible_dirs.append(agent_dir / f"telegram_{chat_id}")
+
+            possible_dirs.append(self.data_dir / "default_agents")
+
+            soul_content = None
+            for dir_path in possible_dirs:
+                soul_path = dir_path / agent_id / "soul.md"
+                if soul_path.exists():
+                    try:
+                        with open(soul_path, 'r', encoding='utf-8') as f:
+                            soul_content = f.read()
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to read {soul_path}: {e}")
+
+            if soul_content:
+                # 返回完整的 soul.md 内容
+                return f"【{agent_id} 的详细信息】\n\n{soul_content}"
+            else:
+                # 返回硬编码的默认信息
+                default_info = {
+                    "governor_zhili": "直隶总督 李卫\n\n职责：负责直隶省的军政事务，包括维护治安、征收税款、管理民政、执行朝廷命令。",
+                    "minister_of_revenue": "户部尚书\n\n职责：负责国家财政、税收、国库管理。管理各省税收，统筹财政收支，为朝廷提供财政建议。",
+                }
+                return default_info.get(agent_id, f"❌ 未找到官员 {agent_id} 的信息")
+
+        except Exception as e:
+            logger.error(f"Agent {self.agent_id} error getting agent info: {e}", exc_info=True)
+            return f"❌ 查询失败：{str(e)}"
+
+    async def _handle_list_agents(self, args: dict, event: Event) -> None:
+        """列出所有活跃的 Agent（单轮模式，此函数为空实现，应使用 with_result 版本）"""
+        # 此函数仅用于兼容，实际查询应使用 _handle_list_agents_with_result
+        logger.info(f"Agent {self.agent_id} called list_agents (single-round mode, should use with_result)")
+        pass
+
+    async def _handle_get_agent_info(self, args: dict, event: Event) -> None:
+        """获取某个 Agent 的详细信息（单轮模式，此函数为空实现，应使用 with_result 版本）"""
+        # 此函数仅用于兼容，实际查询应使用 _handle_get_agent_info_with_result
+        logger.info(f"Agent {self.agent_id} called get_agent_info (single-round mode, should use with_result)")
+        pass
