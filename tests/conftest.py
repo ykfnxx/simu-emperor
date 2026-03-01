@@ -1,6 +1,7 @@
 """共享测试 fixtures + 工厂函数。"""
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -213,3 +214,9 @@ def sample_national_data() -> NationalBaseData:
 @pytest.fixture
 def zhili_province() -> ProvinceBaseData:
     return make_zhili_province()
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    """返回测试 fixtures 目录路径"""
+    return Path(__file__).parent / "fixtures"
