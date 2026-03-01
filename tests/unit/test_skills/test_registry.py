@@ -76,15 +76,15 @@ class TestSkillRegistry:
 
         # 创建多个测试 Skill
         skill1 = Skill(
-            metadata=SkillMetadata(name="skill1", version="1.0"),
+            metadata=SkillMetadata(name="skill1", description="Skill 1", version="1.0"),
             content="Content 1",
         )
         skill2 = Skill(
-            metadata=SkillMetadata(name="skill2", version="1.0"),
+            metadata=SkillMetadata(name="skill2", description="Skill 2", version="1.0"),
             content="Content 2",
         )
         skill3 = Skill(
-            metadata=SkillMetadata(name="skill3", version="1.0"),
+            metadata=SkillMetadata(name="skill3", description="Skill 3", version="1.0"),
             content="Content 3",
         )
 
@@ -125,7 +125,7 @@ class TestSkillRegistry:
 
         # 注册第一个 Skill
         skill1 = Skill(
-            metadata=SkillMetadata(name="test_skill", version="1.0"),
+            metadata=SkillMetadata(name="test_skill", description="Original", version="1.0"),
             content="Original content",
         )
         registry.register_skill(skill1)
@@ -133,7 +133,7 @@ class TestSkillRegistry:
 
         # 注册同名 Skill（覆盖）
         skill2 = Skill(
-            metadata=SkillMetadata(name="test_skill", version="2.0"),
+            metadata=SkillMetadata(name="test_skill", description="Updated", version="2.0"),
             content="Updated content",
         )
         registry.register_skill(skill2)
@@ -155,7 +155,7 @@ class TestSkillRegistry:
 
         # 注册 Skill 到 registry1
         skill = Skill(
-            metadata=SkillMetadata(name="test_skill", version="1.0"),
+            metadata=SkillMetadata(name="test_skill", description="Test", version="1.0"),
             content="Test content",
         )
         registry1.register_skill(skill)

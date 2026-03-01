@@ -10,8 +10,8 @@ class SkillMetadata:
     """Skill 元数据（YAML Frontmatter）"""
 
     name: str
+    description: str
     version: str = "1.0"
-    description: Optional[str] = None
     author: str = "System"
     tags: tuple[str, ...] = ()
     priority: int = 10
@@ -22,8 +22,8 @@ class SkillMetadata:
     def from_dict(cls, data: dict) -> "SkillMetadata":
         return cls(
             name=data["name"],
+            description=data["description"],
             version=data.get("version", "1.0"),
-            description=data.get("description"),
             author=data.get("author", "System"),
             tags=tuple(data.get("tags", [])),
             priority=data.get("priority", 10),

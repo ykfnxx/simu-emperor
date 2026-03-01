@@ -12,7 +12,7 @@ class TestSkillParser:
     def test_parse_valid_skill(self, fixtures_dir: Path):
         """测试解析完整的 Skill 文件"""
         parser = SkillParser()
-        skill_file = fixtures_dir / "skills" / "valid_skill.md"
+        skill_file = fixtures_dir / "skills" / "query_data.md"
 
         skill = parser.parse_file(skill_file)
 
@@ -39,16 +39,16 @@ class TestSkillParser:
     def test_parse_minimal_skill(self, fixtures_dir: Path):
         """测试解析最小字段的 Skill 文件"""
         parser = SkillParser()
-        skill_file = fixtures_dir / "skills" / "minimal_skill.md"
+        skill_file = fixtures_dir / "skills" / "write_report.md"
 
         skill = parser.parse_file(skill_file)
 
         # 验证必需字段
         assert skill.metadata.name == "write_report"
+        assert skill.metadata.description == "撰写报告"
         assert skill.metadata.version == "1.0.0"
 
         # 验证可选字段为默认值
-        assert skill.metadata.description is None
         assert skill.metadata.author == "System"  # 默认值
         assert skill.metadata.tags == ()  # 空 tuple
         assert skill.metadata.parameters == {}  # 空 dict
@@ -142,3 +142,15 @@ version: 1.0.0
 
         # 检查错误消息包含 "文件不存在"
         assert "文件不存在" in str(exc_info.value)
+
+    def test_parse_name_mismatch_filename(self, fixtures_dir: Path):
+        """测试 name 与文件名不一致（应该抛出异常）"""
+        parser = SkillParser()
+        skill_file = fixtures_dir / "skills" / "invalid_name_mismatch.md"
+
+        with pytest.raises(Exception) as exc_info:
+            parser.parse_file(skill_file)
+
+        # 应该抛出 SkillValidationError 或 SkillParseError
+        error_msg = str(exc_info.value).lower()
+        assert "name" in error_msg or "不一致" in error_msg or "invalid_name_mismatch" in error_msg

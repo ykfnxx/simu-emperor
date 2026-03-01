@@ -61,17 +61,17 @@ class TestSkillMetadata:
 
         assert "name" in str(exc_info.value)
 
-    def test_skill_metadata_description_optional(self):
-        """Test that 'description' field is optional"""
+    def test_skill_metadata_description_required(self):
+        """Test that 'description' field is required"""
         data = {
             "name": "no_description_skill",
         }
 
-        # description 是可选字段，应该成功创建
-        metadata = SkillMetadata.from_dict(data)
+        # description 是必填字段，应该抛出 KeyError
+        with pytest.raises(KeyError) as exc_info:
+            SkillMetadata.from_dict(data)
 
-        assert metadata.name == "no_description_skill"
-        assert metadata.description is None
+        assert "description" in str(exc_info.value)
 
     def test_skill_metadata_empty_tags(self):
         """Test SkillMetadata with empty tags list"""

@@ -2,8 +2,10 @@
 
 import yaml
 from pathlib import Path
+
 from simu_emperor.agents.skills.models import Skill, SkillMetadata
-from simu_emperor.agents.skills.exceptions import SkillParseError
+from simu_emperor.agents.skills.exceptions import SkillParseError, SkillValidationError
+from simu_emperor.agents.skills.validator import SkillValidator
 
 
 class SkillParser:
@@ -79,7 +81,18 @@ class SkillParser:
                 raise SkillParseError(skill_name, str(file_path), f"解析 metadata 失败: {e}") from e
 
             # 构建 Skill 对象
-            return Skill(metadata=metadata, content=body.strip(), file_path=file_path, mtime=mtime)
+            skill = Skill(metadata=metadata, content=body.strip(), file_path=file_path, mtime=mtime)
+
+            # 验证 Skill 对象
+            try:
+                SkillValidator.validate_required_fields(skill)
+                SkillValidator.validate_name_matches_filename(skill, file_path)
+            except SkillValidationError:
+                raise
+            except Exception as e:
+                raise SkillParseError(skill_name, str(file_path), f"验证失败: {e}") from e
+
+            return skill
 
         except SkillParseError:
             # 直接重新抛出 SkillParseError

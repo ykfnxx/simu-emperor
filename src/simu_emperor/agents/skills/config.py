@@ -29,6 +29,7 @@ class SkillConfig:
         hot_reload_method: 热重载方法
         cache_size: 缓存大小
     """
+
     enable_dynamic_loading: bool = True
     allow_fallback_to_hardcoded: bool = True
     directories: list[str] = field(default_factory=lambda: ["data/skills"])
