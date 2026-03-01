@@ -473,3 +473,124 @@ class TestAgent:
         assert agent.agent_id == "test_agent_no_loader"
         assert agent.event_bus == mock_event_bus
         assert agent.llm_provider == mock_llm
+
+    def test_system_prompt_uses_dynamic_skill(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试使用动态 Skill 内容"""
+        from simu_emperor.agents.skills.models import Skill, SkillMetadata
+
+        # 创建 mock SkillLoader
+        mock_skill_loader = Mock()
+        mock_skill = Skill(
+            metadata=SkillMetadata(
+                name="execute_command",
+                description="Test skill",
+            ),
+            content="# Dynamic Skill Content\n这是动态加载的 Skill 内容。\n\n当前 Agent: {{agent_id}}",
+        )
+        mock_skill_loader.load.return_value = mock_skill
+        mock_skill_loader.registry.get_skill_for_event.return_value = "execute_command"
+
+        # 创建 Agent 并注入 SkillLoader
+        agent = Agent(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            skill_loader=mock_skill_loader,
+        )
+
+        # 获取 system prompt
+        prompt = agent._get_system_prompt_for_event("command")
+
+        # 验证使用了动态 Skill 内容
+        assert "Dynamic Skill Content" in prompt
+        assert "这是动态加载的 Skill 内容" in prompt
+        # 验证变量被注入
+        assert "test_agent" in prompt
+        # 验证调用了 SkillLoader
+        mock_skill_loader.load.assert_called_once_with("execute_command")
+        mock_skill_loader.registry.get_skill_for_event.assert_called_once_with("command")
+
+    def test_system_prompt_fallback_to_hardcoded(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试回退到硬编码指令"""
+        # 创建 Agent 时不传入 SkillLoader
+        agent = Agent(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            # 不传 skill_loader
+        )
+
+        # 获取 system prompt
+        prompt = agent._get_system_prompt_for_event("command")
+
+        # 验证使用了硬编码指令
+        assert "执行皇帝的命令" in prompt
+        assert "send_game_event" in prompt
+
+    def test_system_prompt_fallback_when_skill_not_found(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试 Skill 加载失败时回退到硬编码"""
+        # 创建 mock SkillLoader，但返回 None（模拟加载失败）
+        mock_skill_loader = Mock()
+        mock_skill_loader.load.return_value = None
+        mock_skill_loader.registry.get_skill_for_event.return_value = "nonexistent_skill"
+
+        # 创建 Agent 并注入 SkillLoader
+        agent = Agent(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            skill_loader=mock_skill_loader,
+        )
+
+        # 获取 system prompt
+        prompt = agent._get_system_prompt_for_event("command")
+
+        # 验证回退到硬编码指令
+        assert "执行皇帝的命令" in prompt
+        assert "send_game_event" in prompt
+
+    def test_system_prompt_injects_variables(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试变量注入"""
+        from simu_emperor.agents.skills.models import Skill, SkillMetadata
+
+        # 创建 mock SkillLoader
+        mock_skill_loader = Mock()
+        mock_skill = Skill(
+            metadata=SkillMetadata(
+                name="execute_command",
+                description="Test skill",
+            ),
+            content="# Task\nAgent ID: {{agent_id}}\nTurn: {{turn}}\nTimestamp: {{timestamp}}",
+        )
+        mock_skill_loader.load.return_value = mock_skill
+        mock_skill_loader.registry.get_skill_for_event.return_value = "execute_command"
+
+        # 创建 mock repository 返回 turn=5
+        mock_repository.load_game_state.return_value = Mock(turn=5)
+
+        # 创建 Agent 并注入 SkillLoader
+        agent = Agent(
+            agent_id="revenue_minister",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            skill_loader=mock_skill_loader,
+        )
+
+        # 获取 system prompt
+        prompt = agent._get_system_prompt_for_event("command")
+
+        # 验证变量被正确注入
+        assert "revenue_minister" in prompt
+        assert "5" in prompt
+        # 验证 timestamp 存在（ISO 格式）
+        import re
+        timestamp_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+        assert re.search(timestamp_pattern, prompt) is not None

@@ -488,7 +488,7 @@ class Agent:
 
     def _get_system_prompt_for_event(self, event_type: str) -> str:
         """
-        根据事件类型获取 system prompt
+        根据事件类型获取 system prompt（支持动态 Skill 加载）
 
         Args:
             event_type: 事件类型
@@ -496,20 +496,81 @@ class Agent:
         Returns:
             System prompt
         """
-        # 基础 prompt（soul + data_scope）
-        base_parts = []
+        # 1. Soul（不变）
+        soul_part = f"# 你的角色\n{self._soul}\n" if self._soul else ""
 
-        if self._soul:
-            base_parts.append(f"# 你的角色\n{self._soul}\n")
-
+        # 2. Data Scope（不变）
+        scope_part = ""
         if self._data_scope:
             import yaml
             scope_yaml = yaml.dump(self._data_scope, allow_unicode=True)
-            base_parts.append(f"# 数据权限\n```yaml\n{scope_yaml}```\n")
+            scope_part = f"# 数据权限\n```yaml\n{scope_yaml}```\n"
 
-        base_prompt = "\n".join(base_parts)
+        # 3. Skill Content（动态加载）
+        task_part = ""
+        if self._skill_loader:
+            skill_name = self._skill_loader.registry.get_skill_for_event(event_type)
+            if skill_name:
+                skill = self._skill_loader.load(skill_name)
+                if skill:
+                    task_part = self._inject_skill_variables(skill.content)
+                else:
+                    task_part = self._get_hardcoded_instruction(event_type)
+            else:
+                task_part = self._get_hardcoded_instruction(event_type)
+        else:
+            task_part = self._get_hardcoded_instruction(event_type)
 
-        # 根据事件类型添加特定说明
+        return "\n".join(filter(None, [soul_part, scope_part, task_part])).strip()
+
+    def _inject_skill_variables(self, content: str) -> str:
+        """
+        注入动态变量到 Skill 内容
+
+        Args:
+            content: Skill 内容（可能包含变量占位符）
+
+        Returns:
+            注入变量后的内容
+        """
+        from datetime import datetime
+
+        variables = {
+            "{{agent_id}}": self.agent_id,
+            "{{turn}}": str(self._get_current_turn()),
+            "{{timestamp}}": datetime.now().isoformat(),
+        }
+
+        for key, value in variables.items():
+            content = content.replace(key, value)
+
+        return content
+
+    def _get_current_turn(self) -> int:
+        """
+        获取当前回合数
+
+        Returns:
+            当前回合数，如果无法获取则返回 1
+        """
+        if self.repository:
+            try:
+                state = self.repository.load_game_state()
+                return state.turn if state else 1
+            except Exception:
+                pass
+        return 1
+
+    def _get_hardcoded_instruction(self, event_type: str) -> str:
+        """
+        获取硬编码的任务指令（回退机制）
+
+        Args:
+            event_type: 事件类型
+
+        Returns:
+            硬编码的任务指令
+        """
         event_instructions = {
             EventType.COMMAND: """# 当前任务：执行皇帝的命令
 
@@ -594,9 +655,7 @@ class Agent:
 1. 使用 write_memory function 写入本回合总结""",
         }
 
-        instruction = event_instructions.get(event_type, "# 当前任务\n请响应此事件。")
-
-        return f"{base_prompt}\n\n{instruction}"
+        return event_instructions.get(event_type, "# 当前任务\n请响应此事件。")
 
     def _build_user_prompt(self, event: Event) -> str:
         """
