@@ -201,6 +201,7 @@ class Agent:
         repository=None,
         session_id: str | None = None,
         db_logger=None,
+        skill_loader=None,
     ):
         """
         初始化 Agent
@@ -213,6 +214,7 @@ class Agent:
             repository: GameRepository（用于数据查询）
             session_id: 会话标识符（用于 Context 组装）
             db_logger: 数据库日志记录器（用于查询历史事件）
+            skill_loader: SkillLoader 实例（用于动态加载 Skill 内容）
         """
         self.agent_id = agent_id
         self.event_bus = event_bus
@@ -221,6 +223,7 @@ class Agent:
         self.repository = repository
         self.session_id = session_id
         self._db_logger = db_logger
+        self._skill_loader = skill_loader
 
         # 加载 soul 和 data_scope
         self._soul: str | None = None

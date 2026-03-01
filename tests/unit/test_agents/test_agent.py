@@ -435,3 +435,41 @@ class TestAgent:
 
         # 不应该调用 load_state
         assert not mock_repository.load_state.called
+
+    def test_agent_with_skill_loader(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试注入 SkillLoader"""
+        # 创建 mock SkillLoader
+        mock_skill_loader = Mock()
+
+        # 创建 Agent 时传入 skill_loader
+        agent = Agent(
+            agent_id="test_agent_with_loader",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            skill_loader=mock_skill_loader,
+        )
+
+        # 验证 skill_loader 被正确保存
+        assert agent._skill_loader is mock_skill_loader
+        assert agent._skill_loader is not None
+
+    def test_agent_backward_compatible(self, mock_event_bus, mock_llm, temp_data_dir, mock_repository):
+        """测试不传 skill_loader 时向后兼容"""
+        # 创建 Agent 时不传入 skill_loader
+        agent = Agent(
+            agent_id="test_agent_no_loader",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            # 不传 skill_loader 参数
+        )
+
+        # 验证 _skill_loader 为 None（向后兼容）
+        assert agent._skill_loader is None
+        # 其他属性应该正常初始化
+        assert agent.agent_id == "test_agent_no_loader"
+        assert agent.event_bus == mock_event_bus
+        assert agent.llm_provider == mock_llm
