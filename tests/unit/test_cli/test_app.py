@@ -103,19 +103,22 @@ class TestEmperorCLI:
         assert cli._chat_agent_id == ""
 
     @pytest.mark.asyncio
-    async def test_on_response(self, cli, capsys):
+    async def test_on_response(self, cli):
         """测试处理响应事件"""
         event = Event(
             src="agent:test",
             dst=["player"],
             type=EventType.RESPONSE,
             payload={"narrative": "Test response"},
+            session_id="test_session_response",
         )
 
         await cli._on_response(event)
 
-        captured = capsys.readouterr()
-        assert "Test response" in captured.out
+        # 验证事件被放入队列
+        assert not cli._response_queue.empty()
+        queued_event = await cli._response_queue.get()
+        assert queued_event.payload["narrative"] == "Test response"
 
     def test_get_agent_display_name(self, cli):
         """测试获取 Agent 显示名称"""

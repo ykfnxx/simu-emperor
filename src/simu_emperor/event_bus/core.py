@@ -52,6 +52,7 @@ class EventBus:
         self._subscribers: dict[str, list[EventHandler]] = defaultdict(list)
         self._file_logger = file_logger
         self._db_logger = db_logger
+        self._background_tasks: set[asyncio.Task] = set()
         logger.info("EventBus initialized")
 
     def subscribe(self, dst: str, handler: EventHandler) -> None:
@@ -225,10 +226,14 @@ class EventBus:
                 if asyncio.iscoroutinefunction(handler):
                     # 异步处理器
                     task = asyncio.create_task(handler(event))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
                     tasks.append(task)
                 else:
                     # 同步处理器，在 asyncio 中执行
                     task = asyncio.create_task(self._run_sync_handler(handler, event))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
                     tasks.append(task)
             except Exception as e:
                 logger.error(f"Failed to create task for handler {handler.__name__}: {e}")
@@ -287,3 +292,33 @@ class EventBus:
         """清除所有订阅者（测试用）"""
         self._subscribers.clear()
         logger.debug("All subscribers cleared")
+
+    async def wait_for_background_tasks(self, timeout: float = 1.0) -> None:
+        """
+        等待所有后台任务完成
+
+        Args:
+            timeout: 超时时间（秒），默认 1 秒
+
+        注意：此方法用于测试和清理，确保所有事件处理器都执行完毕。
+        """
+        if not self._background_tasks:
+            return
+
+        try:
+            # 等待所有任务完成，但有超时限制
+            await asyncio.wait_for(
+                asyncio.gather(*self._background_tasks, return_exceptions=True),
+                timeout=timeout
+            )
+            logger.debug(f"All {len(self._background_tasks)} background tasks completed")
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for {len(self._background_tasks)} background tasks")
+            # 取消未完成的任务
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            # 等待取消完成
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        finally:
+            self._background_tasks.clear()

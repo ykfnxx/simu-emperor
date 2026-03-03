@@ -41,16 +41,22 @@ class TestGameRepository:
         """测试保存和加载状态"""
         test_state = {
             "turn": 5,
-            "provinces": {
-                "zhili": {"taxation": {"land_tax_rate": 0.1}}
-            }
+            "imperial_treasury": 100000,
+            "provinces": [
+                {
+                    "province_id": "zhili",
+                    "name": "直隶",
+                    "taxation": {"land_tax_rate": 0.1}
+                }
+            ]
         }
 
         await repo.save_state(test_state)
         loaded = await repo.load_state()
 
         assert loaded["turn"] == 5
-        assert "zhili" in loaded["provinces"]
+        assert len(loaded["provinces"]) == 1
+        assert loaded["provinces"][0]["province_id"] == "zhili"
 
     @pytest.mark.asyncio
     async def test_save_turn_metrics(self, repo):
@@ -87,9 +93,14 @@ class TestGameRepository:
         # 先保存一些状态
         state = {
             "turn": 1,
-            "provinces": {
-                "zhili": {}
-            }
+            "imperial_treasury": 100000,
+            "provinces": [
+                {
+                    "province_id": "zhili",
+                    "name": "直隶",
+                    "taxation": {}
+                }
+            ]
         }
         await repo.save_state(state)
 
@@ -98,4 +109,4 @@ class TestGameRepository:
 
         # 加载并验证
         loaded = await repo.load_state()
-        assert loaded["provinces"]["zhili"]["taxation"]["land_tax_rate"] == 0.15
+        assert loaded["provinces"][0]["taxation"]["land_tax_rate"] == 0.15

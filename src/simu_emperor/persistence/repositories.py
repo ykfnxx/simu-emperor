@@ -149,15 +149,25 @@ class GameRepository:
         Returns:
             新的回合数
         """
+        # 加载当前状态
+        state = await self.load_state()
+        current_turn = state.get("turn", 0)
+        new_turn = current_turn + 1
+
+        # 更新 state_json 中的 turn 字段
+        state["turn"] = new_turn
+        await self.save_state(state)
+
+        # 同时更新数据库的 turn 列（用于索引和查询）
         conn = await self._get_conn()
         await conn.execute(
-            "UPDATE game_state SET turn = turn + 1 WHERE id = 1"
+            "UPDATE game_state SET turn = ? WHERE id = 1",
+            (new_turn,)
         )
         await conn.commit()
 
-        turn = await self.get_current_turn()
-        logger.info(f"Turn incremented to {turn}")
-        return turn
+        logger.info(f"Turn incremented to {new_turn}")
+        return new_turn
 
     async def update_province_data(
         self, province_id: str, field_path: str, value: Any

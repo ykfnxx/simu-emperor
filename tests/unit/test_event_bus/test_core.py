@@ -14,9 +14,12 @@ class TestEventBus:
     """测试 EventBus 类"""
 
     @pytest.fixture
-    def event_bus(self):
+    async def event_bus(self):
         """创建 EventBus 实例"""
-        return EventBus()
+        bus = EventBus()
+        yield bus
+        # 清理后台任务
+        await bus.wait_for_background_tasks(timeout=1.0)
 
     @pytest.mark.asyncio
     async def test_subscribe_and_unsubscribe(self, event_bus):
