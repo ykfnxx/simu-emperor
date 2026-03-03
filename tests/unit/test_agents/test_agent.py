@@ -150,6 +150,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.COMMAND,
             payload={"command": "调整直隶税率为 5%"},
+            session_id="test_session_command",
         )
 
         await agent._on_event(event)
@@ -184,6 +185,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "国库还有多少银两？"},
+            session_id="test_session_query",
         )
 
         await agent._on_event(event)
@@ -214,6 +216,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.CHAT,
             payload={"message": "你好"},
+            session_id="test_session_chat",
         )
 
         await agent._on_event(event)
@@ -238,7 +241,7 @@ class TestAgent:
             }
         ])
 
-        event = Event(src="player", dst=["*"], type=EventType.END_TURN)
+        event = Event(src="player", dst=["*"], type=EventType.END_TURN, session_id="test_session_end_turn")
 
         await agent._on_event(event)
 
@@ -267,6 +270,7 @@ class TestAgent:
             dst=["*"],
             type=EventType.TURN_RESOLVED,
             payload={"turn": 1},
+            session_id="test_session_turn_resolved",
         )
 
         await agent._on_event(event)
@@ -302,6 +306,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.COMMAND,
             payload={"command": "命令直隶总督李卫执行任务"},
+            session_id="test_session_send_message",
         )
 
         await agent._on_event(event)
@@ -346,6 +351,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "查询直隶人口"},
+            session_id="test_session_query_province",
         )
 
         # 直接调用 handler
@@ -372,6 +378,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "查询国库"},
+            session_id="test_session_query_national",
         )
 
         # 直接调用 handler
@@ -398,6 +405,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "列出所有省份"},
+            session_id="test_session_list_provinces",
         )
 
         # 直接调用 handler
@@ -425,6 +433,7 @@ class TestAgent:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "查询直隶人口"},
+            session_id="test_session_query_province",
         )
 
         # 直接调用 handler（应该不会报错，只是返回警告）

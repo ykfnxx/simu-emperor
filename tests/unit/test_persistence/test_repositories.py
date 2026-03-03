@@ -17,7 +17,8 @@ async def test_update_province_data_with_dict():
         CREATE TABLE game_state (
             id INTEGER PRIMARY KEY,
             turn INTEGER,
-            state_json TEXT
+            state_json TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -64,7 +65,8 @@ async def test_update_province_data_nested():
         CREATE TABLE game_state (
             id INTEGER PRIMARY KEY,
             turn INTEGER,
-            state_json TEXT
+            state_json TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

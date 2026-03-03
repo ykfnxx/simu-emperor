@@ -132,7 +132,7 @@ class TestCalculator:
 
         mock_repository.get_active_agents = AsyncMock(return_value=[])
 
-        event = Event(src="player", dst=["*"], type=EventType.END_TURN)
+        event = Event(src="player", dst=["*"], type=EventType.END_TURN, session_id="test_calc")
         await calculator._on_end_turn(event)
 
         # 应该直接结算（不等待 ready）
@@ -146,7 +146,7 @@ class TestCalculator:
         # Mock _get_active_agents 方法
         calculator._get_active_agents = AsyncMock(return_value=["agent:a", "agent:b", "agent:c"])
 
-        event = Event(src="player", dst=["*"], type=EventType.END_TURN)
+        event = Event(src="player", dst=["*"], type=EventType.END_TURN, session_id="test_calc")
         await calculator._on_end_turn(event)
 
         # 应该等待这 3 个 Agent
@@ -159,7 +159,7 @@ class TestCalculator:
         calculator.pending_ready = {"agent:a", "agent:b"}
 
         # Agent a 就绪
-        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.READY)
+        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.READY, session_id="test_calc")
         await calculator._on_ready(event)
 
         assert "agent:a" not in calculator.pending_ready
@@ -172,7 +172,7 @@ class TestCalculator:
         calculator.pending_ready = {"agent:a"}
 
         # 最后一个 Agent 就绪，应该触发回合结算
-        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.READY)
+        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.READY, session_id="test_calc")
         await calculator._on_ready(event)
 
         assert len(calculator.pending_ready) == 0
@@ -185,7 +185,7 @@ class TestCalculator:
         calculator.start()
         calculator.pending_ready = {"agent:a"}
 
-        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.COMMAND)
+        event = Event(src="agent:a", dst=["system:calculator"], type=EventType.COMMAND, session_id="test_calc")
         await calculator._on_ready(event)
 
         # pending_ready 不应该改变
@@ -201,6 +201,7 @@ class TestCalculator:
             dst=["system:calculator"],
             type=EventType.ADJUST_TAX,
             payload={"province": "zhili", "rate": 0.1},
+            session_id="test_calc",
         )
 
         await calculator._on_adjust_tax(event)
@@ -218,6 +219,7 @@ class TestCalculator:
             dst=["system:calculator"],
             type=EventType.BUILD_IRRIGATION,
             payload={"province": "zhili", "level": 2},
+            session_id="test_calc",
         )
 
         await calculator._on_build_irrigation(event)
@@ -234,6 +236,7 @@ class TestCalculator:
             dst=["system:calculator"],
             type=EventType.RECRUIT_TROOPS,
             payload={"province": "zhili", "count": 1000},
+            session_id="test_calc",
         )
 
         await calculator._on_recruit_troops(event)

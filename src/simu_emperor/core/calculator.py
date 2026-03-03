@@ -219,6 +219,7 @@ class Calculator:
                 dst=["*"],
                 type=EventType.TURN_RESOLVED,
                 payload=payload,
+                session_id=f"turn_{new_data.turn}",
             )
             await self.event_bus.send_event(event)
 
