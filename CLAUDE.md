@@ -61,6 +61,15 @@ src/simu_emperor/
 ├── agents/                           # Module: AI officials
 │   ├── agent.py                      # Agent base class
 │   ├── manager.py                    # Agent lifecycle (init/add/remove)
+│   ├── skills/                       # Sub-module: File-driven skill system
+│   │   ├── models.py                 # Skill data models (SkillMetadata, Skill)
+│   │   ├── exceptions.py             # Skill exception classes
+│   │   ├── config.py                 # Skill configuration
+│   │   ├── parser.py                 # YAML Frontmatter + Markdown parser
+│   │   ├── validator.py              # Skill validation logic
+│   │   ├── loader.py                 # Three-tier caching loader
+│   │   ├── registry.py               # Event-to-skill mapping registry
+│   │   └── watcher.py                # File watcher for hot-reload (TODO)
 │   ├── context_builder.py            # LLM context assembly (data_scope parsing)
 │   ├── memory_manager.py             # Memory: short-term (3 turns) + long-term
 │   ├── file_manager.py               # File I/O for agent files
@@ -98,10 +107,14 @@ src/simu_emperor/
     └── calculator.py                 # resolve_turn() engine
 
 data/
-├── skills/                           # Universal skill templates (all agents share)
-│   ├── query_data.md
-│   ├── write_report.md
-│   └── execute_command.md
+├── skills/                           # Universal skill templates (all agents share, v2.0 format)
+│   ├── execute_command.md            # Execute imperial commands
+│   ├── query_data.md                 # Query data within permissions
+│   ├── chat.md                       # Chat with emperor (role-play)
+│   ├── receive_message.md            # Receive inter-agent messages
+│   ├── prepare_turn.md               # Prepare for turn end (send ready)
+│   ├── summarize_turn.md             # Summarize turn results (write memory)
+│   └── write_report.md               # Write reports to emperor
 │
 ├── default_agents/                   # Agent templates (version-controlled)
 │   └── {agent_id}/
@@ -137,10 +150,13 @@ data/
 
 tests/
 ├── conftest.py                       # Shared fixtures + factories
+├── fixtures/                         # Test fixtures and data
+│   └── skills/                       # Skill file test fixtures
 ├── unit/                             # Unit tests (no I/O, no LLM)
 │   ├── test_event_bus/
 │   ├── test_core/
 │   ├── test_agents/
+│   │   └── test_skills/              # Skill module tests (73 tests, 100% passing)
 │   ├── test_cli/
 │   ├── test_persistence/
 │   └── test_llm/
@@ -172,7 +188,17 @@ LLM                   SQLite + filesystem
 
 **Calculator** (`core/`) — Game state manager. Special EventBus subscriber that coordinates turn resolution (waits for all `ready` events), executes economic formulas (reused from V1 engine), modifies database exclusively. Publishes `turn_resolved` events.
 
-**Agents** (`agents/`) — File-driven AI officials. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist). Deception emerges from LLM reading soul.md. Universal skill templates in `data/skills/`. Three-phase workflow: summarize (write memory) → respond (answer queries) → execute (carry out commands). All phases triggered by events.
+**Agents** (`agents/`) — File-driven AI officials. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist).
+
+**Skill System** (`agents/skills/`) — File-driven skill system (v2.0). Each skill is a markdown file with YAML Frontmatter (metadata: name, description, version, tags, priority, required_tools) and Markdown Body (task instructions, examples, constraints).
+
+- **Three-tier caching**: Memory (LRU, size=50) → mtime (file change detection) → File system
+- **Dynamic loading**: `_get_system_prompt_for_event()` loads skills on-demand based on event type
+- **Event mapping**: Hardcoded registry (EventType.COMMAND → execute_command, etc.)
+- **Variable injection**: Supports `{{agent_id}}`, `{{turn}}`, `{{timestamp}}` placeholders
+- **Fallback mechanism**: Hardcoded instructions used when skill loading fails
+
+Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (write memory) → respond (answer queries) → execute (carry out commands). All phases triggered by events.
 
 **CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
 
@@ -308,6 +334,8 @@ from simu_emperor.cli.app import EmperorCLI  # core must not import cli
 **V2 Architecture:**
 - `.prd/V2_PRD.md` — Product requirements (event-driven architecture)
 - `.design/V2_TDD.md` — Technical design document (detailed specs)
+- `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md` — Skill system design (v2.0)
+- `.design/2026-03-01-skill-tool-refactor-implementation.md` — Skill system implementation plan
 
 **V1 Architecture (deprecated, reference for engine reuse):**
 - `.plan/rewrite_plan_v1.1.md` — Full system architecture
@@ -319,16 +347,23 @@ from simu_emperor.cli.app import EmperorCLI  # core must not import cli
 
 V2 implementation follows the phases defined in `.prd/V2_PRD.md` (§8.1):
 
-**Phase 1: EventBus** — Event routing, async handling, logging
-**Phase 2: Calculator** — Reuse V1 engine, turn coordination, persistence
-**Phase 3: Agents** — File-driven agents, LLM integration, memory
-**Phase 4: CLI** — Rich TUI, natural language parsing
-**Phase 5: Integration** — E2E testing, performance optimization
+**Phase 1: EventBus** — Event routing, async handling, logging ✅
+**Phase 2: Calculator** — Reuse V1 engine, turn coordination, persistence ✅
+**Phase 3: Agents** — File-driven agents, LLM integration, memory ✅
+**Phase 4: CLI** — Rich TUI, natural language parsing (TODO)
+**Phase 5: Integration** — E2E testing, performance optimization (TODO)
+
+**Skill System (Completed 2026-03-03):**
+- ✅ Week 1: Infrastructure (models, parser, validator, loader, registry)
+- ✅ Week 1.5-2: Agent integration (dynamic skill loading, variable injection)
+- ✅ Week 2: Skill file migration (7 files rewritten to v2.0 format)
+- ✅ 73 unit tests (100% passing)
+- ✅ Code review and Important issues fixed
 
 When implementing features:
-1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`)
+1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`, `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md`)
 2. Check existing tests for patterns
-3. Write unit tests before implementation
+3. Write unit tests before implementation (TDD)
 4. Run `uv run ruff check .` and `uv run pytest` before committing
 5. Update this CLAUDE.md if architecture changes
 
