@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from simu_emperor.agents.system_prompts import get_system_prompt
+from simu_emperor.agents.tool_definitions import AVAILABLE_FUNCTIONS
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -22,157 +24,6 @@ from simu_emperor.llm.base import LLMProvider
 
 
 logger = logging.getLogger(__name__)
-
-
-# 可用的 Functions（所有 Agent 共享）
-AVAILABLE_FUNCTIONS = [
-    {
-        "name": "query_province_data",
-        "description": "查询某个省份的特定数据字段（需要知道 province_id 和 field_path）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "province_id": {
-                    "type": "string",
-                    "description": "省份 ID（如 'zhili', 'shanxi'）",
-                    "enum": ["zhili", "shanxi", "jiangsu", "zhejiang", "fujian", "guangdong"]
-                },
-                "field_path": {
-                    "type": "string",
-                    "description": "数据字段路径（如 'population.total', 'agriculture.crops[0].yield'）"
-                }
-            },
-            "required": ["province_id", "field_path"]
-        }
-    },
-    {
-        "name": "query_national_data",
-        "description": "查询国家级数据（如国库、当前回合等）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "field_name": {
-                    "type": "string",
-                    "description": "字段名称（如 'imperial_treasury', 'turn'）",
-                    "enum": ["imperial_treasury", "turn", "national_tax_modifier", "tribute_rate"]
-                }
-            },
-            "required": ["field_name"]
-        }
-    },
-    {
-        "name": "list_provinces",
-        "description": "列出所有可访问的省份 ID",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "list_agents",
-        "description": "列出所有活跃的官员（Agent）及其职责",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "get_agent_info",
-        "description": "获取某个官员的详细信息（职责、性格等）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "string",
-                    "description": "Agent ID（如 'governor_zhili', 'minister_of_revenue'）"
-                }
-            },
-            "required": ["agent_id"]
-        }
-    },
-    {
-        "name": "send_game_event",
-        "description": "【执行动作】发送游戏事件到 Calculator。这是修改游戏状态的唯一方式！执行命令时必须调用此函数。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_type": {
-                    "type": "string",
-                    "description": "游戏事件类型\n- allocate_funds: 拨款（从国库拨给省库）\n- adjust_tax: 调整税率\n- build_irrigation: 建设水利\n- recruit_troops: 招募军队",
-                    "enum": ["allocate_funds", "adjust_tax", "build_irrigation", "recruit_troops"]
-                },
-                "payload": {
-                    "type": "object",
-                    "description": "事件参数（根据 event_type 不同而不同）",
-                    "properties": {
-                        "province": {"type": "string", "description": "省份 ID"},
-                        "amount": {"type": "number", "description": "金额（拨款时使用）"},
-                        "rate": {"type": "number", "description": "税率（0-1）"},
-                        "count": {"type": "integer", "description": "数量（士兵数等）"}
-                    }
-                }
-            },
-            "required": ["event_type", "payload"]
-        }
-    },
-    {
-        "name": "send_message_to_agent",
-        "description": "发送消息给其他 Agent（如通知其他官员）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target_agent": {
-                    "type": "string",
-                    "description": "目标 Agent ID（如 'governor_zhili', 'minister_of_revenue'）"
-                },
-                "message": {
-                    "type": "string",
-                    "description": "消息内容"
-                }
-            },
-            "required": ["target_agent", "message"]
-        }
-    },
-    {
-        "name": "respond_to_player",
-        "description": "响应玩家（仅当事件来自玩家时使用）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "响应内容（扮演风格，生动有趣）"
-                }
-            },
-            "required": ["content"]
-        }
-    },
-    {
-        "name": "send_ready",
-        "description": "发送 ready 信号（仅在 end_turn 事件时使用）",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "write_memory",
-        "description": "写入记忆（仅在 turn_resolved 事件时使用）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "总结内容（本回合发生的事情、重要决策和结果）"
-                }
-            },
-            "required": ["content"]
-        }
-    },
-]
 
 
 class Agent:
@@ -234,6 +85,10 @@ class Agent:
         # 初始化独立日志
         self._init_agent_logger()
 
+        # 初始化函数处理器映射
+        self._function_handlers: dict[str, callable] = {}
+        self._init_function_handlers()
+
         logger.info(f"Agent {agent_id} initialized")
 
     def _init_agent_logger(self) -> None:
@@ -248,17 +103,67 @@ class Agent:
             when="midnight",
             interval=1,
             backupCount=7,
-            encoding="utf-8"
+            encoding="utf-8",
         )
-        formatter = logging.Formatter(
-            "[%(asctime)s] [%(levelname)s] %(message)s"
-        )
+        formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s")
         handler.setFormatter(formatter)
         self._agent_logger.addHandler(handler)
         self._agent_logger.setLevel(logging.INFO)
 
         # LLM 日志文件路径
         self._llm_log_path = log_dir / f"{self.agent_id}_llm.jsonl"
+
+    def _init_function_handlers(self) -> None:
+        """
+        初始化函数处理器映射表
+
+        将函数名映射到对应的处理方法，避免大量的 if-elif 语句
+        """
+        # Query 类函数 - 直接返回结果
+        self._function_handlers.update(
+            {
+                "query_province_data": self._handle_query_province_data_with_result,
+                "query_national_data": self._handle_query_national_data_with_result,
+                "list_provinces": self._handle_list_provinces_with_result,
+                "list_agents": self._handle_list_agents_with_result,
+                "get_agent_info": self._handle_get_agent_info_with_result,
+            }
+        )
+
+        # Action 类函数 - 执行后返回成功消息
+        # 使用包装器将无返回值的函数转换为返回成功消息
+        action_handlers = {
+            "send_game_event": (self._handle_send_game_event, "✅ 游戏事件已发送到 Calculator"),
+            "send_message_to_agent": (
+                self._handle_send_message_to_agent,
+                "✅ 消息已发送给其他官员",
+            ),
+            "respond_to_player": (self._handle_respond_to_player, "✅ 响应已发送给玩家"),
+            "send_ready": (self._handle_send_ready, "✅ Ready 信号已发送"),
+            "write_memory": (self._handle_write_memory, "✅ 记忆已写入"),
+        }
+
+        for func_name, (handler, success_msg) in action_handlers.items():
+            self._function_handlers[func_name] = self._create_action_wrapper(handler, success_msg)
+
+    @staticmethod
+    def _create_action_wrapper(handler_func: callable, success_message: str) -> callable:
+        """
+        为动作处理函数创建包装器，使其返回标准化的成功消息
+
+        Args:
+            handler_func: 原始动作处理函数（无返回值）
+            success_message: 执行成功后返回的消息
+
+        Returns:
+            包装后的异步函数（返回成功消息）
+        """
+
+        async def wrapper(args: dict, event: Event) -> str:
+            await handler_func(args, event)
+            return success_message
+
+        return wrapper
 
     def _log_event(self, action: str, event: Event, message: str = "") -> None:
         """记录事件日志"""
@@ -268,8 +173,13 @@ class Agent:
         self._agent_logger.info(msg)
 
     def _log_llm_call(
-        self, event_id: str, session_id: str, iteration: int,
-        request: dict, response: dict, duration_ms: float
+        self,
+        event_id: str,
+        session_id: str,
+        iteration: int,
+        request: dict,
+        response: dict,
+        duration_ms: float,
     ) -> None:
         """记录 LLM 调用详情到 JSONL"""
         record = {
@@ -277,10 +187,10 @@ class Agent:
             "event_id": event_id,
             "session_id": session_id,
             "iteration": iteration,
-            "model": getattr(self.llm_provider, 'model', 'unknown'),
+            "model": getattr(self.llm_provider, "model", "unknown"),
             "duration_ms": duration_ms,
             "request": request,
-            "response": response
+            "response": response,
         }
         with open(self._llm_log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -340,38 +250,48 @@ class Agent:
         """
         # 获取请求ID用于追踪
         request_id = event.payload.get("_request_id", "unknown")
-        event_id = event.id if hasattr(event, 'id') else "unknown"
+        event_id = event.id if hasattr(event, "id") else "unknown"
 
         # 过滤不是发往此 Agent 的事件
-        if (f"agent:{self.agent_id}" not in event.dst and
-            "agent:*" not in event.dst and
-            "*" not in event.dst):
+        if (
+            f"agent:{self.agent_id}" not in event.dst
+            and "agent:*" not in event.dst
+            and "*" not in event.dst
+        ):
             return
 
         # 记录事件日志
         self._log_event("RECV", event, f"{event.type} from {event.src}")
 
-        logger.info(f"📨 [Agent:{self.agent_id}:{request_id}] Received {event.type} event (id={event_id}) from {event.src}")
+        logger.info(
+            f"📨 [Agent:{self.agent_id}:{request_id}] Received {event.type} event (id={event_id}) from {event.src}"
+        )
 
         try:
             # 1-2. 构建 Context（包含历史事件）
             logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Starting context build...")
 
             if self._db_logger:
-                logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Using db_logger to build context")
+                logger.info(
+                    f"🔧 [Agent:{self.agent_id}:{request_id}] Using db_logger to build context"
+                )
                 # 使用数据库查询构建完整 Context
                 messages = await self._build_context(event, history_limit=20)
             else:
-                logger.info(f"⚠️  [Agent:{self.agent_id}:{request_id}] No db_logger, using single event mode")
+                logger.info(
+                    f"⚠️  [Agent:{self.agent_id}:{request_id}] No db_logger, using single event mode"
+                )
                 # 回退到单事件模式
                 system_prompt = self._get_system_prompt_for_event(event.type)
                 user_prompt = self._build_user_prompt(event)
                 messages = [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": user_prompt},
                 ]
 
-            logger.info(f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages")
+            logger.info(
+                f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages"
+            )
 
             # 3-4. 多轮 function calling 循环
             max_iterations = 10  # 防止无限循环
@@ -379,7 +299,9 @@ class Agent:
 
             while iteration < max_iterations:
                 iteration += 1
-                logger.info(f"🔄 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: Calling LLM...")
+                logger.info(
+                    f"🔄 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: Calling LLM..."
+                )
 
                 # 记录 LLM 调用开始时间
                 start_time = datetime.now(timezone.utc)
@@ -400,23 +322,33 @@ class Agent:
                     iteration=iteration,
                     request={"messages": messages, "functions": AVAILABLE_FUNCTIONS},
                     response=result,
-                    duration_ms=duration_ms
+                    duration_ms=duration_ms,
                 )
 
                 tool_calls = result.get("tool_calls", [])
                 response_text = result.get("response_text", "").strip()
 
-                logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: LLM returned {len(tool_calls)} tool calls")
-                logger.info(f"💬 [Agent:{self.agent_id}:{request_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}")
+                logger.info(
+                    f"🔧 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: LLM returned {len(tool_calls)} tool calls"
+                )
+                logger.info(
+                    f"💬 [Agent:{self.agent_id}:{request_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
+                )
 
                 # 如果没有 tool calls，循环结束
                 if not tool_calls:
-                    logger.info(f"✅ [Agent:{self.agent_id}:{request_id}] No more tool calls, ending loop")
+                    logger.info(
+                        f"✅ [Agent:{self.agent_id}:{request_id}] No more tool calls, ending loop"
+                    )
 
                     # 发送最终响应
                     if response_text:
-                        logger.info(f"💬 [Agent:{self.agent_id}:{request_id}] Sending final response: {response_text[:50]}...")
-                        self._log_event("SEND", event, f"RESPONSE to {event.src}: {response_text[:50]}...")
+                        logger.info(
+                            f"💬 [Agent:{self.agent_id}:{request_id}] Sending final response: {response_text[:50]}..."
+                        )
+                        self._log_event(
+                            "SEND", event, f"RESPONSE to {event.src}: {response_text[:50]}..."
+                        )
                         await self._send_response(response_text, event)
                     break
 
@@ -430,11 +362,11 @@ class Agent:
                             "type": "function",
                             "function": {
                                 "name": tc["function"]["name"],
-                                "arguments": tc["function"]["arguments"]
-                            }
+                                "arguments": tc["function"]["arguments"],
+                            },
                         }
                         for tc in tool_calls
-                    ]
+                    ],
                 }
                 messages.append(assistant_message)
 
@@ -446,10 +378,16 @@ class Agent:
                     function_name = tool_call["function"]["name"]
                     function_args = json.loads(tool_call["function"]["arguments"])
 
-                    logger.info(f"⚙️ [Agent:{self.agent_id}:{request_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}")
+                    logger.info(
+                        f"⚙️ [Agent:{self.agent_id}:{request_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
+                    )
 
                     # 检查是否是查询函数
-                    if function_name in ["query_province_data", "query_national_data", "list_provinces"]:
+                    if function_name in [
+                        "query_province_data",
+                        "query_national_data",
+                        "list_provinces",
+                    ]:
                         has_query_functions = True
 
                     # 检查是否已经调用了respond_to_player
@@ -457,34 +395,47 @@ class Agent:
                         has_respond_to_player = True
 
                     # 调用 function handler 并获取结果
-                    result_str = await self._call_function_with_result(function_name, function_args, event)
+                    result_str = await self._call_function_with_result(
+                        function_name, function_args, event
+                    )
 
                     # 记录 tool call 结果（使用OpenAI格式）
                     tool_result_message = {
                         "role": "tool",
                         "tool_call_id": tool_call["id"],
-                        "content": result_str
+                        "content": result_str,
                     }
                     messages.append(tool_result_message)
-                    logger.debug(f"📤 [Agent:{self.agent_id}:{request_id}] Tool result: {result_str[:100]}...")
+                    logger.debug(
+                        f"📤 [Agent:{self.agent_id}:{request_id}] Tool result: {result_str[:100]}..."
+                    )
 
                 # 如果已经有respond_to_player，说明第一轮LLM已经生成了最终响应，可以结束
                 if has_respond_to_player:
-                    logger.info(f"✅ [Agent:{self.agent_id}:{request_id}] Already responded to player, ending loop")
+                    logger.info(
+                        f"✅ [Agent:{self.agent_id}:{request_id}] Already responded to player, ending loop"
+                    )
                     break
 
                 # 如果没有查询函数，说明所有tool calls都是执行类动作
                 # 需要再给LLM一次机会生成最终响应（因为第一轮的response_text可能为空）
                 if not has_query_functions:
-                    logger.info(f"✅ [Agent:{self.agent_id}:{request_id}] All actions executed, requesting final response from LLM...")
+                    logger.info(
+                        f"✅ [Agent:{self.agent_id}:{request_id}] All actions executed, requesting final response from LLM..."
+                    )
                     # 继续循环，让LLM生成最终响应
                     continue
 
             if iteration >= max_iterations:
-                logger.warning(f"⚠️  [Agent:{self.agent_id}:{request_id}] Reached max iterations ({max_iterations})")
+                logger.warning(
+                    f"⚠️  [Agent:{self.agent_id}:{request_id}] Reached max iterations ({max_iterations})"
+                )
 
         except Exception as e:
-            logger.error(f"❌ [Agent:{self.agent_id}:{request_id}] Error processing event: {e}", exc_info=True)
+            logger.error(
+                f"❌ [Agent:{self.agent_id}:{request_id}] Error processing event: {e}",
+                exc_info=True,
+            )
 
     def _get_system_prompt_for_event(self, event_type: str) -> str:
         """
@@ -503,6 +454,7 @@ class Agent:
         scope_part = ""
         if self._data_scope:
             import yaml
+
             scope_yaml = yaml.dump(self._data_scope, allow_unicode=True)
             scope_part = f"# 数据权限\n```yaml\n{scope_yaml}```\n"
 
@@ -533,7 +485,6 @@ class Agent:
         Returns:
             注入变量后的内容
         """
-        from datetime import datetime
 
         variables = {
             "{{agent_id}}": self.agent_id,
@@ -569,93 +520,9 @@ class Agent:
             event_type: 事件类型
 
         Returns:
-            硬编码的任务指令
+            任务指令
         """
-        event_instructions = {
-            EventType.COMMAND: """# 当前任务：执行皇帝的命令
-
-【重要】你需要**执行动作**来修改游戏状态，而不是仅仅查询数据！
-
-## 执行流程（按顺序）：
-
-1. **查询数据**（可选）
-   - 使用 query_national_data / query_province_data 了解当前状态
-
-2. **执行动作**（必须！）
-   - 调用 send_game_event 发送游戏事件到 Calculator
-   - 这是修改游戏状态的唯一方式
-   - 例如：{"event_type": "adjust_tax", "payload": {"province": "zhili", "rate": 0.05}}
-
-3. **通知其他官员**（如果需要）
-   - 调用 send_message_to_agent 通知相关部门
-   - 例如：{"target_agent": "governor_zhili", "message": "户部已拨款，请查收"}
-
-4. **回复皇帝**（必须）
-   - 调用 respond_to_player 汇报执行结果
-   - 例如：{"content": "臣遵旨！已拨款..."}
-
-## 常见错误：
-- ❌ 只调用 query_* functions：这是查询，不是执行
-- ❌ 没有调用 send_game_event：命令没有真正执行
-- ❌ 没有调用 respond_to_player：皇帝不知道执行结果
-
-## 正确示例：
-皇帝命令：给直隶拨5万两白银
-✅ 正确：
-1. query_national_data(field_name="imperial_treasury") - 查询国库
-2. send_game_event(event_type="adjust_tax", payload={...}) - 执行拨款
-3. send_message_to_agent(target_agent="governor_zhili", message="...") - 通知李卫
-4. respond_to_player(content="臣遵旨！已拨款...") - 汇报结果
-
-❌ 错误：
-1. query_national_data(...) - 只查询不执行
-2. respond_to_player(...) - 没有真正执行命令""",
-            EventType.QUERY: """# 当前任务：查询数据
-
-皇帝要查询数据，你需要：
-1. 使用 query_* functions 查询相关数据
-2. 使用 respond_to_player function 返回结果
-
-重要：只查询数据，不要执行任何动作。""",
-            EventType.CHAT: """# 当前任务：与皇帝聊天
-
-皇帝想和你聊天，你需要：
-1. 以角色身份回应（根据 soul.md 中的性格定义）
-2. 如果问题涉及数据查询，使用查询 functions 获取相关信息
-3. 使用 respond_to_player function 发送回复
-4. 保持历史官员的语言风格（使用"臣"、"陛下"、"圣上"等称呼）
-
-可用查询函数：
-- query_province_data: 查询省份数据（人口、农业、商业、军事、税收等）
-- query_national_data: 查询国家级数据（国库、回合、税率等）
-- list_provinces: 列出所有省份
-- list_agents: 列出所有活跃的官员及其职责
-- get_agent_info: 获取某个官员的详细信息（职责、性格等）
-
-示例：
-- 皇帝问"户部尚书是谁"：调用 list_agents 或 get_agent_info 查询官员列表
-- 皇帝问"朝中都有哪些官员"：调用 list_agents 获取所有官员信息
-- 皇帝问"直隶情况如何"：调用 query_province_data 查询直隶省数据
-- 皇帝说"你好"：直接用 respond_to_player 回应，无需查询
-
-重要：
-- 不要调用 send_game_event（聊天不是执行命令）
-- 优先使用查询函数来获取准确信息，而不是猜测或编造""",
-            EventType.AGENT_MESSAGE: """# 当前任务
-其他官员发来消息，你需要：
-1. 处理消息内容
-2. 如需要，使用 send_message_to_agent function 回复或转发消息
-3. 如需要，使用 send_game_event function 执行相关动作""",
-            EventType.END_TURN: """# 当前任务
-回合即将结束，你需要：
-1. 使用 send_ready function 发送准备就绪信号
-2. 可以使用 query_* functions 查询当前数据""",
-            EventType.TURN_RESOLVED: """# 当前任务
-回合结算完成，你需要：
-1. 使用 write_memory function 写入本回合总结""",
-        }
-
-        return event_instructions.get(event_type, "# 当前任务\n请响应此事件。")
+        return get_system_prompt(event_type)
 
     def _build_user_prompt(self, event: Event) -> str:
         """
@@ -718,15 +585,13 @@ class Agent:
         prefix = "[当前事件]\n" if is_current else ""
         return f"""{prefix}事件ID: {event.event_id}
 来源: {event.src}
-目标: {', '.join(event.dst)}
+目标: {", ".join(event.dst)}
 类型: {event.type}
 时间: {event.timestamp}
 负载: {json.dumps(event.payload, ensure_ascii=False, indent=2)}
 ---"""
 
-    async def _build_context(
-        self, current_event: Event, history_limit: int = 20
-    ) -> list[dict]:
+    async def _build_context(self, current_event: Event, history_limit: int = 20) -> list[dict]:
         """
         基于 Session 内可见事件组装 LLM Context
 
@@ -740,18 +605,20 @@ class Agent:
         messages = []
 
         # 1. System prompt
-        logger.info(f"🔧 [Agent:{self.agent_id}] Building system prompt for event type: {current_event.type}")
+        logger.info(
+            f"🔧 [Agent:{self.agent_id}] Building system prompt for event type: {current_event.type}"
+        )
         system_content = self._get_system_prompt_for_event(current_event.type)
         messages.append({"role": "system", "content": system_content})
 
         # 2. 如果有 db_logger，查询可见历史事件
         if self._db_logger:
             try:
-                logger.info(f"🔧 [Agent:{self.agent_id}] Querying db_logger for history (session={current_event.session_id[:8]}...)")
+                logger.info(
+                    f"🔧 [Agent:{self.agent_id}] Querying db_logger for history (session={current_event.session_id[:8]}...)"
+                )
                 history = await self._db_logger.get_agent_visible_events(
-                    session_id=current_event.session_id,
-                    agent_id=self.agent_id,
-                    limit=history_limit
+                    session_id=current_event.session_id, agent_id=self.agent_id, limit=history_limit
                 )
                 logger.info(f"🔧 [Agent:{self.agent_id}] Found {len(history)} historical events")
 
@@ -759,66 +626,37 @@ class Agent:
                 for event in reversed(history):
                     if event.event_id == current_event.event_id:
                         continue
-                    messages.append({
-                        "role": "user",
-                        "content": self._format_event_as_message(event)
-                    })
+                    messages.append(
+                        {"role": "user", "content": self._format_event_as_message(event)}
+                    )
 
             except Exception as e:
-                logger.error(f"❌ [Agent:{self.agent_id}] Failed to build context from database: {e}", exc_info=True)
+                logger.error(
+                    f"❌ [Agent:{self.agent_id}] Failed to build context from database: {e}",
+                    exc_info=True,
+                )
                 # 如果数据库查询失败，回退到单事件模式
                 logger.warning(f"⚠️  [Agent:{self.agent_id}] Falling back to single event mode")
                 pass
 
         # 4. 当前事件
-        messages.append({
-            "role": "user",
-            "content": self._format_event_as_message(current_event, is_current=True)
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": self._format_event_as_message(current_event, is_current=True),
+            }
+        )
 
         logger.info(f"✅ [Agent:{self.agent_id}] Context build complete: {len(messages)} messages")
         return messages
 
-    async def _call_function(self, function_name: str, arguments: dict, original_event: Event) -> None:
-        """
-        调用 function handler（单轮模式，直接发送事件）
-
-        Args:
-            function_name: 函数名称
-            arguments: 函数参数
-            original_event: 原始事件
-        """
-        request_id = original_event.payload.get("_request_id", "unknown")
-
-        logger.info(f"🎯 [Agent:{self.agent_id}:{request_id}] Executing function: {function_name}")
-        logger.debug(f"📋 [Agent:{self.agent_id}:{request_id}] Function arguments: {arguments}")
-
-        handlers = {
-            "query_province_data": self._handle_query_province_data,
-            "query_national_data": self._handle_query_national_data,
-            "list_provinces": self._handle_list_provinces,
-            "list_agents": self._handle_list_agents,
-            "get_agent_info": self._handle_get_agent_info,
-            "send_game_event": self._handle_send_game_event,
-            "send_message_to_agent": self._handle_send_message_to_agent,
-            "respond_to_player": self._handle_respond_to_player,
-            "send_ready": self._handle_send_ready,
-            "write_memory": self._handle_write_memory,
-        }
-
-        handler = handlers.get(function_name)
-        if handler:
-            try:
-                await handler(arguments, original_event)
-                logger.info(f"✅ [Agent:{self.agent_id}:{request_id}] Function {function_name} completed")
-            except Exception as e:
-                logger.error(f"❌ [Agent:{self.agent_id}:{request_id}] Function {function_name} failed: {e}", exc_info=True)
-        else:
-            logger.warning(f"⚠️  [Agent:{self.agent_id}:{request_id}] Unknown function: {function_name}")
-
-    async def _call_function_with_result(self, function_name: str, arguments: dict, original_event: Event) -> str:
+    async def _call_function_with_result(
+        self, function_name: str, arguments: dict, original_event: Event
+    ) -> str:
         """
         调用 function handler 并返回结果（多轮模式）
+
+        使用函数映射表来避免大量的 if-elif 语句，提高代码可维护性。
 
         Args:
             function_name: 函数名称
@@ -834,142 +672,28 @@ class Agent:
         logger.debug(f"📋 [Agent:{self.agent_id}:{request_id}] Function arguments: {arguments}")
 
         try:
-            # Query 类函数返回结果
-            if function_name == "query_province_data":
-                return await self._handle_query_province_data_with_result(arguments, original_event)
-            elif function_name == "query_national_data":
-                return await self._handle_query_national_data_with_result(arguments, original_event)
-            elif function_name == "list_provinces":
-                return await self._handle_list_provinces_with_result(arguments, original_event)
-            elif function_name == "list_agents":
-                return await self._handle_list_agents_with_result(arguments, original_event)
-            elif function_name == "get_agent_info":
-                return await self._handle_get_agent_info_with_result(arguments, original_event)
-
-            # Action 类函数执行后返回成功消息
-            elif function_name == "send_game_event":
-                await self._handle_send_game_event(arguments, original_event)
-                return "✅ 游戏事件已发送到 Calculator"
-            elif function_name == "send_message_to_agent":
-                await self._handle_send_message_to_agent(arguments, original_event)
-                return "✅ 消息已发送给其他官员"
-            elif function_name == "respond_to_player":
-                await self._handle_respond_to_player(arguments, original_event)
-                return "✅ 响应已发送给玩家"
-            elif function_name == "send_ready":
-                await self._handle_send_ready(arguments, original_event)
-                return "✅ Ready 信号已发送"
-            elif function_name == "write_memory":
-                await self._handle_write_memory(arguments, original_event)
-                return "✅ 记忆已写入"
-            else:
+            # 从映射表中获取处理函数
+            handler = self._function_handlers.get(function_name)
+            if handler is None:
                 return f"❌ 未知函数: {function_name}"
+
+            # 执行处理函数
+            result = await handler(arguments, original_event)
+            return result
 
         except Exception as e:
             error_msg = f"❌ 函数执行失败: {e}"
             logger.error(f"❌ [Agent:{self.agent_id}:{request_id}] {error_msg}", exc_info=True)
             return error_msg
 
-    async def _handle_query_province_data(self, args: dict, event: Event) -> None:
-        """查询省份数据"""
-        if not self.repository:
-            logger.warning(f"Agent {self.agent_id}: repository not available")
-            return
-
-        province_id = args.get("province_id")
-        field_path = args.get("field_path")
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 解析 field_path（如 "population.total"）
-            parts = field_path.split(".")
-
-            # 获取省份数据
-            provinces_dict = {p["province_id"]: p for p in state.get("provinces", [])}
-            if province_id not in provinces_dict:
-                await self._send_response(f"错误：未找到省份 {province_id}", event)
-                return
-
-            province_data = provinces_dict[province_id]
-
-            # 导航到目标字段
-            value = province_data
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                elif isinstance(value, list) and part.isdigit():
-                    value = value[int(part)]
-                else:
-                    await self._send_response(f"错误：无法访问字段 {field_path}", event)
-                    return
-
-            logger.info(f"Agent {self.agent_id} queried {province_id}.{field_path} = {value}")
-
-            # 发送查询结果
-            result_msg = f"查询结果：{province_id} 的 {field_path} = {value}"
-            await self._send_response(result_msg, event)
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error querying province data: {e}")
-            await self._send_response(f"查询失败：{str(e)}", event)
-
-    async def _handle_query_national_data(self, args: dict, event: Event) -> None:
-        """查询国家级数据"""
-        if not self.repository:
-            logger.warning(f"Agent {self.agent_id}: repository not available")
-            return
-
-        field_name = args.get("field_name")
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 获取字段值
-            value = state.get(field_name)
-
-            logger.info(f"Agent {self.agent_id} queried national.{field_name} = {value}")
-
-            # 发送查询结果
-            result_msg = f"查询结果：国家级 {field_name} = {value}"
-            await self._send_response(result_msg, event)
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error querying national data: {e}")
-            await self._send_response(f"查询失败：{str(e)}", event)
-
-    async def _handle_list_provinces(self, args: dict, event: Event) -> None:
-        """列出所有省份"""
-        if not self.repository:
-            logger.warning(f"Agent {self.agent_id}: repository not available")
-            return
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 获取省份列表
-            provinces = state.get("provinces", [])
-            province_ids = [p.get("province_id") for p in provinces]
-
-            logger.info(f"Agent {self.agent_id} listed provinces: {province_ids}")
-
-            # 发送结果
-            result_msg = f"可用省份：{', '.join(province_ids)}"
-            await self._send_response(result_msg, event)
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error listing provinces: {e}")
-            await self._send_response(f"查询失败：{str(e)}", event)
-
     async def _handle_send_game_event(self, args: dict, event: Event) -> None:
         """发送游戏事件到 Calculator"""
         event_type_str = args.get("event_type")
         payload = args.get("payload", {})
 
-        logger.info(f"🎮 [Agent:{self.agent_id}] Sending game event: {event_type_str} with payload: {payload}")
+        logger.info(
+            f"🎮 [Agent:{self.agent_id}] Sending game event: {event_type_str} with payload: {payload}"
+        )
 
         # 映射到 EventType
         event_type = self._str_to_event_type(event_type_str)
@@ -994,7 +718,9 @@ class Agent:
         target_agent = args.get("target_agent")
         message = args.get("message")
 
-        logger.info(f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}...")
+        logger.info(
+            f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
+        )
 
         if not target_agent.startswith("agent:"):
             target_agent = f"agent:{target_agent}"
@@ -1227,7 +953,7 @@ class Agent:
         # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
         # 尝试多个可能的路径
         possible_paths = [
-            Path("data/role_map.md"),           # 相对于项目根目录
+            Path("data/role_map.md"),  # 相对于项目根目录
             Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
             Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
         ]
@@ -1243,36 +969,43 @@ class Agent:
 
         try:
             # 读取并解析 role_map.md
-            with open(role_map_path, 'r', encoding='utf-8') as f:
+            with open(role_map_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # 解析每个官员的信息
             agents_info = []
             current_section = None
 
-            for line in content.split('\n'):
+            for line in content.split("\n"):
                 line = line.strip()
 
                 # 匹配 ## 职位名称 (agent_id)
-                if line.startswith('## '):
+                if line.startswith("## "):
                     if current_section:
                         agents_info.append(current_section)
                     # 提取职位和 agent_id
                     title_line = line[3:].strip()
-                    if '(' in title_line and ')' in title_line:
-                        title = title_line[:title_line.index('(')].strip()
-                        agent_id = title_line[title_line.index('(')+1:title_line.index(')')].strip()
-                        current_section = {"title": title, "agent_id": agent_id, "name": None, "duty": None}
+                    if "(" in title_line and ")" in title_line:
+                        title = title_line[: title_line.index("(")].strip()
+                        agent_id = title_line[
+                            title_line.index("(") + 1 : title_line.index(")")
+                        ].strip()
+                        current_section = {
+                            "title": title,
+                            "agent_id": agent_id,
+                            "name": None,
+                            "duty": None,
+                        }
 
                 # 匹配 - 姓名：xxx
-                elif line.startswith('- 姓名：') or line.startswith('- 姓名:'):
+                elif line.startswith("- 姓名：") or line.startswith("- 姓名:"):
                     if current_section:
-                        current_section["name"] = line.split('：', 1)[-1].split(':', 1)[-1].strip()
+                        current_section["name"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
 
                 # 匹配 - 职责：xxx
-                elif line.startswith('- 职责：') or line.startswith('- 职责:'):
+                elif line.startswith("- 职责：") or line.startswith("- 职责:"):
                     if current_section:
-                        current_section["duty"] = line.split('：', 1)[-1].split(':', 1)[-1].strip()
+                        current_section["duty"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
 
             # 添加最后一个 section
             if current_section:
@@ -1282,14 +1015,16 @@ class Agent:
             if agents_info:
                 result_lines = ["朝廷现任官员："]
                 for agent in agents_info:
-                    name = agent.get('name', '未知')
-                    title = agent.get('title', '未知职位')
-                    agent_id = agent.get('agent_id', 'unknown')
-                    duty = agent.get('duty', '暂无职责描述')
+                    name = agent.get("name", "未知")
+                    title = agent.get("title", "未知职位")
+                    agent_id = agent.get("agent_id", "unknown")
+                    duty = agent.get("duty", "暂无职责描述")
 
                     result_lines.append(f"- {title} {name}（ID: {agent_id}）: {duty}")
 
-                logger.info(f"Agent {self.agent_id} listed agents from role_map.md: {[a['agent_id'] for a in agents_info]}")
+                logger.info(
+                    f"Agent {self.agent_id} listed agents from role_map.md: {[a['agent_id'] for a in agents_info]}"
+                )
                 return "\n".join(result_lines)
             else:
                 return "❌ role_map.md 解析失败：未找到任何官员信息"
@@ -1308,7 +1043,7 @@ class Agent:
         # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
         # 尝试多个可能的路径
         possible_paths = [
-            Path("data/role_map.md"),           # 相对于项目根目录
+            Path("data/role_map.md"),  # 相对于项目根目录
             Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
             Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
         ]
@@ -1320,45 +1055,53 @@ class Agent:
                 break
 
         if not role_map_path:
-            return f"❌ 无法查询官员信息：role_map.md 文件不存在"
+            return "❌ 无法查询官员信息：role_map.md 文件不存在"
 
         try:
             # 读取并解析 role_map.md
-            with open(role_map_path, 'r', encoding='utf-8') as f:
+            with open(role_map_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # 查找对应的 agent section
             current_section = None
             result_info = []
 
-            for line in content.split('\n'):
+            for line in content.split("\n"):
                 line = line.strip()
 
                 # 匹配 ## 职位名称 (agent_id)
-                if line.startswith('## '):
+                if line.startswith("## "):
                     # 如果已经找到了目标 section，返回结果
-                    if current_section and current_section.get('agent_id') == agent_id:
+                    if current_section and current_section.get("agent_id") == agent_id:
                         break
 
                     # 开始新的 section
                     title_line = line[3:].strip()
-                    if '(' in title_line and ')' in title_line:
-                        title = title_line[:title_line.index('(')].strip()
-                        section_agent_id = title_line[title_line.index('(')+1:title_line.index(')')].strip()
+                    if "(" in title_line and ")" in title_line:
+                        title = title_line[: title_line.index("(")].strip()
+                        section_agent_id = title_line[
+                            title_line.index("(") + 1 : title_line.index(")")
+                        ].strip()
                         current_section = {"title": title, "agent_id": section_agent_id, "info": []}
 
                 # 如果在目标 section 中，收集信息
-                elif current_section and current_section.get('agent_id') == agent_id:
-                    if line.startswith('-'):
+                elif current_section and current_section.get("agent_id") == agent_id:
+                    if line.startswith("-"):
                         result_info.append(line)
                     elif result_info:  # 遇到空行或新 section
                         break
 
             # 构建返回结果
             if result_info and current_section:
-                title = current_section.get('title', '')
-                name = next((line.split('：', 1)[-1].split(':', 1)[-1].strip()
-                           for line in result_info if line.startswith('- 姓名') or line.startswith('- 姓名:')), '')
+                title = current_section.get("title", "")
+                name = next(
+                    (
+                        line.split("：", 1)[-1].split(":", 1)[-1].strip()
+                        for line in result_info
+                        if line.startswith("- 姓名") or line.startswith("- 姓名:")
+                    ),
+                    "",
+                )
 
                 result = f"【{title} - {name}】\n\n" + "\n".join(result_info)
                 logger.info(f"Agent {self.agent_id} retrieved info for {agent_id} from role_map.md")
@@ -1369,15 +1112,3 @@ class Agent:
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error getting agent info: {e}", exc_info=True)
             return f"❌ 查询官员信息失败：{str(e)}"
-
-    async def _handle_list_agents(self, args: dict, event: Event) -> None:
-        """列出所有活跃的 Agent（单轮模式，此函数为空实现，应使用 with_result 版本）"""
-        # 此函数仅用于兼容，实际查询应使用 _handle_list_agents_with_result
-        logger.info(f"Agent {self.agent_id} called list_agents (single-round mode, should use with_result)")
-        pass
-
-    async def _handle_get_agent_info(self, args: dict, event: Event) -> None:
-        """获取某个 Agent 的详细信息（单轮模式，此函数为空实现，应使用 with_result 版本）"""
-        # 此函数仅用于兼容，实际查询应使用 _handle_get_agent_info_with_result
-        logger.info(f"Agent {self.agent_id} called get_agent_info (single-round mode, should use with_result)")
-        pass
