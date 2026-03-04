@@ -144,7 +144,6 @@ class GameSession:
             agent_dir=self.settings.data_dir / "agent" / f"telegram_{self.chat_id}",
             repository=self.repository,
             session_id=self.session_id,
-            db_logger=db_logger,
         )
 
         # 初始化并启动默认 agents
