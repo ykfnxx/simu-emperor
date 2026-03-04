@@ -1,0 +1,4 @@
+{"event_id": "evt_20260304152619_ab2363b1", "timestamp": "2026-03-04T15:26:19.903286+00:00", "event_type": "USER_QUERY", "content": {"query": "国库还有多少银两？", "event_type": "query"}, "tokens": 87, "agent_id": "test_agent"}
+{"event_id": "evt_20260304152619_27eeaeff", "timestamp": "2026-03-04T15:26:19.903418+00:00", "event_type": "TOOL_CALL", "content": {"tool": "query_national_data", "args": {"field_name": "imperial_treasury"}}, "tokens": 11, "agent_id": "test_agent"}
+{"event_id": "evt_20260304152619_4f2fe188", "timestamp": "2026-03-04T15:26:19.903684+00:00", "event_type": "AGENT_RESPONSE", "content": {"response": "启禀陛下，国库现有白银 100 万两。"}, "tokens": 21, "agent_id": "test_agent"}
+{"event_id": "evt_20260304152619_26d9db2e", "timestamp": "2026-03-04T15:26:19.903551+00:00", "event_type": "TOOL_RESULT", "content": {"tool": "query_national_data", "result": "查询结果：国家级 imperial_treasury = 100000"}, "tokens": 14, "agent_id": "test_agent"}

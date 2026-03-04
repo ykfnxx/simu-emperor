@@ -25,7 +25,7 @@ uv run simu-emperor
 
 ## Architecture
 
-**V2: Event-Driven Multi-Agent Architecture**
+**V3: Event-Driven Multi-Agent Architecture with Memory System**
 
 Turn-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules.
 
@@ -70,10 +70,27 @@ src/simu_emperor/
 │   │   ├── loader.py                 # Three-tier caching loader
 │   │   ├── registry.py               # Event-to-skill mapping registry
 │   │   └── watcher.py                # File watcher for hot-reload (TODO)
+│   ├── tools/                        # Sub-module: Tool handlers for function calling
+│   │   ├── query_tools.py            # Query handlers (return data to LLM)
+│   │   ├── action_tools.py           # Action handlers (execute side effects)
+│   │   └── memory_tools.py           # Memory handlers (V3: retrieve_memory)
 │   ├── context_builder.py            # LLM context assembly (data_scope parsing)
-│   ├── memory_manager.py             # Memory: short-term (3 turns) + long-term
+│   ├── memory_manager.py             # V2 Memory: short-term (3 turns) + long-term
 │   ├── file_manager.py               # File I/O for agent files
 │   └── response_parser.py            # Parse LLM structured output
+│
+├── memory/                           # Module: V3 Memory System (NEW)
+│   ├── models.py                     # Memory data models
+│   │   ├── StructuredQuery           # Parsed query (intent, entities, scope, depth)
+│   │   ├── ParseResult               # Query parsing result
+│   │   └── RetrievalResult           # Memory retrieval result
+│   ├── exceptions.py                 # Memory exceptions (ParseError, RetrievalError)
+│   ├── tape_writer.py                # Event logging to tape.jsonl
+│   ├── manifest_index.py             # Session metadata management (manifest.json)
+│   ├── context_manager.py            # Sliding window context with summarization
+│   ├── query_parser.py               # LLM-based natural language query parsing
+│   ├── tape_searcher.py              # Cross-session event search
+│   └── structured_retriever.py       # Retrieval coordinator (routes scope/depth)
 │
 ├── cli/                              # Module: Player interface
 │   ├── app.py                        # EmperorCLI main class
@@ -125,7 +142,7 @@ data/
 │   └── {agent_id}/
 │       ├── soul.md                   # Copied from template (mutable during game)
 │       ├── data_scope.yaml           # Copied from template
-│       ├── memory/
+│       ├── memory/                   # V2 Memory: agent-maintained summaries
 │       │   ├── summary.md            # Long-term memory
 │       │   └── recent/               # Short-term memory (last 3 turns)
 │       │       ├── turn_005.md
@@ -136,10 +153,21 @@ data/
 │           ├── 006_exec_adjust_tax.md
 │           └── 007_report.md
 │
+├── memory/                           # V3 Memory System: Event-based memory storage
+│   ├── manifest.json                 # Global session index (metadata)
+│   └── agents/                       # Per-agent session storage
+│       └── {agent_id}/
+│           └── sessions/
+│               └── {session_id}/
+│                   └── tape.jsonl    # Event log (JSONL format)
+│
 ├── logs/                             # Log directory
 │   ├── events/                       # JSONL event logs
 │   │   ├── events_20260226.jsonl
 │   │   └── events_20260227.jsonl
+│   ├── agents/                       # Agent-specific logs
+│   │   ├── {agent_id}.log            # Agent activity logs
+│   │   └── {agent_id}_llm.jsonl      # LLM call audit logs
 │   ├── errors/                       # Error logs
 │   └── debug/                        # Debug logs
 │
@@ -156,11 +184,23 @@ tests/
 │   ├── test_event_bus/
 │   ├── test_core/
 │   ├── test_agents/
-│   │   └── test_skills/              # Skill module tests (73 tests, 100% passing)
+│   │   ├── test_skills/              # Skill module tests (73 tests, 100% passing)
+│   │   ├── test_agent.py             # Agent lifecycle tests (44 tests)
+│   │   └── test_manager.py
+│   ├── test_memory/                  # V3 Memory module tests (24 tests, 92% coverage)
+│   │   ├── test_models.py            # Data model tests
+│   │   ├── test_tape_writer.py       # Event logging tests
+│   │   ├── test_manifest_index.py    # Session management tests
+│   │   ├── test_context_manager.py   # Sliding window tests
+│   │   ├── test_query_parser.py      # Query parsing tests (mock LLM)
+│   │   ├── test_tape_searcher.py     # Tape search tests
+│   │   └── test_structured_retriever.py  # Retrieval coordinator tests
 │   ├── test_cli/
 │   ├── test_persistence/
 │   └── test_llm/
 ├── integration/                      # Integration tests (multi-module)
+│   └── test_memory/                  # V3 Memory integration tests (4 tests)
+│       └── test_memory_integration.py  # End-to-end memory workflows
 └── e2e/                              # End-to-end tests (full game flow)
 ```
 
@@ -199,6 +239,147 @@ LLM                   SQLite + filesystem
 - **Fallback mechanism**: Hardcoded instructions used when skill loading fails
 
 Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (write memory) → respond (answer queries) → execute (carry out commands). All phases triggered by events.
+
+**V3 Memory System** (`memory/`) — Event-based memory retrieval and context management. Enables agents to remember and retrieve historical information across sessions.
+
+### Core Components:
+
+**TapeWriter** (`memory/tape_writer.py`) — Event logging to JSONL format.
+- Writes events to `data/memory/agents/{agent_id}/sessions/{session_id}/tape.jsonl`
+- Tracks event_id, timestamp, event_type, content, tokens, agent_id
+- Token counting using tiktoken (GPT-4 encoding: cl100k_base)
+- Async file operations via aiofiles
+
+**ManifestIndex** (`memory/manifest_index.py`) — Session metadata management.
+- Maintains `data/memory/manifest.json` with session summaries
+- Tracks: start_time, end_time, turn_start/end, key_topics, summary, event_count
+- Entity matching for candidate session selection (action: 0.4, target: 0.3, time: 0.2)
+- Supports session registration, updates, and candidate retrieval
+
+**ContextManager** (`memory/context_manager.py`) — Sliding window context management.
+- Configurable token threshold (default: 8000 tokens, 95% trigger)
+- Automatic summarization when threshold exceeded
+- LLM-based summarization (2-3 sentences, 200 max tokens)
+- Sliding window: keeps recent events (default: 20) after compaction
+- Returns messages in LLM-friendly format (role: user/assistant)
+
+**QueryParser** (`memory/query_parser.py`) — Natural language query parsing.
+- LLM-based parsing with few-shot prompting
+- Extracts: intent (query_history/query_status/query_data)
+- Extracts: entities {action: [], target: [], time: ""}
+- Determines: scope (current_session/cross_session), depth (overview/tape)
+- Retry logic (3 attempts) with fallback to safe defaults
+
+**TapeSearcher** (`memory/tape_searcher.py`) — Cross-session event search.
+- Concurrent tape reading via asyncio.gather
+- Entity matching scoring (action +0.4, target +0.3, time +0.2)
+- Returns sorted events by relevance score
+- Supports max_results limiting
+
+**StructuredRetriever** (`memory/structured_retriever.py`) — Retrieval coordinator.
+- Routes based on scope:
+  - `current_session`: ContextManager.get_messages()
+  - `cross_session`: ManifestIndex → TapeSearcher
+- Routes based on depth:
+  - `overview`: Returns session summaries only
+  - `tape`: Returns full event details
+- Coordinates all memory components
+
+**MemoryTools** (`agents/tools/memory_tools.py`) — Agent integration.
+- Implements `retrieve_memory(args, event) -> str` tool handler
+- Follows QueryTools pattern (returns formatted string to LLM)
+- Lazy initialization of memory components
+- Formats retrieval results as markdown for LLM consumption
+
+### Event Types in Tape:
+
+```python
+USER_QUERY      # Player commands/queries (from COMMAND/QUERY events)
+TOOL_CALL       # Function invocations
+TOOL_RESULT     # Function results
+AGENT_RESPONSE  # Final agent responses (from RESPONSE events)
+GAME_EVENT      # Game state changes (allocate_funds, adjust_tax, etc.)
+```
+
+### Query Flow Example:
+
+```python
+# Player asks: "我之前给直隶拨过款吗？"
+
+# 1. Agent receives query event
+# 2. TapeWriter writes USER_QUERY event
+# 3. LLM calls retrieve_memory tool
+# 4. QueryParser parses query:
+#    - intent: query_history
+#    - entities: {action: ["拨款"], target: ["直隶"], time: "history"}
+#    - scope: cross_session
+#    - depth: tape
+# 5. StructuredRetriever routes to cross_session:
+#    a. ManifestIndex.get_candidate_sessions() → finds matching sessions
+#    b. TapeSearcher.search() → searches tape.jsonl files
+#    c. Returns formatted events with relevance scores
+# 6. MemoryTools formats results as markdown
+# 7. LLM receives context and responds
+```
+
+### Memory System Configuration:
+
+```yaml
+memory:
+  enabled: true
+  context:
+    max_tokens: 8000
+    threshold_ratio: 0.95
+    keep_recent_events: 20
+  retrieval:
+    default_max_results: 5
+    cross_session_enabled: true
+    entity_match_weights:
+      action: 0.4
+      target: 0.3
+      time: 0.2
+  memory_dir: "data/memory"
+```
+
+### Design Principles:
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Event Sourcing** | All events logged to tape.jsonl (immutable append-only) |
+| **Session Isolation** | Each session has separate tape file |
+| **Metadata Indexing** | manifest.json provides fast session lookup |
+| **Sliding Window** | ContextManager keeps token count under threshold |
+| **Natural Language** | QueryParser uses LLM for flexible query understanding |
+| **Lazy Loading** | Memory components initialized on-demand (session_id required) |
+| **Backward Compatible** | V2 memory_manager.py still works, V3 is additive |
+
+### Integration Points:
+
+**Agent initialization** (`agents/agent.py`):
+```python
+# Lazy initialization in _ensure_memory_components()
+self._tape_writer = TapeWriter(memory_dir)
+self._manifest_index = ManifestIndex(memory_dir)
+self._context_manager = None  # Initialized when session_id available
+self._memory_tools = None  # Initialized when session_id available
+```
+
+**Tool registration** (`agents/agent.py`):
+```python
+self._function_handlers["retrieve_memory"] = self._retrieve_memory_wrapper
+```
+
+**TapeWriter hooks** (`agents/agent.py`):
+```python
+# In _on_event(), for COMMAND/QUERY events:
+await self._tape_writer.write_event(
+    session_id=event.session_id,
+    agent_id=self.agent_id,
+    event_type="USER_QUERY",
+    content={"query": event.payload.get("query", "")},
+    tokens=self._count_tokens(event)
+)
+```
 
 **CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
 
@@ -268,7 +449,11 @@ All events use this JSON structure:
 - **Pydantic v2** models with `Decimal` precision for all game data
 - **Event sourcing:** All state changes logged as events (JSONL format)
 - **File-driven agents:** Personality/permissions defined by markdown/YAML, not code
-- **Memory management:** Dual-layer — long-term (summary.md, agent-maintained) + short-term (recent/, 3-turn sliding window)
+- **V2 Memory:** Dual-layer — long-term (summary.md, agent-maintained) + short-term (recent/, 3-turn sliding window)
+- **V3 Memory:** Event-based retrieval with tape.jsonl logs + manifest.json index
+- **Context Management:** Sliding window with automatic summarization (Tiktoken token counting)
+- **Natural Language Queries:** LLM-based query parsing with entity extraction
+- **Cross-Session Retrieval:** Manifest-based candidate selection + tape-based search
 - **LLM emergence:** Deception/slacking emerges from soul.md personality, no hardcoded numbers
 - **Repository pattern:** All data access through Repository interface
 - **Async everywhere:** asyncio, aiosqlite, aiofiles
@@ -337,6 +522,9 @@ from simu_emperor.cli.app import EmperorCLI  # core must not import cli
 - `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md` — Skill system design (v2.0)
 - `.design/2026-03-01-skill-tool-refactor-implementation.md` — Skill system implementation plan
 
+**V3 Memory System:**
+- `.design/V3_MEMORY_SYSTEM_SPEC.md` — Memory system specification (query parsing, retrieval, context management)
+
 **V1 Architecture (deprecated, reference for engine reuse):**
 - `.plan/rewrite_plan_v1.1.md` — Full system architecture
 - `.plan/eco_system_design.md` — Economic system formulas + data model
@@ -359,6 +547,15 @@ V2 implementation follows the phases defined in `.prd/V2_PRD.md` (§8.1):
 - ✅ Week 2: Skill file migration (7 files rewritten to v2.0 format)
 - ✅ 73 unit tests (100% passing)
 - ✅ Code review and Important issues fixed
+
+**V3 Memory System (Completed 2026-03-04):**
+- ✅ Week 1: Infrastructure (models, exceptions, tape_writer, manifest_index)
+- ✅ Week 1.5: Context management (ContextManager with sliding window)
+- ✅ Week 2: Query and retrieval (QueryParser, TapeSearcher, StructuredRetriever)
+- ✅ Week 2.5: Agent integration (MemoryTools, TapeWriter hooks, token counting)
+- ✅ 28 tests (24 unit + 4 integration, 100% passing, 92% coverage)
+- ✅ tiktoken dependency added
+- ✅ `retrieve_memory` tool registered in function handlers
 
 When implementing features:
 1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`, `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md`)
@@ -451,5 +648,12 @@ if not agents_info:
 - Economic formulas (engine/)
 - Data models (ProvinceBaseData, NationalBaseData)
 - Agent file-driven design (soul.md, data_scope.yaml)
-- Memory management (summary.md + recent/)
+- V2 Memory: summary.md + recent/ (agent-maintained)
 - Deception via LLM emergence
+
+**Added in V3:**
+- V3 Memory: tape.jsonl event logs + manifest.json index
+- Natural language query parsing (LLM-based)
+- Cross-session memory retrieval
+- Sliding window context management with automatic summarization
+- Token counting (tiktoken) for accurate context tracking

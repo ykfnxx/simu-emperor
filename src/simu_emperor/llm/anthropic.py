@@ -24,6 +24,21 @@ class AnthropicProvider(LLMProvider):
     使用 anthropic SDK 调用 Claude API。
     """
 
+    # Claude 模型上下文窗口大小
+    _CONTEXT_WINDOWS = {
+        # Claude 3.5 系列
+        "claude-sonnet-4-20250514": 200000,
+        "claude-3-5-sonnet-20241022": 200000,
+        # Claude 3 系列
+        "claude-3-opus-20240229": 200000,
+        "claude-3-sonnet-20240229": 200000,
+        "claude-3-haiku-20240307": 200000,
+        # Claude 2 系列
+        "claude-2.1": 100000,
+        "claude-2.0": 100000,
+        "claude-instant-1.2": 100000,
+    }
+
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
         """
         初始化 Anthropic 提供商
@@ -38,6 +53,51 @@ class AnthropicProvider(LLMProvider):
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         logger.info(f"AnthropicProvider initialized with model: {model}")
+
+    def get_context_window_size(self) -> int:
+        """
+        获取当前 Claude 模型的上下文窗口大小
+
+        如果模型在映射表中，返回准确的值。
+        如果不在映射表中，根据模型名称模式智能推测，并记录警告。
+
+        Returns:
+            上下文窗口大小（token 数）
+        """
+        # 优先从映射表查找
+        if self.model in self._CONTEXT_WINDOWS:
+            return self._CONTEXT_WINDOWS[self.model]
+
+        # 智能推测：根据模型名称模式
+        model_lower = self.model.lower()
+
+        # Claude 3 和 Claude 3.5/3.7 系列通常有 200K context
+        if "claude-3" in model_lower or "claude-3.5" in model_lower or "claude-3.7" in model_lower:
+            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude 3 series)")
+            return 200000
+
+        # Claude-2 系列通常有 200K context
+        if "claude-2" in model_lower:
+            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude 2 series)")
+            return 200000
+
+        # Claude-instant (1.2) 系列通常有 100K context
+        if "claude-instant" in model_lower:
+            logger.info(f"Model '{self.model}' not in context window table, assuming 100K (Claude Instant)")
+            return 100000
+
+        # Claude Sonnet 4 (claude-sonnet-4-* 系列）
+        if "claude-sonnet-4" in model_lower:
+            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude Sonnet 4)")
+            return 200000
+
+        # 无法推测，使用保守默认值并记录警告
+        logger.warning(
+            f"Unknown model '{self.model}', cannot determine context window size. "
+            f"Using conservative default 100000 tokens. "
+            f"Please add this model to _CONTEXT_WINDOWS for accurate sizing."
+        )
+        return 100000
 
     async def call(
         self,

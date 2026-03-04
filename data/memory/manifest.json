@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-03-04T15:26:19.932454+00:00",
+  "sessions": {
+    "test_session_command": {
+      "agents": {
+        "test_agent": {
+          "start_time": "2026-03-04T15:26:19.742553+00:00",
+          "end_time": "2026-03-04T15:26:19.742555+00:00",
+          "turn_start": 1,
+          "turn_end": 1,
+          "key_topics": [],
+          "summary": "",
+          "summary_tokens": 0,
+          "event_count": 0
+        }
+      }
+    },
+    "test_session_query": {
+      "agents": {
+        "test_agent": {
+          "start_time": "2026-03-04T15:26:19.901628+00:00",
+          "end_time": "2026-03-04T15:26:19.901633+00:00",
+          "turn_start": 1,
+          "turn_end": 1,
+          "key_topics": [],
+          "summary": "",
+          "summary_tokens": 0,
+          "event_count": 0
+        }
+      }
+    },
+    "test_session_chat": {
+      "agents": {
+        "test_agent": {
+          "start_time": "2026-03-04T15:26:19.914439+00:00",
+          "end_time": "2026-03-04T15:26:19.914444+00:00",
+          "turn_start": 1,
+          "turn_end": 1,
+          "key_topics": [],
+          "summary": "",
+          "summary_tokens": 0,
+          "event_count": 0
+        }
+      }
+    },
+    "test_session_send_message": {
+      "agents": {
+        "test_agent": {
+          "start_time": "2026-03-04T15:26:19.932448+00:00",
+          "end_time": "2026-03-04T15:26:19.932452+00:00",
+          "turn_start": 1,
+          "turn_end": 1,
+          "key_topics": [],
+          "summary": "",
+          "summary_tokens": 0,
+          "event_count": 0
+        }
+      }
+    }
+  }
+}

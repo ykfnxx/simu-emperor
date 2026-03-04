@@ -7,6 +7,34 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
+class MemoryContextConfig(BaseSettings):
+    """V3 记忆系统 - 上下文窗口配置。"""
+
+    max_tokens: int | None = Field(default=None, description="上下文最大token数（None=从LLM API自动获取）")
+    threshold_ratio: float = Field(default=0.95, ge=0.0, le=1.0, description="触发总结的比例阈值")
+    keep_recent_events: int = Field(default=20, ge=1, description="滑动窗口后保留的最近事件数")
+
+
+class MemoryRetrievalConfig(BaseSettings):
+    """V3 记忆系统 - 检索配置。"""
+
+    default_max_results: int = Field(default=5, ge=1, description="默认返回的最大结果数")
+    cross_session_enabled: bool = Field(default=True, description="是否启用跨会话检索")
+    entity_match_weights: dict[str, float] = Field(
+        default={"action": 0.4, "target": 0.3, "time": 0.2},
+        description="实体匹配权重"
+    )
+
+
+class MemoryConfig(BaseSettings):
+    """V3 记忆系统配置。"""
+
+    enabled: bool = Field(default=True, description="记忆系统开关")
+    context: MemoryContextConfig = Field(default_factory=MemoryContextConfig)
+    retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
+    memory_dir: str = Field(default="data/memory", description="记忆存储根目录")
+
+
 class LoggingConfig(BaseSettings):
     """日志配置。"""
 
@@ -80,6 +108,7 @@ class GameConfig(BaseSettings):
     log_sensitive_data: bool = Field(default=False, description="敏感数据脱敏开关")
     agent: AgentConfig = Field(default_factory=AgentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 

@@ -1,4 +1,4 @@
-# 皇帝模拟器 V2 配置示例
+# 皇帝模拟器 V3 配置示例
 
 # LLM 配置
 llm:
@@ -6,6 +6,31 @@ llm:
   api_key: null
   api_base: null
   model: null
+
+# V3 记忆系统配置
+memory:
+  # 记忆系统开关（默认启用）
+  enabled: true
+
+  # 上下文窗口配置
+  context:
+    # max_tokens: 留空则自动从 LLM API 获取模型的上下文窗口大小
+    # 也可以手动指定，如：8000, 128000, 200000 等
+    max_tokens: null
+    threshold_ratio: 0.95         # 触发总结的比例阈值（95%）
+    keep_recent_events: 20        # 滑动窗口后保留的最近事件数
+
+  # 检索配置
+  retrieval:
+    default_max_results: 5        # 默认返回的最大结果数
+    cross_session_enabled: true   # 是否启用跨会话检索
+    entity_match_weights:         # 实体匹配权重
+      action: 0.4                 # 动作匹配权重
+      target: 0.3                 # 目标匹配权重
+      time: 0.2                   # 时间匹配权重
+
+  # 存储路径
+  memory_dir: "data/memory"       # 记忆存储根目录
 
 # Telegram Bot 配置
 telegram:

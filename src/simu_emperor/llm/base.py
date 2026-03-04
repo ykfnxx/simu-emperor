@@ -65,3 +65,23 @@ class LLMProvider(ABC):
             f"{self.__class__.__name__} does not support function calling. "
             "Please use a provider that implements call_with_functions."
         )
+
+    def get_context_window_size(self) -> int:
+        """
+        获取当前模型的上下文窗口大小（token 数）
+
+        子类应该根据 self.model 返回正确的上下文窗口大小。
+        如果模型未知，应返回一个保守的默认值并记录警告。
+
+        Returns:
+            上下文窗口大小（token 数）
+        """
+        # 默认返回保守值，子类应该覆盖
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"{self.__class__.__name__} does not implement get_context_window_size(). "
+            f"Using default 8000 tokens for model '{getattr(self, 'model', 'unknown')}'. "
+            f"Please implement get_context_window_size() for accurate context window sizes."
+        )
+        return 8000

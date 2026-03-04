@@ -51,6 +51,25 @@ AVAILABLE_FUNCTIONS = [
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "retrieve_memory",
+        "description": "检索历史记忆。当玩家询问历史信息、之前的决策时使用。\n\n使用场景:\n- 玩家问'我之前做过什么'\n- 玩家问'给直隶拨过款吗'\n- 玩家提到'上次'、'之前'等时间词\n- 玩家询问过去的对话或事件",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "自然语言查询，如'我之前给直隶拨过款吗'",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "最多返回几条结果（默认5）",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "get_agent_info",
         "description": "获取某个官员的详细信息（职责、性格等）",
         "parameters": {
