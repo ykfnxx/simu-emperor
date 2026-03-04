@@ -17,6 +17,7 @@ from typing import Any
 
 from simu_emperor.agents.system_prompts import get_system_prompt
 from simu_emperor.agents.tool_definitions import AVAILABLE_FUNCTIONS
+from simu_emperor.agents.tools import ActionTools, QueryTools
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -82,6 +83,18 @@ class Agent:
         self._load_soul()
         self._load_data_scope()
 
+        # 初始化工具类
+        self._query_tools = QueryTools(
+            agent_id=self.agent_id,
+            repository=self.repository,
+            data_dir=self.data_dir,
+        )
+        self._action_tools = ActionTools(
+            agent_id=self.agent_id,
+            event_bus=self.event_bus,
+            data_dir=self.data_dir,
+        )
+
         # 初始化独立日志
         self._init_agent_logger()
 
@@ -122,25 +135,28 @@ class Agent:
         # Query 类函数 - 直接返回结果
         self._function_handlers.update(
             {
-                "query_province_data": self._handle_query_province_data_with_result,
-                "query_national_data": self._handle_query_national_data_with_result,
-                "list_provinces": self._handle_list_provinces_with_result,
-                "list_agents": self._handle_list_agents_with_result,
-                "get_agent_info": self._handle_get_agent_info_with_result,
+                "query_province_data": self._query_tools.query_province_data,
+                "query_national_data": self._query_tools.query_national_data,
+                "list_provinces": self._query_tools.list_provinces,
+                "list_agents": self._query_tools.list_agents,
+                "get_agent_info": self._query_tools.get_agent_info,
             }
         )
 
         # Action 类函数 - 执行后返回成功消息
         # 使用包装器将无返回值的函数转换为返回成功消息
         action_handlers = {
-            "send_game_event": (self._handle_send_game_event, "✅ 游戏事件已发送到 Calculator"),
+            "send_game_event": (
+                self._action_tools.send_game_event,
+                "✅ 游戏事件已发送到 Calculator",
+            ),
             "send_message_to_agent": (
-                self._handle_send_message_to_agent,
+                self._action_tools.send_message_to_agent,
                 "✅ 消息已发送给其他官员",
             ),
-            "respond_to_player": (self._handle_respond_to_player, "✅ 响应已发送给玩家"),
-            "send_ready": (self._handle_send_ready, "✅ Ready 信号已发送"),
-            "write_memory": (self._handle_write_memory, "✅ 记忆已写入"),
+            "respond_to_player": (self._action_tools.respond_to_player, "✅ 响应已发送给玩家"),
+            "send_ready": (self._action_tools.send_ready, "✅ Ready 信号已发送"),
+            "write_memory": (self._action_tools.write_memory, "✅ 记忆已写入"),
         }
 
         for func_name, (handler, success_msg) in action_handlers.items():
@@ -686,112 +702,6 @@ class Agent:
             logger.error(f"❌ [Agent:{self.agent_id}:{request_id}] {error_msg}", exc_info=True)
             return error_msg
 
-    async def _handle_send_game_event(self, args: dict, event: Event) -> None:
-        """发送游戏事件到 Calculator"""
-        event_type_str = args.get("event_type")
-        payload = args.get("payload", {})
-
-        logger.info(
-            f"🎮 [Agent:{self.agent_id}] Sending game event: {event_type_str} with payload: {payload}"
-        )
-
-        # 映射到 EventType
-        event_type = self._str_to_event_type(event_type_str)
-        if not event_type:
-            logger.warning(f"⚠️  [Agent:{self.agent_id}] Unknown event type: {event_type_str}")
-            return
-
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=["system:calculator"],
-            type=event_type,
-            payload=payload,
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ [Agent:{self.agent_id}] Sent {event_type_str} event to system:calculator")
-
-    async def _handle_send_message_to_agent(self, args: dict, event: Event) -> None:
-        """发送消息给其他 Agent"""
-        target_agent = args.get("target_agent")
-        message = args.get("message")
-
-        logger.info(
-            f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
-        )
-
-        if not target_agent.startswith("agent:"):
-            target_agent = f"agent:{target_agent}"
-
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=[target_agent],
-            type=EventType.AGENT_MESSAGE,
-            payload={"message": message},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ Agent {self.agent_id} sent AGENT_MESSAGE to {target_agent}")
-
-    async def _handle_respond_to_player(self, args: dict, event: Event) -> None:
-        """响应玩家"""
-        content = args.get("content", "")
-
-        logger.info(f"💬 [Agent:{self.agent_id}] Responding to {event.src}: {content[:50]}...")
-
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=[event.src],
-            type=EventType.RESPONSE,
-            payload={"narrative": content},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {event.src}")
-
-    async def _handle_send_ready(self, args: dict, event: Event) -> None:
-        """发送 ready 信号"""
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=["system:calculator"],
-            type=EventType.READY,
-            payload={},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ Agent {self.agent_id} sent READY to system:calculator")
-
-    async def _handle_write_memory(self, args: dict, event: Event) -> None:
-        """写入记忆"""
-        content = args.get("content", "")
-        turn = event.payload.get("turn", 0)
-
-        # 创建 memory 目录
-        memory_dir = self.data_dir / "memory"
-        recent_dir = memory_dir / "recent"
-        recent_dir.mkdir(parents=True, exist_ok=True)
-
-        # 写入文件
-        turn_file = recent_dir / f"turn_{turn:03d}.md"
-        with open(turn_file, "w", encoding="utf-8") as f:
-            f.write(f"# Turn {turn} Summary\n\n")
-            f.write(f"Agent: {self.agent_id}\n")
-            f.write(f"Date: {event.timestamp}\n\n")
-            f.write(f"## Summary\n\n{content}\n")
-
-        # 清理旧记忆
-        self._cleanup_old_memories(recent_dir, turn)
-
-        logger.info(f"✅ Agent {self.agent_id} wrote memory for turn {turn}")
-
     async def _send_response(self, content: str, event: Event) -> None:
         """发送响应"""
         new_event = Event(
@@ -805,36 +715,6 @@ class Agent:
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent RESPONSE to {event.src}")
-
-    def _str_to_event_type(self, event_type_str: str) -> str | None:
-        """将字符串映射到 EventType"""
-        event_map = {
-            "allocate_funds": EventType.ALLOCATE_FUNDS,
-            "adjust_tax": EventType.ADJUST_TAX,
-            "build_irrigation": EventType.BUILD_IRRIGATION,
-            "recruit_troops": EventType.RECRUIT_TROOPS,
-        }
-        return event_map.get(event_type_str)
-
-    def _cleanup_old_memories(self, recent_dir: Path, current_turn: int) -> None:
-        """清理旧记忆（只保留最近3回合）"""
-        import os
-
-        if not recent_dir.exists():
-            return
-
-        for filename in os.listdir(recent_dir):
-            if filename.startswith("turn_") and filename.endswith(".md"):
-                try:
-                    turn_str = filename[5:8]
-                    file_turn = int(turn_str)
-
-                    if file_turn <= current_turn - 3:
-                        file_path = recent_dir / filename
-                        file_path.unlink()
-                        logger.debug(f"Cleaned up old memory: {filename}")
-                except (ValueError, IndexError):
-                    continue
 
     def _load_soul(self) -> None:
         """加载 soul.md"""
@@ -861,254 +741,3 @@ class Agent:
         else:
             logger.warning(f"Data scope file not found: {scope_path}")
             self._data_scope = {}
-
-    async def _handle_query_province_data_with_result(self, args: dict, event: Event) -> str:
-        """查询省份数据并返回结果（用于多轮function calling）"""
-        if not self.repository:
-            return "❌ Repository not available"
-
-        province_id = args.get("province_id")
-        field_path = args.get("field_path")
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 解析 field_path（如 "population.total"）
-            parts = field_path.split(".")
-
-            # 获取省份数据
-            provinces_dict = {p["province_id"]: p for p in state.get("provinces", [])}
-            if province_id not in provinces_dict:
-                return f"❌ 未找到省份 {province_id}"
-
-            province_data = provinces_dict[province_id]
-
-            # 导航到目标字段
-            value = province_data
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                elif isinstance(value, list) and part.isdigit():
-                    value = value[int(part)]
-                else:
-                    return f"❌ 无法访问字段 {field_path}"
-
-            logger.info(f"Agent {self.agent_id} queried {province_id}.{field_path} = {value}")
-
-            # 返回查询结果（给LLM）
-            return f"查询结果：{province_id} 的 {field_path} = {value}"
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error querying province data: {e}")
-            return f"❌ 查询失败：{str(e)}"
-
-    async def _handle_query_national_data_with_result(self, args: dict, event: Event) -> str:
-        """查询国家级数据并返回结果（用于多轮function calling）"""
-        if not self.repository:
-            return "❌ Repository not available"
-
-        field_name = args.get("field_name")
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 获取字段值
-            value = state.get(field_name)
-
-            logger.info(f"Agent {self.agent_id} queried national.{field_name} = {value}")
-
-            # 返回查询结果（给LLM）
-            return f"查询结果：国家级 {field_name} = {value}"
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error querying national data: {e}")
-            return f"❌ 查询失败：{str(e)}"
-
-    async def _handle_list_provinces_with_result(self, args: dict, event: Event) -> str:
-        """列出所有省份并返回结果（用于多轮function calling）"""
-        if not self.repository:
-            return "❌ Repository not available"
-
-        try:
-            # 加载状态
-            state = await self.repository.load_state()
-
-            # 获取省份列表
-            provinces = state.get("provinces", [])
-            province_ids = [p.get("province_id") for p in provinces]
-
-            logger.info(f"Agent {self.agent_id} listed provinces: {province_ids}")
-
-            # 返回结果（给LLM）
-            return f"可用省份：{', '.join(province_ids)}"
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error listing provinces: {e}")
-            return f"❌ 查询失败：{str(e)}"
-
-    async def _handle_list_agents_with_result(self, args: dict, event: Event) -> str:
-        """列出所有活跃的 Agent（官员）并返回结果（用于多轮function calling）"""
-        # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
-        # 尝试多个可能的路径
-        possible_paths = [
-            Path("data/role_map.md"),  # 相对于项目根目录
-            Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
-            Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
-        ]
-
-        role_map_path = None
-        for path in possible_paths:
-            if path.exists():
-                role_map_path = path
-                break
-
-        if not role_map_path:
-            return "❌ 无法查询官员信息：role_map.md 文件不存在"
-
-        try:
-            # 读取并解析 role_map.md
-            with open(role_map_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            # 解析每个官员的信息
-            agents_info = []
-            current_section = None
-
-            for line in content.split("\n"):
-                line = line.strip()
-
-                # 匹配 ## 职位名称 (agent_id)
-                if line.startswith("## "):
-                    if current_section:
-                        agents_info.append(current_section)
-                    # 提取职位和 agent_id
-                    title_line = line[3:].strip()
-                    if "(" in title_line and ")" in title_line:
-                        title = title_line[: title_line.index("(")].strip()
-                        agent_id = title_line[
-                            title_line.index("(") + 1 : title_line.index(")")
-                        ].strip()
-                        current_section = {
-                            "title": title,
-                            "agent_id": agent_id,
-                            "name": None,
-                            "duty": None,
-                        }
-
-                # 匹配 - 姓名：xxx
-                elif line.startswith("- 姓名：") or line.startswith("- 姓名:"):
-                    if current_section:
-                        current_section["name"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
-
-                # 匹配 - 职责：xxx
-                elif line.startswith("- 职责：") or line.startswith("- 职责:"):
-                    if current_section:
-                        current_section["duty"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
-
-            # 添加最后一个 section
-            if current_section:
-                agents_info.append(current_section)
-
-            # 构建返回结果
-            if agents_info:
-                result_lines = ["朝廷现任官员："]
-                for agent in agents_info:
-                    name = agent.get("name", "未知")
-                    title = agent.get("title", "未知职位")
-                    agent_id = agent.get("agent_id", "unknown")
-                    duty = agent.get("duty", "暂无职责描述")
-
-                    result_lines.append(f"- {title} {name}（ID: {agent_id}）: {duty}")
-
-                logger.info(
-                    f"Agent {self.agent_id} listed agents from role_map.md: {[a['agent_id'] for a in agents_info]}"
-                )
-                return "\n".join(result_lines)
-            else:
-                return "❌ role_map.md 解析失败：未找到任何官员信息"
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error listing agents: {e}", exc_info=True)
-            return f"❌ 查询官员列表失败：{str(e)}"
-
-    async def _handle_get_agent_info_with_result(self, args: dict, event: Event) -> str:
-        """获取某个 Agent 的详细信息（职责、性格等）并返回结果（用于多轮function calling）"""
-        agent_id = args.get("agent_id")
-
-        if not agent_id:
-            return "❌ 请提供 agent_id 参数"
-
-        # role_map.md 在项目根目录的 data/ 下，不是在 agent 目录下
-        # 尝试多个可能的路径
-        possible_paths = [
-            Path("data/role_map.md"),  # 相对于项目根目录
-            Path(self.data_dir) / "../../role_map.md",  # 相对于 agent 目录向上 3 级
-            Path.cwd() / "data" / "role_map.md",  # 绝对路径（基于当前工作目录）
-        ]
-
-        role_map_path = None
-        for path in possible_paths:
-            if path.exists():
-                role_map_path = path
-                break
-
-        if not role_map_path:
-            return "❌ 无法查询官员信息：role_map.md 文件不存在"
-
-        try:
-            # 读取并解析 role_map.md
-            with open(role_map_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            # 查找对应的 agent section
-            current_section = None
-            result_info = []
-
-            for line in content.split("\n"):
-                line = line.strip()
-
-                # 匹配 ## 职位名称 (agent_id)
-                if line.startswith("## "):
-                    # 如果已经找到了目标 section，返回结果
-                    if current_section and current_section.get("agent_id") == agent_id:
-                        break
-
-                    # 开始新的 section
-                    title_line = line[3:].strip()
-                    if "(" in title_line and ")" in title_line:
-                        title = title_line[: title_line.index("(")].strip()
-                        section_agent_id = title_line[
-                            title_line.index("(") + 1 : title_line.index(")")
-                        ].strip()
-                        current_section = {"title": title, "agent_id": section_agent_id, "info": []}
-
-                # 如果在目标 section 中，收集信息
-                elif current_section and current_section.get("agent_id") == agent_id:
-                    if line.startswith("-"):
-                        result_info.append(line)
-                    elif result_info:  # 遇到空行或新 section
-                        break
-
-            # 构建返回结果
-            if result_info and current_section:
-                title = current_section.get("title", "")
-                name = next(
-                    (
-                        line.split("：", 1)[-1].split(":", 1)[-1].strip()
-                        for line in result_info
-                        if line.startswith("- 姓名") or line.startswith("- 姓名:")
-                    ),
-                    "",
-                )
-
-                result = f"【{title} - {name}】\n\n" + "\n".join(result_info)
-                logger.info(f"Agent {self.agent_id} retrieved info for {agent_id} from role_map.md")
-                return result
-            else:
-                return f"❌ 未找到官员 {agent_id} 的信息，请检查 role_map.md 中是否包含该职位"
-
-        except Exception as e:
-            logger.error(f"Agent {self.agent_id} error getting agent info: {e}", exc_info=True)
-            return f"❌ 查询官员信息失败：{str(e)}"

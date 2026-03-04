@@ -348,7 +348,7 @@ class TestAgent:
 
     @pytest.mark.asyncio
     async def test_query_province_data(self, agent, mock_repository):
-        """测试查询省份数据（with_result 版本）"""
+        """测试查询省份数据（使用 QueryTools）"""
         agent.start()
 
         event = Event(
@@ -359,8 +359,8 @@ class TestAgent:
             session_id="test_session_query_province",
         )
 
-        # 调用 with_result 版本的 handler
-        result = await agent._handle_query_province_data_with_result(
+        # 调用 QueryTools 的方法
+        result = await agent._query_tools.query_province_data(
             {"province_id": "zhili", "field_path": "population.total"}, event
         )
 
@@ -372,7 +372,7 @@ class TestAgent:
 
     @pytest.mark.asyncio
     async def test_query_national_data(self, agent, mock_repository):
-        """测试查询国家级数据（with_result 版本）"""
+        """测试查询国家级数据（使用 QueryTools）"""
         agent.start()
 
         event = Event(
@@ -383,8 +383,8 @@ class TestAgent:
             session_id="test_session_query_national",
         )
 
-        # 调用 with_result 版本的 handler
-        result = await agent._handle_query_national_data_with_result(
+        # 调用 QueryTools 的方法
+        result = await agent._query_tools.query_national_data(
             {"field_name": "imperial_treasury"}, event
         )
 
@@ -396,7 +396,7 @@ class TestAgent:
 
     @pytest.mark.asyncio
     async def test_list_provinces(self, agent, mock_repository):
-        """测试列出所有省份（with_result 版本）"""
+        """测试列出所有省份（使用 QueryTools）"""
         agent.start()
 
         event = Event(
@@ -407,8 +407,8 @@ class TestAgent:
             session_id="test_session_list_provinces",
         )
 
-        # 调用 with_result 版本的 handler
-        result = await agent._handle_list_provinces_with_result({}, event)
+        # 调用 QueryTools 的方法
+        result = await agent._query_tools.list_provinces({}, event)
 
         # 应该调用 load_state
         assert mock_repository.load_state.called
@@ -419,11 +419,12 @@ class TestAgent:
 
     @pytest.mark.asyncio
     async def test_query_without_repository(self, agent, mock_repository):
-        """测试没有 repository 时的查询（with_result 版本）"""
+        """测试没有 repository 时的查询（使用 QueryTools）"""
         agent.start()
 
-        # 移除 repository
+        # 移除 repository (需要同时更新 agent.repository 和 _query_tools.repository)
         agent.repository = None
+        agent._query_tools.repository = None
 
         event = Event(
             src="player",
@@ -433,8 +434,8 @@ class TestAgent:
             session_id="test_session_query_province",
         )
 
-        # 调用 with_result 版本的 handler（应该返回错误消息）
-        result = await agent._handle_query_province_data_with_result(
+        # 调用 QueryTools 的方法（应该返回错误消息）
+        result = await agent._query_tools.query_province_data(
             {"province_id": "zhili", "field_path": "population.total"}, event
         )
 
