@@ -205,6 +205,7 @@ class ContextManager:
         获取历史上下文消息
 
         从 tape 加载的事件转换为 LLM messages 格式
+        验证 tool 消息与 assistant 消息的 tool_calls 配对
 
         Returns:
             messages列表，可直接用于LLM调用
@@ -217,9 +218,31 @@ class ContextManager:
         if self.summary:
             messages.append({"role": "system", "content": f"[历史会话摘要] {self.summary}"})
 
-        # 3. 窗口内事件
+        # 3. 追踪待处理的 tool_call_ids（来自 assistant 消息）
+        pending_tool_call_ids = set()
+
+        # 4. 转换事件为消息，并验证 tool 消息配对
         for event in self.events:
-            messages.extend(self._event_to_messages(event))
+            converted = self._event_to_messages(event)
+            for msg in converted:
+                # 追踪 assistant 消息中的 tool_calls
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    for tc in msg.get("tool_calls", []):
+                        pending_tool_call_ids.add(tc.get("id", ""))
+
+                # 仅当 tool_call_id 在待处理列表中时才添加 tool 消息
+                if msg.get("role") == "tool":
+                    tool_call_id = msg.get("tool_call_id", "")
+                    if tool_call_id in pending_tool_call_ids:
+                        messages.append(msg)
+                        pending_tool_call_ids.remove(tool_call_id)
+                    else:
+                        # 跳过孤立的 tool 消息（没有匹配的 tool_calls）
+                        print(
+                            f"Debug: Skipping orphaned tool message with tool_call_id: {tool_call_id}"
+                        )
+                else:
+                    messages.append(msg)
 
         return messages
 
@@ -312,8 +335,13 @@ class ContextManager:
             payload = event.get("payload", {})
             if isinstance(payload, dict):
                 # Check if payload contains game action type
-                for action_type in ["allocate_funds", "adjust_tax", "build_irrigation",
-                                   "recruit_troops", "dispatch_troops"]:
+                for action_type in [
+                    "allocate_funds",
+                    "adjust_tax",
+                    "build_irrigation",
+                    "recruit_troops",
+                    "dispatch_troops",
+                ]:
                     if action_type in str(payload):
                         return True
 

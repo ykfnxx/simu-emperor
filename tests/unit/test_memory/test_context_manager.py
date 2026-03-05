@@ -28,7 +28,8 @@ class TestContextManager:
         )
 
         context_mgr.add_event(
-            event={"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=50
+            event={"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}},
+            tokens=50,
         )
 
         assert len(context_mgr.events) == 1
@@ -49,11 +50,15 @@ class TestContextManager:
             llm_provider=llm,
         )
 
-        context_mgr.add_event({"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30)
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30
+        )
         context_mgr.add_event(
             {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=50
         )
-        context_mgr.add_event({"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=20)
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=20
+        )
 
         assert len(context_mgr.events) == 3
 
@@ -77,7 +82,8 @@ class TestContextManager:
             {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "好的，我将拨款。"}}, tokens=20
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "好的，我将拨款。"}},
+            tokens=20,
         )
 
         messages = context_mgr.get_context_messages()
@@ -281,7 +287,7 @@ class TestContextManager:
 
     @pytest.mark.asyncio
     async def test_tool_result_converted_to_message(self, tmp_path):
-        """测试 TOOL_RESULT 事件被正确转换为消息"""
+        """测试 TOOL_RESULT 事件被正确转换为消息（需要对应的 tool_calls）"""
         llm = AsyncMock()
         llm.call = AsyncMock(return_value="Summary.")
         llm.get_context_window_size = lambda: 8000
@@ -295,10 +301,28 @@ class TestContextManager:
             llm_provider=llm,
         )
 
-        # 添加完整的事件序列：USER_QUERY -> TOOL_RESULT -> ASSISTANT_RESPONSE
-        # 注意：不再记录 TOOL_CALL 事件
+        # 添加完整的事件序列：USER_QUERY -> ASSISTANT_RESPONSE (with tool_calls) -> TOOL_RESULT
         context_mgr.add_event(
             {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "query_national_data",
+                                "arguments": '{"field": "imperial_treasury"}',
+                            },
+                        }
+                    ],
+                },
+            },
+            tokens=20,
         )
         context_mgr.add_event(
             {
@@ -311,10 +335,6 @@ class TestContextManager:
             },
             tokens=20,
         )
-        context_mgr.add_event(
-            {"event_type": EventType.ASSISTANT_RESPONSE, "content": {"response": "好的，我来处理。"}},
-            tokens=15,
-        )
 
         messages = context_mgr.get_context_messages()
 
@@ -322,11 +342,12 @@ class TestContextManager:
         assert len(messages) == 3
         assert messages[0]["role"] == "user"
         assert "拨款给直隶" in messages[0]["content"]
-        assert messages[1]["role"] == "tool"
-        assert messages[1]["tool_call_id"] == "call_123"
-        assert "国库白银 100 万两" in messages[1]["content"]
-        assert messages[2]["role"] == "assistant"
-        assert "好的，我来处理。" in messages[2]["content"]
+        assert messages[1]["role"] == "assistant"
+        assert "tool_calls" in messages[1]
+        assert messages[1]["tool_calls"][0]["id"] == "call_123"
+        assert messages[2]["role"] == "tool"
+        assert messages[2]["tool_call_id"] == "call_123"
+        assert "国库白银 100 万两" in messages[2]["content"]
 
     @pytest.mark.asyncio
     async def test_assistant_response_with_tool_calls(self, tmp_path):
@@ -385,3 +406,262 @@ class TestContextManager:
         assert len(messages[1]["tool_calls"]) == 1
         assert messages[1]["tool_calls"][0]["id"] == "call_123"
         assert messages[1]["tool_calls"][0]["function"]["name"] == "query_national_data"
+
+    @pytest.mark.asyncio
+    async def test_orphaned_tool_message_filtered(self, tmp_path):
+        """测试孤立 tool 消息被过滤（没有匹配的 tool_calls）"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加一个孤立的 TOOL_RESULT（没有对应的 ASSISTANT_RESPONSE）
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {
+                    "tool_call_id": "call_orphaned",
+                    "tool": "query_data",
+                    "result": "orphaned result",
+                },
+            },
+            tokens=20,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证孤立的 tool 消息被过滤
+        assert len(messages) == 0
+        assert not any(msg.get("role") == "tool" for msg in messages)
+
+    @pytest.mark.asyncio
+    async def test_valid_tool_call_pair_preserved(self, tmp_path):
+        """测试有效的 assistant+tool 配对被保留"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加完整的事件序列：USER_QUERY -> ASSISTANT_RESPONSE (with tool_calls) -> TOOL_RESULT
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}},
+            tokens=15,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "query_national_data",
+                                "arguments": '{"field": "imperial_treasury"}',
+                            },
+                        }
+                    ],
+                },
+            },
+            tokens=20,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {
+                    "tool_call_id": "call_123",
+                    "tool": "query_national_data",
+                    "result": "国库白银 100 万两",
+                },
+            },
+            tokens=15,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证所有消息都被正确转换
+        assert len(messages) == 3
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+        assert "tool_calls" in messages[1]
+        assert messages[1]["tool_calls"][0]["id"] == "call_123"
+        assert messages[2]["role"] == "tool"
+        assert messages[2]["tool_call_id"] == "call_123"
+        assert "国库白银 100 万两" in messages[2]["content"]
+
+    @pytest.mark.asyncio
+    async def test_multiple_tool_calls_with_results(self, tmp_path):
+        """测试多个 tool_calls 及其结果都被正确处理"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加包含多个 tool_calls 的 ASSISTANT_RESPONSE
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "查询国库和直隶情况"}},
+            tokens=15,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "query_national_data",
+                                "arguments": '{"field": "imperial_treasury"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "query_province_data",
+                                "arguments": '{"province_id": "zhili", "field": "local_treasury"}',
+                            },
+                        },
+                    ],
+                },
+            },
+            tokens=30,
+        )
+        # 添加对应的 TOOL_RESULT 事件
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {
+                    "tool_call_id": "call_1",
+                    "result": "国库白银 100 万两",
+                },
+            },
+            tokens=15,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {
+                    "tool_call_id": "call_2",
+                    "result": "直隶省库白银 20 万两",
+                },
+            },
+            tokens=15,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证：user + assistant (with 2 tool_calls) + 2 tool messages
+        assert len(messages) == 4
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+        assert len(messages[1]["tool_calls"]) == 2
+        assert messages[2]["role"] == "tool"
+        assert messages[2]["tool_call_id"] == "call_1"
+        assert messages[3]["role"] == "tool"
+        assert messages[3]["tool_call_id"] == "call_2"
+
+    @pytest.mark.asyncio
+    async def test_sliding_window_preserves_pairs(self, tmp_path):
+        """测试滑动窗口不会破坏 assistant+tool 配对"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        # 配置：保留最近2个事件（测试滑动窗口场景）
+        config = ContextConfig(max_tokens=1000, keep_recent_events=2, enable_anchor_aware=False)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加事件序列：
+        # 1. USER_QUERY
+        # 2. ASSISTANT_RESPONSE (with tool_calls)
+        # 3. TOOL_RESULT
+        # 4. AGENT_RESPONSE
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "old query"}}, tokens=10
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_old",
+                            "type": "function",
+                            "function": {"name": "query_data", "arguments": "{}"},
+                        }
+                    ],
+                },
+            },
+            tokens=10,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {"tool_call_id": "call_old", "result": "ok"},
+            },
+            tokens=10,
+        )
+        context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "final response"}},
+            tokens=10,
+        )
+
+        # 执行滑动窗口（只保留最近2个事件）
+        await context_mgr.slide_window()
+
+        # 验证：如果滑动窗口分离了 assistant 和 tool 消息，
+        # 孤立的 tool 消息应该被过滤
+        messages = context_mgr.get_context_messages()
+
+        # 滑动窗口后只保留最近2个事件，假设是 TOOL_RESULT 和 AGENT_RESPONSE
+        # 此时 TOOL_RESULT 是孤立的（没有对应的 ASSISTANT_RESPONSE）
+        # 因此应该只保留 AGENT_RESPONSE
+        tool_messages = [msg for msg in messages if msg.get("role") == "tool"]
+        assistant_messages = [msg for msg in messages if msg.get("role") == "assistant"]
+
+        # 验证没有孤立的 tool 消息
+        for tool_msg in tool_messages:
+            tool_call_id = tool_msg.get("tool_call_id")
+            # 确保这个 tool_call_id 有对应的 assistant 消息
+            has_matching_assistant = any(
+                any(tc.get("id") == tool_call_id for tc in assst_msg.get("tool_calls", []))
+                for assst_msg in assistant_messages
+            )
+            assert has_matching_assistant, (
+                f"Found orphaned tool message with tool_call_id: {tool_call_id}"
+            )
