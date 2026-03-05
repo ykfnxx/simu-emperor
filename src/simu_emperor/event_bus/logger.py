@@ -290,10 +290,10 @@ class DatabaseEventLogger(EventLogger):
                LIMIT ?""",
             (
                 session_id,
-                f'%agent:{agent_id}%',
-                '%agent:*%',
-                '%*%',
-                f'agent:{agent_id}',
+                f"%agent:{agent_id}%",
+                "%agent:*%",
+                "%*%",
+                f"agent:{agent_id}",
                 limit,
             ),
         )

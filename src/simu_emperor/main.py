@@ -25,10 +25,12 @@ def create_llm_provider():
 
     if provider_type == "mock":
         from simu_emperor.llm.mock import MockProvider
+
         return MockProvider()
 
     elif provider_type == "anthropic":
         from simu_emperor.llm.anthropic import AnthropicProvider
+
         if not settings.llm.api_key:
             raise ValueError("ANTHROPIC_API_KEY is required for Anthropic provider")
         return AnthropicProvider(
@@ -38,6 +40,7 @@ def create_llm_provider():
 
     elif provider_type == "openai":
         from simu_emperor.llm.openai import OpenAIProvider
+
         if not settings.llm.api_key:
             raise ValueError("OPENAI_API_KEY is required for OpenAI provider")
         return OpenAIProvider(
@@ -109,8 +112,16 @@ async def main() -> None:
             agriculture=AgricultureData(
                 irrigation_level=Decimal("0.3"),
                 crops=[
-                    CropData(crop_type=CropType.WHEAT, area_mu=Decimal("300000"), yield_per_mu=Decimal("1.3")),
-                    CropData(crop_type=CropType.RICE, area_mu=Decimal("100000"), yield_per_mu=Decimal("3")),
+                    CropData(
+                        crop_type=CropType.WHEAT,
+                        area_mu=Decimal("300000"),
+                        yield_per_mu=Decimal("1.3"),
+                    ),
+                    CropData(
+                        crop_type=CropType.RICE,
+                        area_mu=Decimal("100000"),
+                        yield_per_mu=Decimal("3"),
+                    ),
                 ],
             ),
             commerce=CommerceData(
@@ -156,7 +167,7 @@ async def main() -> None:
         )
 
         # 使用 JSON 序列化模式保存（Decimal → float/string）
-        await repository.save_state(initial_state.model_dump(mode='json'))
+        await repository.save_state(initial_state.model_dump(mode="json"))
         logger.info(f"Initialized game state with {len(initial_state.provinces)} province(s)")
     else:
         logger.info(f"Game state already loaded with {len(state.get('provinces', []))} province(s)")
@@ -183,6 +194,7 @@ async def main() -> None:
         logger.error(f"Failed to initialize LLM provider: {e}")
         logger.info("Falling back to MockProvider")
         from simu_emperor.llm.mock import MockProvider
+
         llm_provider = MockProvider()
 
     # 4. 初始化 AgentManager（在 Calculator 之前）
@@ -277,6 +289,7 @@ async def main_telegram() -> None:
         logger.error(f"Failed to initialize LLM provider: {e}")
         logger.info("Falling back to MockProvider")
         from simu_emperor.llm.mock import MockProvider
+
         llm_provider = MockProvider()
 
     # 2. 创建 Telegram Application（不启动）
@@ -286,11 +299,13 @@ async def main_telegram() -> None:
 
     # 3. 初始化 SessionManager
     from simu_emperor.adapters.telegram.session import SessionManager
+
     session_manager = SessionManager(settings, application, llm_provider)
     logger.info("SessionManager initialized")
 
     # 4. 初始化 Bot
     from simu_emperor.adapters.telegram.bot import TelegramBotService
+
     bot = TelegramBotService(
         settings.telegram.bot_token,
         session_manager,
@@ -320,4 +335,3 @@ async def main_telegram() -> None:
 
 if __name__ == "__main__":
     entrypoint()
-

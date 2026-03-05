@@ -73,7 +73,9 @@ async def test_game_session_lifecycle(mock_settings, mock_bot_application, mock_
 
         with patch("simu_emperor.adapters.telegram.session.GameRepository") as mock_repo_cls:
             mock_repo = MagicMock()
-            mock_repo.load_state = AsyncMock(return_value={"provinces": [{"province_id": "zhili"}]})  # Already has data
+            mock_repo.load_state = AsyncMock(
+                return_value={"provinces": [{"province_id": "zhili"}]}
+            )  # Already has data
             mock_repo_cls.return_value = mock_repo
 
             with patch("simu_emperor.adapters.telegram.session.FileEventLogger") as mock_logger_cls:
@@ -90,7 +92,9 @@ async def test_game_session_lifecycle(mock_settings, mock_bot_application, mock_
                         mock_calc_instance.start = MagicMock()
                         mock_calc.return_value = mock_calc_instance
 
-                        with patch("simu_emperor.adapters.telegram.session.AgentManager") as mock_mgr:
+                        with patch(
+                            "simu_emperor.adapters.telegram.session.AgentManager"
+                        ) as mock_mgr:
                             mock_mgr_instance = MagicMock()
                             mock_mgr_instance.initialize_agent = MagicMock(return_value=True)
                             mock_mgr_instance.add_agent = MagicMock()
@@ -125,7 +129,9 @@ async def test_session_manager_get_session(mock_settings, mock_bot_application, 
 
 
 @pytest.mark.asyncio
-async def test_session_manager_reuse_session(mock_settings, mock_bot_application, mock_llm_provider):
+async def test_session_manager_reuse_session(
+    mock_settings, mock_bot_application, mock_llm_provider
+):
     """Test SessionManager.get_session reuses existing session"""
     manager = SessionManager(mock_settings, mock_bot_application, mock_llm_provider)
 
@@ -139,7 +145,9 @@ async def test_session_manager_reuse_session(mock_settings, mock_bot_application
 
 
 @pytest.mark.asyncio
-async def test_session_manager_multiple_sessions(mock_settings, mock_bot_application, mock_llm_provider):
+async def test_session_manager_multiple_sessions(
+    mock_settings, mock_bot_application, mock_llm_provider
+):
     """Test SessionManager handles multiple sessions"""
     manager = SessionManager(mock_settings, mock_bot_application, mock_llm_provider)
 
@@ -170,7 +178,9 @@ async def test_session_manager_shutdown_all(mock_settings, mock_bot_application,
 
 
 @pytest.mark.asyncio
-async def test_session_manager_max_sessions_limit(mock_settings, mock_bot_application, mock_llm_provider):
+async def test_session_manager_max_sessions_limit(
+    mock_settings, mock_bot_application, mock_llm_provider
+):
     """Test SessionManager respects max_sessions limit"""
     mock_settings.telegram.max_sessions = 2
     manager = SessionManager(mock_settings, mock_bot_application, mock_llm_provider)
@@ -189,7 +199,9 @@ async def test_session_manager_max_sessions_limit(mock_settings, mock_bot_applic
 
 
 @pytest.mark.asyncio
-async def test_game_session_response_handler(mock_settings, mock_bot_application, mock_llm_provider):
+async def test_game_session_response_handler(
+    mock_settings, mock_bot_application, mock_llm_provider
+):
     """Test GameSession._on_response sends message to Telegram"""
     session = GameSession(
         chat_id=123,

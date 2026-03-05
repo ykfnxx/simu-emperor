@@ -416,6 +416,8 @@ class Agent:
         """
         准备 Tape 写入任务
 
+        原则：是什么事件就记录什么事件，不做二次封装
+
         Args:
             event: 当前事件
 
@@ -424,38 +426,19 @@ class Agent:
         """
         tape_write_tasks = []
 
-        # TapeWriter: 写入 USER_QUERY 事件（在入口点）
-        if event.type in (EventType.COMMAND, EventType.QUERY, EventType.CHAT):
-            # 根据事件类型提取查询内容
-            if event.type == EventType.COMMAND:
-                query_content = event.payload.get("command", "")
-            elif event.type == EventType.CHAT:
-                query_content = event.payload.get("message", "")
-            else:  # QUERY
-                query_content = event.payload.get("query", "")
-
-            # 构造 USER_QUERY Event
-            user_query_event = TapeEvent(
-                src=event.src,
-                dst=event.dst,
-                type=EventType.USER_QUERY,
-                payload={"query": query_content, "event_type": event.type},
-                session_id=event.session_id,
+        # 记录需要处理的事件类型到 tape
+        # 这些事件都是 agent 的"输入"，需要记录到当前 agent 的 tape
+        if event.type in (
+            EventType.COMMAND,
+            EventType.QUERY,
+            EventType.CHAT,
+            EventType.AGENT_MESSAGE,
+        ):
+            # 直接记录原始事件，不做二次封装
+            # agent_id 参数指定写入当前 agent 的 tape（而不是从 event.src 提取）
+            tape_write_tasks.append(
+                self._tape_writer.write_event(event, agent_id=self.agent_id)
             )
-            tape_write_tasks.append(self._tape_writer.write_event(user_query_event))
-
-        # Handle AGENT_MESSAGE events (agent → agent) - record as USER_QUERY
-        elif event.type == EventType.AGENT_MESSAGE:
-            message = event.payload.get("message", "")
-
-            agent_message_event = TapeEvent(
-                src=event.src,
-                dst=event.dst,
-                type=EventType.USER_QUERY,
-                payload={"query": message, "event_type": EventType.AGENT_MESSAGE},
-                session_id=event.session_id,
-            )
-            tape_write_tasks.append(self._tape_writer.write_event(agent_message_event))
 
         return tape_write_tasks
 

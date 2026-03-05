@@ -29,7 +29,13 @@ class EmperorCLI:
         _chat_agent_id: 当前对话的 Agent ID
     """
 
-    def __init__(self, event_bus: EventBus, repository: Any, agent_manager: Any = None, session_id: str = "session:cli:default"):
+    def __init__(
+        self,
+        event_bus: EventBus,
+        repository: Any,
+        agent_manager: Any = None,
+        session_id: str = "session:cli:default",
+    ):
         """
         初始化 CLI
 
@@ -104,10 +110,7 @@ class EmperorCLI:
         while self._running:
             try:
                 # 等待响应（带超时，以便可以定期检查 _running 标志）
-                event = await asyncio.wait_for(
-                    self._response_queue.get(),
-                    timeout=0.5
-                )
+                event = await asyncio.wait_for(self._response_queue.get(), timeout=0.5)
 
                 narrative = event.payload.get("narrative", "")
                 print(f"\n{event.src}: {narrative}\n")

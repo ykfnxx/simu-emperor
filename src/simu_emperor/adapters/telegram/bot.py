@@ -34,9 +34,13 @@ class TelegramBotService:
     """
 
     # 命令处理器映射
-    _COMMAND_HANDLERS: dict[str, Callable[["TelegramBotService", Update, Any], Awaitable[None]]] = {}
+    _COMMAND_HANDLERS: dict[
+        str, Callable[["TelegramBotService", Update, Any], Awaitable[None]]
+    ] = {}
 
-    def __init__(self, token: str, session_manager: SessionManager, enabled_commands: list[str] | None = None):
+    def __init__(
+        self, token: str, session_manager: SessionManager, enabled_commands: list[str] | None = None
+    ):
         """
         初始化 Telegram Bot 服务
 
@@ -65,14 +69,14 @@ class TelegramBotService:
             self.application = (
                 Application.builder()
                 .token(self.token)
-                .connect_timeout(30.0)     # 连接超时 30 秒（默认 5 秒）
-                .read_timeout(60.0)        # 读取超时 60 秒（默认 5 秒）
-                .write_timeout(30.0)       # 写入超时 30 秒（默认 5 秒）
-                .pool_timeout(10.0)        # 连接池超时 10 秒（默认 1 秒）
+                .connect_timeout(30.0)  # 连接超时 30 秒（默认 5 秒）
+                .read_timeout(60.0)  # 读取超时 60 秒（默认 5 秒）
+                .write_timeout(30.0)  # 写入超时 30 秒（默认 5 秒）
+                .pool_timeout(10.0)  # 连接池超时 10 秒（默认 1 秒）
                 .get_updates_connect_timeout(30.0)  # get_updates 连接超时
-                .get_updates_read_timeout(60.0)     # get_updates 读取超时
-                .get_updates_write_timeout(30.0)    # get_updates 写入超时
-                .get_updates_pool_timeout(10.0)     # get_updates 连接池超时
+                .get_updates_read_timeout(60.0)  # get_updates 读取超时
+                .get_updates_write_timeout(30.0)  # get_updates 写入超时
+                .get_updates_pool_timeout(10.0)  # get_updates 连接池超时
                 .build()
             )
             logger.info("✅ [Bot] Application builder created with custom timeout (30s/60s)")
@@ -149,15 +153,15 @@ class TelegramBotService:
             context: 上下文对象
         """
         chat_id = update.effective_chat.id
-        logger.info(f"🎬 [Bot] ========== /start command triggered from chat_id={chat_id} ==========")
+        logger.info(
+            f"🎬 [Bot] ========== /start command triggered from chat_id={chat_id} =========="
+        )
 
         try:
             await update.message.reply_text(
                 "🏯 <b>欢迎来到皇帝模拟器！</b>\n\n"
                 "你是一国之君，AI Agent 扮演你的官员。\n\n"
-                "<b>常用命令：</b>\n"
-                + self._get_enabled_commands_list()
-                + "\n<b>聊天格式：</b>\n"
+                "<b>常用命令：</b>\n" + self._get_enabled_commands_list() + "\n<b>聊天格式：</b>\n"
                 "@agent_name 消息内容 - 与官员对话\n"
                 "@all 消息内容 - 向所有官员广播\n"
                 "/cmd @agent_name 命令 - 下达命令",
@@ -217,7 +221,9 @@ class TelegramBotService:
             await update.message.reply_text("当前没有活跃的官员")
         else:
             agents_list = "\n".join(f"• {agent_id}" for agent_id in active_agents)
-            await update.message.reply_text(f"👥 <b>活跃官员：</b>\n\n{agents_list}", parse_mode="HTML")
+            await update.message.reply_text(
+                f"👥 <b>活跃官员：</b>\n\n{agents_list}", parse_mode="HTML"
+            )
 
     async def _cmd_stat(self, update: Update, context: Any) -> None:
         """
@@ -281,8 +287,8 @@ class TelegramBotService:
             type=EventType.END_TURN,
             payload={"chat_id": chat_id},
             session_id=session.session_id,  # ✅ 添加 session_id
-            parent_event_id=None,           # ✅ 根事件
-            root_event_id="",                # ✅ EventBus 自动设置
+            parent_event_id=None,  # ✅ 根事件
+            root_event_id="",  # ✅ EventBus 自动设置
         )
 
         await session.event_bus.send_event(event)
@@ -307,7 +313,8 @@ class TelegramBotService:
 
         # 检查是否是已注册的命令
         import re
-        if re.match(r'^/(start|help|agents|stat|end_turn)(\s+|$)', text):
+
+        if re.match(r"^/(start|help|agents|stat|end_turn)(\s+|$)", text):
             logger.debug(f"⏭️  [Bot] MessageHandler skipping registered command: {text}")
             return
 

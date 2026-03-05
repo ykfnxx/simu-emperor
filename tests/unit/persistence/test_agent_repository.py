@@ -15,6 +15,7 @@ async def db_conn():
     conn = await aiosqlite.connect(":memory:")
     await init_database(":memory:")
     from simu_emperor.persistence.database import _create_schema
+
     await _create_schema(conn)
     yield conn
     await conn.close()

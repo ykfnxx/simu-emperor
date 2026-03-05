@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 
 class SessionType:
     """Session 类型常量"""
+
     CHAT = "chat"
     COMMAND = "command"
 
 
 class EventCategory:
     """事件类别常量"""
+
     CHAT = "chat"
     COMMAND = "command"
     OTHER = "other"
@@ -99,7 +101,9 @@ class SessionContextManager:
         self._chat_session_id = new_session_id
         self._chat_session_expires_at = expires_at
 
-        logger.info(f"Created new chat session: {new_session_id}, expires at {expires_at.isoformat()}")
+        logger.info(
+            f"Created new chat session: {new_session_id}, expires at {expires_at.isoformat()}"
+        )
         return new_session_id
 
     def _generate_command_session_id(self) -> str:
@@ -112,7 +116,9 @@ class SessionContextManager:
         # 存储 command session
         self._command_sessions[new_session_id] = expires_at
 
-        logger.info(f"Created new command session: {new_session_id}, expires at {expires_at.isoformat()}")
+        logger.info(
+            f"Created new command session: {new_session_id}, expires at {expires_at.isoformat()}"
+        )
         return new_session_id
 
     async def get_or_create_chat_session(self) -> str:
@@ -133,10 +139,7 @@ class SessionContextManager:
         """
         return self._generate_command_session_id()
 
-    async def get_session_for_event(
-        self,
-        event_category: str = "other"
-    ) -> str:
+    async def get_session_for_event(self, event_category: str = "other") -> str:
         """
         根据事件类型返回对应的 session_id
 
@@ -169,8 +172,7 @@ class SessionContextManager:
 
         # 清理过期的 command sessions
         expired_commands = [
-            sid for sid, expires in self._command_sessions.items()
-            if now >= expires
+            sid for sid, expires in self._command_sessions.items() if now >= expires
         ]
         for sid in expired_commands:
             logger.debug(f"Command session expired: {sid}")
@@ -228,14 +230,16 @@ class SessionContextManager:
             result["chat"] = {
                 "session_id": self._chat_session_id,
                 "expires_at": self._chat_session_expires_at.isoformat(),
-                "ttl_seconds": (self._chat_session_expires_at - datetime.now(timezone.utc)).total_seconds()
+                "ttl_seconds": (
+                    self._chat_session_expires_at - datetime.now(timezone.utc)
+                ).total_seconds(),
             }
 
         result["commands"] = [
             {
                 "session_id": sid,
                 "expires_at": expires.isoformat(),
-                "ttl_seconds": (expires - datetime.now(timezone.utc)).total_seconds()
+                "ttl_seconds": (expires - datetime.now(timezone.utc)).total_seconds(),
             }
             for sid, expires in self._command_sessions.items()
         ]

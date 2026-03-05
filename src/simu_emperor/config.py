@@ -10,7 +10,9 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 class MemoryContextConfig(BaseSettings):
     """V3 记忆系统 - 上下文窗口配置。"""
 
-    max_tokens: int | None = Field(default=None, description="上下文最大token数（None=从LLM API自动获取）")
+    max_tokens: int | None = Field(
+        default=None, description="上下文最大token数（None=从LLM API自动获取）"
+    )
     threshold_ratio: float = Field(default=0.95, ge=0.0, le=1.0, description="触发总结的比例阈值")
     keep_recent_events: int = Field(default=20, ge=1, description="滑动窗口后保留的最近事件数")
 
@@ -21,8 +23,7 @@ class MemoryRetrievalConfig(BaseSettings):
     default_max_results: int = Field(default=5, ge=1, description="默认返回的最大结果数")
     cross_session_enabled: bool = Field(default=True, description="是否启用跨会话检索")
     entity_match_weights: dict[str, float] = Field(
-        default={"action": 0.4, "target": 0.3, "time": 0.2},
-        description="实体匹配权重"
+        default={"action": 0.4, "target": 0.3, "time": 0.2}, description="实体匹配权重"
     )
 
 
@@ -53,8 +54,7 @@ class TelegramConfig(BaseSettings):
     response_timeout_seconds: int = Field(default=30, ge=5, description="响应超时时间（秒）")
     max_sessions: int = Field(default=100, ge=1, description="最大会话数")
     enabled_commands: list[str] = Field(
-        default=["start", "help", "agents", "stat", "end_turn"],
-        description="启用的命令列表"
+        default=["start", "help", "agents", "stat", "end_turn"], description="启用的命令列表"
     )
 
 

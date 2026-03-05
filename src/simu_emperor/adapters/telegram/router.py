@@ -65,7 +65,9 @@ class MessageRouter:
 
         # 1. 解析 @agent 或 @all
         mentions, message = self._parse_mentions(text)
-        logger.info(f"🔍 [Router:{request_id}] Parsed mentions: {mentions}, message: {message[:80] if message else 'None'}")
+        logger.info(
+            f"🔍 [Router:{request_id}] Parsed mentions: {mentions}, message: {message[:80] if message else 'None'}"
+        )
 
         if not mentions and not message:
             await reply_func("❌ 格式错误。使用 /help 查看帮助。")
@@ -103,11 +105,13 @@ class MessageRouter:
             type=event_type,
             payload=payload_with_tracking,
             session_id=session_id,  # ✅ 使用动态 session_id
-            parent_event_id=None,   # ✅ 根事件
-            root_event_id="",        # ✅ EventBus 自动设置
+            parent_event_id=None,  # ✅ 根事件
+            root_event_id="",  # ✅ EventBus 自动设置
         )
 
-        logger.info(f"📤 [Router:{request_id}] Sending {event_type} event to EventBus: src={self.session.player_id}, dst={targets}")
+        logger.info(
+            f"📤 [Router:{request_id}] Sending {event_type} event to EventBus: src={self.session.player_id}, dst={targets}"
+        )
         await self.session.event_bus.send_event(event)
         logger.info(f"✅ [Router:{request_id}] Event sent successfully")
 

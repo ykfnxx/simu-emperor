@@ -215,7 +215,7 @@ class GameSession:
             except Exception as e:
                 if attempt < max_retries - 1:
                     # 计算指数退避延迟
-                    delay = base_delay * (2 ** attempt)
+                    delay = base_delay * (2**attempt)
                     logger.warning(
                         f"⚠️  Failed to send response (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {delay}s..."
@@ -223,7 +223,10 @@ class GameSession:
                     await asyncio.sleep(delay)
                 else:
                     # 最后一次尝试失败
-                    logger.error(f"❌ Failed to send response after {max_retries} attempts: {e}", exc_info=True)
+                    logger.error(
+                        f"❌ Failed to send response after {max_retries} attempts: {e}",
+                        exc_info=True,
+                    )
                     logger.error(f"Failed to send message to {self.chat_id}: {e}")
 
     async def _on_turn_resolved(self, event: Event) -> None:
@@ -254,13 +257,15 @@ class GameSession:
                     text=f"✅ <b>第 {turn} 回合结算完成</b>\n\n可以继续与官员交互或再次结束回合。",
                     parse_mode="HTML",
                 )
-                logger.info(f"Sent turn resolved notification to chat {self.chat_id} for turn {turn}")
+                logger.info(
+                    f"Sent turn resolved notification to chat {self.chat_id} for turn {turn}"
+                )
                 return  # 成功发送，退出
 
             except Exception as e:
                 if attempt < max_retries - 1:
                     # 计算指数退避延迟
-                    delay = base_delay * (2 ** attempt)
+                    delay = base_delay * (2**attempt)
                     logger.warning(
                         f"⚠️  Failed to send turn notification (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {delay}s..."
@@ -268,7 +273,9 @@ class GameSession:
                     await asyncio.sleep(delay)
                 else:
                     # 最后一次尝试失败
-                    logger.error(f"Failed to send turn resolved message to {self.chat_id} after {max_retries} attempts: {e}")
+                    logger.error(
+                        f"Failed to send turn resolved message to {self.chat_id} after {max_retries} attempts: {e}"
+                    )
 
     async def _initialize_game_state(self) -> None:
         """初始化游戏状态（如果数据库为空）"""
@@ -309,8 +316,16 @@ class GameSession:
             agriculture=AgricultureData(
                 irrigation_level=Decimal("0.3"),
                 crops=[
-                    CropData(crop_type=CropType.WHEAT, area_mu=Decimal("300000"), yield_per_mu=Decimal("1.3")),
-                    CropData(crop_type=CropType.RICE, area_mu=Decimal("100000"), yield_per_mu=Decimal("3")),
+                    CropData(
+                        crop_type=CropType.WHEAT,
+                        area_mu=Decimal("300000"),
+                        yield_per_mu=Decimal("1.3"),
+                    ),
+                    CropData(
+                        crop_type=CropType.RICE,
+                        area_mu=Decimal("100000"),
+                        yield_per_mu=Decimal("3"),
+                    ),
                 ],
             ),
             commerce=CommerceData(
@@ -356,15 +371,12 @@ class GameSession:
         )
 
         # 保存到数据库（使用 JSON 序列化模式）
-        state_dict = initial_state.model_dump(mode='json')
+        state_dict = initial_state.model_dump(mode="json")
         await self.repository.save_state(state_dict)
 
         logger.info(f"Initialized game state with {len(initial_state.provinces)} province(s)")
 
-    async def get_session_id_for_event(
-        self,
-        event_category: str = "other"
-    ) -> str:
+    async def get_session_id_for_event(self, event_category: str = "other") -> str:
         """
         根据事件类型返回对应的 session_id
 
@@ -394,7 +406,9 @@ class SessionManager:
     - 会话超时管理
     """
 
-    def __init__(self, settings: GameConfig, bot_application: Application, llm_provider: LLMProvider):
+    def __init__(
+        self, settings: GameConfig, bot_application: Application, llm_provider: LLMProvider
+    ):
         """
         初始化会话管理器
 

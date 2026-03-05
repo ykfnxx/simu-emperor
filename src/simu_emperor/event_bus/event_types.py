@@ -12,6 +12,7 @@ class EventType:
     事件类型分类：
     - 玩家交互：COMMAND, QUERY, CHAT
     - Agent 响应：RESPONSE, AGENT_MESSAGE
+    - 记忆系统：USER_QUERY, ASSISTANT_RESPONSE, AGENT_RESPONSE, TOOL_RESULT
     - 游戏动作：ADJUST_TAX, BUILD_IRRIGATION, RECRUIT_TROOPS
     - 系统事件：READY, TURN_RESOLVED, END_TURN
     """
@@ -24,6 +25,12 @@ class EventType:
     # Agent 响应事件
     RESPONSE = "response"  # Agent → 玩家 (叙述性响应)
     AGENT_MESSAGE = "agent_message"  # Agent → Agent (Agent 间通信)
+
+    # 记忆系统事件（V3 Memory）
+    USER_QUERY = "user_query"  # 用户查询（写入 tape）
+    ASSISTANT_RESPONSE = "assistant_response"  # LLM 响应（写入 tape）
+    AGENT_RESPONSE = "agent_response"  # Agent 最终响应（写入 tape）
+    TOOL_RESULT = "tool_result"  # 工具执行结果（写入 tape）
 
     # 游戏动作事件 (Agent → Calculator)
     ALLOCATE_FUNDS = "allocate_funds"  # 拨款（从国库到省库）
@@ -45,6 +52,10 @@ class EventType:
             cls.CHAT,
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
+            cls.USER_QUERY,
+            cls.ASSISTANT_RESPONSE,
+            cls.AGENT_RESPONSE,
+            cls.TOOL_RESULT,
             cls.ALLOCATE_FUNDS,
             cls.ADJUST_TAX,
             cls.BUILD_IRRIGATION,

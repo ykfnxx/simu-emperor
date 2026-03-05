@@ -124,10 +124,22 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_on_event_command(self, agent, mock_llm):
         """测试处理命令事件"""
+        # 创建新的 MockProvider 实例以避免测试之间的状态污染
+        fresh_mock = MockProvider(response="", tool_calls=None)
+        agent.llm_provider = fresh_mock
+
+        # 清空之前的 tape 数据
+        from pathlib import Path
+        import shutil
+
+        memory_dir = Path("data/memory")
+        if memory_dir.exists():
+            shutil.rmtree(memory_dir)
+
         agent.start()
 
         # 设置 tool calls
-        mock_llm.set_tool_calls(
+        fresh_mock.set_tool_calls(
             [
                 {
                     "id": "call_1",
@@ -157,7 +169,7 @@ class TestAgent:
         await agent._on_event(event)
 
         # 应该调用 LLM
-        assert mock_llm.call_count == 1
+        assert fresh_mock.call_count == 1
 
         # 应该发送事件
         assert agent.event_bus.send_event.called
@@ -168,10 +180,22 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_on_event_query(self, agent, mock_llm):
         """测试处理查询事件"""
+        # 创建新的 MockProvider 实例以避免测试之间的状态污染
+        fresh_mock = MockProvider(response="", tool_calls=None)
+        agent.llm_provider = fresh_mock
+
+        # 清空之前的 tape 数据
+        from pathlib import Path
+        import shutil
+
+        memory_dir = Path("data/memory")
+        if memory_dir.exists():
+            shutil.rmtree(memory_dir)
+
         agent.start()
 
         # 设置 tool calls（第一轮：查询）
-        mock_llm.set_tool_calls(
+        fresh_mock.set_tool_calls(
             [
                 {
                     "id": "call_1",
@@ -195,7 +219,7 @@ class TestAgent:
 
         # 应该调用 LLM 两次（第一轮查询，第二轮回复）
         # 因为包含查询函数，需要多轮对话
-        assert mock_llm.call_count == 2
+        assert fresh_mock.call_count == 2
         assert agent.event_bus.send_event.called
 
     @pytest.mark.asyncio
@@ -284,10 +308,22 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_send_message_to_agent(self, agent, mock_llm):
         """测试发送消息给其他 Agent"""
+        # 创建新的 MockProvider 实例以避免测试之间的状态污染
+        fresh_mock = MockProvider(response="", tool_calls=None)
+        agent.llm_provider = fresh_mock
+
+        # 清空之前的 tape 数据
+        from pathlib import Path
+        import shutil
+
+        memory_dir = Path("data/memory")
+        if memory_dir.exists():
+            shutil.rmtree(memory_dir)
+
         agent.start()
 
         # 设置 tool calls
-        mock_llm.set_tool_calls(
+        fresh_mock.set_tool_calls(
             [
                 {
                     "id": "call_1",

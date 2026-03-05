@@ -11,7 +11,9 @@ from simu_emperor.llm.mock import MockProvider
 @pytest.fixture
 def mock_llm():
     """Mock LLM Provider"""
-    llm = MockProvider(response='{"target_agent": "revenue_minister", "intent": "command", "action": "adjust_tax", "params": {"province": "zhili", "rate": 0.1}}')
+    llm = MockProvider(
+        response='{"target_agent": "revenue_minister", "intent": "command", "action": "adjust_tax", "params": {"province": "zhili", "rate": 0.1}}'
+    )
     return llm
 
 

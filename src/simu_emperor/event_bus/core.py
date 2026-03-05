@@ -78,7 +78,9 @@ class EventBus:
         # 检查是否已经订阅过
         handler_ids = [id(h) for h in self._subscribers[dst]]
         if id(handler) in handler_ids:
-            logger.warning(f"⚠️  [EventBus] Handler {handler.__name__} already subscribed to {dst}, skipping")
+            logger.warning(
+                f"⚠️  [EventBus] Handler {handler.__name__} already subscribed to {dst}, skipping"
+            )
             return
 
         self._subscribers[dst].append(handler)
@@ -133,7 +135,9 @@ class EventBus:
         # 精确匹配
         for dst in event.dst:
             if dst in self._subscribers:
-                logger.debug(f"  📌 [EventBus] Exact match: {dst} -> {len(self._subscribers[dst])} handlers")
+                logger.debug(
+                    f"  📌 [EventBus] Exact match: {dst} -> {len(self._subscribers[dst])} handlers"
+                )
                 for handler in self._subscribers[dst]:
                     if id(handler) not in seen_handlers:
                         handlers.append(handler)
@@ -144,7 +148,9 @@ class EventBus:
             if dst.startswith("agent:"):
                 agent_wildcard = "agent:*"
                 if agent_wildcard in self._subscribers:
-                    logger.debug(f"  🌟 [EventBus] Prefix match: {agent_wildcard} -> {len(self._subscribers[agent_wildcard])} handlers")
+                    logger.debug(
+                        f"  🌟 [EventBus] Prefix match: {agent_wildcard} -> {len(self._subscribers[agent_wildcard])} handlers"
+                    )
                     for handler in self._subscribers[agent_wildcard]:
                         if id(handler) not in seen_handlers:
                             handlers.append(handler)
@@ -152,7 +158,9 @@ class EventBus:
 
         # 广播匹配
         if "*" in self._subscribers:
-            logger.debug(f"  📡 [EventBus] Broadcast match: * -> {len(self._subscribers['*'])} handlers")
+            logger.debug(
+                f"  📡 [EventBus] Broadcast match: * -> {len(self._subscribers['*'])} handlers"
+            )
             for handler in self._subscribers["*"]:
                 if id(handler) not in seen_handlers:
                     handlers.append(handler)
@@ -186,8 +194,8 @@ class EventBus:
             await event_bus.send_event(event)
             ```
         """
-        request_id = event.payload.get("_request_id", "unknown")
-        logger.debug(f"📤 [EventBus:{request_id}] send_event called: {event.type} -> {event.dst}")
+        session_id = event.session_id
+        logger.debug(f"📤 [EventBus:{session_id}] send_event called: {event.type} -> {event.dst}")
 
         # 验证 session_id
         if not event.session_id:
@@ -239,7 +247,7 @@ class EventBus:
                 logger.error(f"Failed to create task for handler {handler.__name__}: {e}")
 
         # 不等待任务完成（fire-and-forget）
-        logger.debug(f"✅ [EventBus:{request_id}] Event sent to {len(tasks)} handlers")
+        logger.debug(f"✅ [EventBus:{session_id}] Event sent to {len(tasks)} handlers")
 
     def send_event_sync(self, event: Event) -> None:
         """
@@ -308,8 +316,7 @@ class EventBus:
         try:
             # 等待所有任务完成，但有超时限制
             await asyncio.wait_for(
-                asyncio.gather(*self._background_tasks, return_exceptions=True),
-                timeout=timeout
+                asyncio.gather(*self._background_tasks, return_exceptions=True), timeout=timeout
             )
             logger.debug(f"All {len(self._background_tasks)} background tasks completed")
         except asyncio.TimeoutError:

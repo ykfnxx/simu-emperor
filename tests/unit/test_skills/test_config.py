@@ -125,10 +125,12 @@ class TestSkillConfig:
 
     def test_skill_config_missing_nested_keys(self):
         """测试嵌套字典缺少某些键"""
-        config = SkillConfig.from_dict({
-            "hot_reload": {"enabled": False},
-            "cache": {"size": 75},
-        })
+        config = SkillConfig.from_dict(
+            {
+                "hot_reload": {"enabled": False},
+                "cache": {"size": 75},
+            }
+        )
 
         assert config.hot_reload_enabled is False
         assert config.hot_reload_method == "watchdog"  # 默认值

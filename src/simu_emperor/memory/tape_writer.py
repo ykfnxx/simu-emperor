@@ -20,23 +20,31 @@ class TapeWriter:
         """
         self.memory_dir = memory_dir
 
-    async def write_event(self, event: Event) -> str:
+    async def write_event(self, event: Event, agent_id: str | None = None) -> str:
         """
         Write an event to tape.jsonl.
 
         Args:
             event: Event object to write
+            agent_id: Optional agent ID to specify which agent's tape to write to.
+                     If not provided, extracts from event.src (must start with "agent:")
 
         Returns:
             Event ID string
         """
-        # Only write tape for agents (skip player, system, etc.)
-        if not event.src.startswith("agent:"):
+        # Determine which agent's tape to write to
+        if agent_id:
+            # Use provided agent_id
+            pass
+        elif event.src.startswith("agent:"):
+            # Extract from event.src
+            agent_id = event.src.replace("agent:", "")
+        else:
+            # Not an agent event, skip writing
             return event.event_id
 
         # Extract metadata from event
         session_id = event.session_id
-        agent_id = event.src.replace("agent:", "")
         event_type = event.type
         content = event.payload
 

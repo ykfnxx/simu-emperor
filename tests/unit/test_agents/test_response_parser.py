@@ -2,7 +2,6 @@
 测试响应解析器
 """
 
-
 from simu_emperor.agents.response_parser import (
     parse_chat_result,
     parse_execution_result,
@@ -15,7 +14,9 @@ class TestParseExecutionResult:
 
     def test_parse_valid_json(self):
         """测试解析有效 JSON"""
-        response = '{"narrative": "Test narrative", "action": "test_action", "params": {"key": "value"}}'
+        response = (
+            '{"narrative": "Test narrative", "action": "test_action", "params": {"key": "value"}}'
+        )
         result = parse_execution_result(response)
 
         assert result["narrative"] == "Test narrative"

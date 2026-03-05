@@ -52,9 +52,7 @@ class GameRepository:
             游戏状态字典（JSON 解析后）
         """
         conn = await self._get_conn()
-        cursor = await conn.execute(
-            "SELECT state_json FROM game_state WHERE id = 1"
-        )
+        cursor = await conn.execute("SELECT state_json FROM game_state WHERE id = 1")
         row = await cursor.fetchone()
 
         if row is None:
@@ -160,18 +158,13 @@ class GameRepository:
 
         # 同时更新数据库的 turn 列（用于索引和查询）
         conn = await self._get_conn()
-        await conn.execute(
-            "UPDATE game_state SET turn = ? WHERE id = 1",
-            (new_turn,)
-        )
+        await conn.execute("UPDATE game_state SET turn = ? WHERE id = 1", (new_turn,))
         await conn.commit()
 
         logger.info(f"Turn incremented to {new_turn}")
         return new_turn
 
-    async def update_province_data(
-        self, province_id: str, field_path: str, value: Any
-    ) -> None:
+    async def update_province_data(self, province_id: str, field_path: str, value: Any) -> None:
         """
         更新省份特定字段
 
@@ -259,9 +252,7 @@ class AgentRepository:
             Agent ID 列表
         """
         conn = await self._get_conn()
-        cursor = await conn.execute(
-            "SELECT agent_id FROM agent_state WHERE is_active = 1"
-        )
+        cursor = await conn.execute("SELECT agent_id FROM agent_state WHERE is_active = 1")
         rows = await cursor.fetchall()
 
         return [row[0] for row in rows]

@@ -2,7 +2,6 @@
 测试 EventType 常量
 """
 
-
 from simu_emperor.event_bus.event_types import EventType
 
 

@@ -24,22 +24,14 @@ async def test_update_province_data_with_dict():
 
     # 插入初始状态
     import json
+
     initial_state = {
         "turn": 1,
         "imperial_treasury": 100000,
-        "provinces": [
-            {
-                "province_id": "zhili",
-                "name": "直隶",
-                "taxation": {
-                    "land_tax_rate": 0.1
-                }
-            }
-        ]
+        "provinces": [{"province_id": "zhili", "name": "直隶", "taxation": {"land_tax_rate": 0.1}}],
     }
     await conn.execute(
-        "INSERT INTO game_state (turn, state_json) VALUES (?, ?)",
-        (1, json.dumps(initial_state))
+        "INSERT INTO game_state (turn, state_json) VALUES (?, ?)", (1, json.dumps(initial_state))
     )
     await conn.commit()
 
@@ -72,19 +64,13 @@ async def test_update_province_data_nested():
 
     # 插入初始状态
     import json
+
     initial_state = {
         "turn": 1,
-        "provinces": [
-            {
-                "province_id": "zhili",
-                "name": "直隶",
-                "taxation": {}
-            }
-        ]
+        "provinces": [{"province_id": "zhili", "name": "直隶", "taxation": {}}],
     }
     await conn.execute(
-        "INSERT INTO game_state (turn, state_json) VALUES (?, ?)",
-        (1, json.dumps(initial_state))
+        "INSERT INTO game_state (turn, state_json) VALUES (?, ?)", (1, json.dumps(initial_state))
     )
     await conn.commit()
 

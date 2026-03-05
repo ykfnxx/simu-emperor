@@ -16,6 +16,7 @@ async def db_conn():
     await init_database(":memory:")
     # 使用新的 schema
     from simu_emperor.persistence.database import _create_schema
+
     await _create_schema(conn)
     yield conn
     await conn.close()
@@ -43,12 +44,8 @@ class TestGameRepository:
             "turn": 5,
             "imperial_treasury": 100000,
             "provinces": [
-                {
-                    "province_id": "zhili",
-                    "name": "直隶",
-                    "taxation": {"land_tax_rate": 0.1}
-                }
-            ]
+                {"province_id": "zhili", "name": "直隶", "taxation": {"land_tax_rate": 0.1}}
+            ],
         }
 
         await repo.save_state(test_state)
@@ -94,13 +91,7 @@ class TestGameRepository:
         state = {
             "turn": 1,
             "imperial_treasury": 100000,
-            "provinces": [
-                {
-                    "province_id": "zhili",
-                    "name": "直隶",
-                    "taxation": {}
-                }
-            ]
+            "provinces": [{"province_id": "zhili", "name": "直隶", "taxation": {}}],
         }
         await repo.save_state(state)
 

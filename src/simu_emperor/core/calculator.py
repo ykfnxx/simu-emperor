@@ -199,11 +199,11 @@ class Calculator:
             new_data, national_metrics = resolve_turn(current_data, active_events=[])
 
             # 转换回 dict 格式并保存
-            new_state_dict = new_data.model_dump(mode='json')
+            new_state_dict = new_data.model_dump(mode="json")
             await self.repository.save_state(new_state_dict)
 
             # 保存回合指标
-            metrics_dict = national_metrics.model_dump(mode='json')
+            metrics_dict = national_metrics.model_dump(mode="json")
             await self.repository.save_turn_metrics(new_data.turn, metrics_dict)
 
             # 发布 turn_resolved 事件（包含 chat_id 用于通知）
@@ -254,7 +254,9 @@ class Calculator:
             # 检查国库余额
             imperial_treasury = state.get("imperial_treasury", 0)
             if imperial_treasury < amount:
-                logger.warning(f"Insufficient funds in imperial treasury: {imperial_treasury} < {amount}")
+                logger.warning(
+                    f"Insufficient funds in imperial treasury: {imperial_treasury} < {amount}"
+                )
                 return
 
             # 扣除国库
