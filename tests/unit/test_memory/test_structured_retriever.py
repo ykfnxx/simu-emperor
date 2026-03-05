@@ -32,21 +32,21 @@ class TestStructuredRetriever:
             memory_dir=tmp_path,
             query_parser=query_parser,
             manifest_index=manifest_index,
-            tape_searcher=tape_searcher
+            tape_searcher=tape_searcher,
         )
 
         # Mock context manager
         mock_context_mgr = AsyncMock()
-        mock_context_mgr.get_messages = AsyncMock(return_value=[
-            {"role": "user", "content": "现在的国库情况？"}
-        ])
+        mock_context_mgr.get_messages = AsyncMock(
+            return_value=[{"role": "user", "content": "现在的国库情况？"}]
+        )
 
         result = await retriever.retrieve(
             raw_query="现在的国库情况？",
             agent_id="revenue_minister",
             current_session_id="session:cli:default",
             context_manager=mock_context_mgr,
-            max_results=5
+            max_results=5,
         )
 
         assert result.query == "现在的国库情况？"
@@ -73,21 +73,21 @@ class TestStructuredRetriever:
             "revenue_minister",
             key_topics=["拨款", "直隶"],
             summary="拨款给直隶",
-            event_count=3
+            event_count=3,
         )
 
         retriever = StructuredRetriever(
             memory_dir=tmp_path,
             query_parser=query_parser,
             manifest_index=manifest_index,
-            tape_searcher=tape_searcher
+            tape_searcher=tape_searcher,
         )
 
         result = await retriever.retrieve(
             raw_query="我之前给直隶拨过款吗？",
             agent_id="revenue_minister",
             current_session_id="session:new",
-            max_results=5
+            max_results=5,
         )
 
         assert result.query == "我之前给直隶拨过款吗？"

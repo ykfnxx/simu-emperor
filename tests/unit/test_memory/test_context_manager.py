@@ -1,10 +1,10 @@
 """Test ContextManager for context window management."""
 
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
+from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
 
 
@@ -24,12 +24,11 @@ class TestContextManager:
             agent_id="revenue_minister",
             tape_path=tmp_path / "tape.jsonl",
             config=config,
-            llm_provider=llm
+            llm_provider=llm,
         )
 
         context_mgr.add_event(
-            event={"event_type": "USER_QUERY", "content": {"query": "拨款给直隶"}},
-            tokens=50
+            event={"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=50
         )
 
         assert len(context_mgr.events) == 1
@@ -47,12 +46,14 @@ class TestContextManager:
             agent_id="revenue_minister",
             tape_path=tmp_path / "tape.jsonl",
             config=config,
-            llm_provider=llm
+            llm_provider=llm,
         )
 
-        context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q1"}}, tokens=30)
-        context_mgr.add_event({"event_type": "AGENT_RESPONSE", "content": {"response": "A1"}}, tokens=50)
-        context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q2"}}, tokens=20)
+        context_mgr.add_event({"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30)
+        context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=50
+        )
+        context_mgr.add_event({"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=20)
 
         assert len(context_mgr.events) == 3
 
@@ -69,13 +70,17 @@ class TestContextManager:
             agent_id="revenue_minister",
             tape_path=tmp_path / "tape.jsonl",
             config=config,
-            llm_provider=llm
+            llm_provider=llm,
         )
 
-        context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "拨款给直隶"}}, tokens=15)
-        context_mgr.add_event({"event_type": "AGENT_RESPONSE", "content": {"response": "好的，我将拨款。"}}, tokens=20)
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
+        )
+        context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "好的，我将拨款。"}}, tokens=20
+        )
 
-        messages = context_mgr.build_messages()
+        messages = context_mgr.get_context_messages()
 
         assert len(messages) == 2
         assert messages[0]["role"] == "user"
@@ -97,19 +102,286 @@ class TestContextManager:
             agent_id="revenue_minister",
             tape_path=tmp_path / "tape.jsonl",
             config=config,
-            llm_provider=llm
+            llm_provider=llm,
         )
 
         # 添加事件直到超过阈值 (100 * 0.95 = 95)
-        need_slide = context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q1"}}, tokens=30)
+        need_slide = context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30
+        )
         assert not need_slide  # 30 < 95
 
-        need_slide = context_mgr.add_event({"event_type": "AGENT_RESPONSE", "content": {"response": "A1"}}, tokens=30)
+        need_slide = context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=30
+        )
         assert not need_slide  # 60 < 95
 
-        need_slide = context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q2"}}, tokens=30)
+        need_slide = context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=30
+        )
         assert not need_slide  # 90 < 95
 
         # 再添加一个事件，超过阈值
-        need_slide = context_mgr.add_event({"event_type": "AGENT_RESPONSE", "content": {"response": "A2"}}, tokens=30)
+        need_slide = context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A2"}}, tokens=30
+        )
         assert need_slide  # 120 > 95
+
+    @pytest.mark.asyncio
+    async def test_assistant_response_converted_to_message(self, tmp_path):
+        """Test that ASSISTANT_RESPONSE events are converted to messages"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "我来查询一下数据。",
+                    "iteration": 1,
+                    "has_tool_calls": True,
+                },
+            },
+            tokens=20,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert "拨款给直隶" in messages[0]["content"]
+        assert messages[1]["role"] == "assistant"
+        assert "我来查询一下数据。" in messages[1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_anchor_detection(self, tmp_path):
+        """测试锚点检测逻辑"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 创建测试事件
+        user_query = {"event_type": EventType.USER_QUERY, "content": {"query": "test"}}
+        tool_call = {"event_type": "TOOL_CALL", "content": {"tool": "query_data"}}
+        agent_response = {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "ok"}}
+        assistant_response = {
+            "event_type": EventType.ASSISTANT_RESPONSE,
+            "content": {"response": "thinking"},
+        }
+        game_event = {"event_type": "GAME_EVENT", "content": {"event_type": "allocate_funds"}}
+
+        assert context_mgr._is_anchor_event(user_query)
+        assert not context_mgr._is_anchor_event(tool_call)
+        assert context_mgr._is_anchor_event(agent_response)
+        assert context_mgr._is_anchor_event(assistant_response)
+        assert context_mgr._is_anchor_event(game_event)
+
+    @pytest.mark.asyncio
+    async def test_anchor_aware_sliding_window(self, tmp_path):
+        """测试锚点感知的滑动窗口"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        # 配置：保留最近3个事件，锚点缓冲区为1
+        config = ContextConfig(
+            max_tokens=1000, keep_recent_events=3, anchor_buffer=1, enable_anchor_aware=True
+        )
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加事件序列：USER_QUERY -> TOOL_CALL -> ASSISTANT_RESPONSE -> AGENT_RESPONSE
+        # 事件0: USER_QUERY (锚点)
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "old_query"}}, tokens=10
+        )
+        # 事件1: TOOL_CALL (非锚点)
+        context_mgr.add_event(
+            {"event_type": "TOOL_CALL", "content": {"tool": "query_data"}}, tokens=10
+        )
+        # 事件2: ASSISTANT_RESPONSE (锚点)
+        context_mgr.add_event(
+            {"event_type": EventType.ASSISTANT_RESPONSE, "content": {"response": "thinking"}}, tokens=10
+        )
+        # 事件3: AGENT_RESPONSE (锚点)
+        context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "final"}}, tokens=10
+        )
+
+        # 执行滑动窗口
+        await context_mgr.slide_window()
+
+        # 验证：应该保留最近3个事件 (1, 2, 3)
+        # + 事件0的锚点缓冲区 (0-1范围，但事件1已在最近范围内，只增加事件0)
+        # 预期保留：事件0, 1, 2, 3 (全部保留，因为锚点缓冲区覆盖了旧事件)
+        assert len(context_mgr.events) >= 3  # 至少保留最近3个
+
+        # 验证最近的事件被保留
+        assert any(e.get("event_type") == "AGENT_RESPONSE" for e in context_mgr.events)
+        assert any(e.get("event_type") == "ASSISTANT_RESPONSE" for e in context_mgr.events)
+
+    @pytest.mark.asyncio
+    async def test_anchor_aware_disabled(self, tmp_path):
+        """测试禁用锚点感知时的行为"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        # 配置：禁用锚点感知
+        config = ContextConfig(max_tokens=1000, keep_recent_events=3, enable_anchor_aware=False)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加5个事件
+        for i in range(5):
+            context_mgr.add_event(
+                {"event_type": EventType.USER_QUERY, "content": {"query": f"query_{i}"}}, tokens=10
+            )
+
+        # 执行滑动窗口
+        await context_mgr.slide_window()
+
+        # 验证：只保留最近3个事件
+        assert len(context_mgr.events) == 3
+        assert context_mgr.events[0].get("content", {}).get("query") == "query_2"
+        assert context_mgr.events[1].get("content", {}).get("query") == "query_3"
+        assert context_mgr.events[2].get("content", {}).get("query") == "query_4"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_converted_to_message(self, tmp_path):
+        """测试 TOOL_RESULT 事件被正确转换为消息"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加完整的事件序列：USER_QUERY -> TOOL_RESULT -> ASSISTANT_RESPONSE
+        # 注意：不再记录 TOOL_CALL 事件
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.TOOL_RESULT,
+                "content": {
+                    "tool_call_id": "call_123",
+                    "tool": "query_national_data",
+                    "result": "国库白银 100 万两",
+                },
+            },
+            tokens=20,
+        )
+        context_mgr.add_event(
+            {"event_type": EventType.ASSISTANT_RESPONSE, "content": {"response": "好的，我来处理。"}},
+            tokens=15,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证所有事件都被转换为消息（包括 TOOL_RESULT）
+        assert len(messages) == 3
+        assert messages[0]["role"] == "user"
+        assert "拨款给直隶" in messages[0]["content"]
+        assert messages[1]["role"] == "tool"
+        assert messages[1]["tool_call_id"] == "call_123"
+        assert "国库白银 100 万两" in messages[1]["content"]
+        assert messages[2]["role"] == "assistant"
+        assert "好的，我来处理。" in messages[2]["content"]
+
+    @pytest.mark.asyncio
+    async def test_assistant_response_with_tool_calls(self, tmp_path):
+        """测试 ASSISTANT_RESPONSE 包含 tool_calls 时的格式一致性"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加包含 tool_calls 的 ASSISTANT_RESPONSE 事件
+        context_mgr.add_event(
+            {
+                "event_type": EventType.USER_QUERY,
+                "content": {"query": "拨款给直隶"},
+            },
+            tokens=15,
+        )
+        context_mgr.add_event(
+            {
+                "event_type": EventType.ASSISTANT_RESPONSE,
+                "content": {
+                    "response": "",
+                    "iteration": 1,
+                    "has_tool_calls": True,
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "query_national_data",
+                                "arguments": '{"field": "imperial_treasury"}',
+                            },
+                        }
+                    ],
+                },
+            },
+            tokens=20,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证 ASSISTANT_RESPONSE 包含 tool_calls 字段
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] is None  # 空响应
+        assert "tool_calls" in messages[1]
+        assert len(messages[1]["tool_calls"]) == 1
+        assert messages[1]["tool_calls"][0]["id"] == "call_123"
+        assert messages[1]["tool_calls"][0]["function"]["name"] == "query_national_data"

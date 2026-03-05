@@ -23,11 +23,7 @@ class TapeSearcher:
         self.memory_dir = memory_dir
 
     async def search(
-        self,
-        agent_id: str,
-        session_ids: list[str],
-        entities: dict,
-        max_results: int = 10
+        self, agent_id: str, session_ids: list[str], entities: dict, max_results: int = 10
     ) -> list[dict]:
         """
         Search multiple session tapes for matching events.
@@ -69,9 +65,7 @@ class TapeSearcher:
         return scored_events[:max_results]
 
     async def _read_tapes_concurrent(
-        self,
-        tape_paths: list[Path],
-        session_ids: list[str]
+        self, tape_paths: list[Path], session_ids: list[str]
     ) -> list[dict]:
         """
         Read multiple tape files concurrently.
@@ -83,6 +77,7 @@ class TapeSearcher:
         Returns:
             List of all events from all tapes
         """
+
         async def read_tape(tape_path: Path, session_id: str) -> list[dict]:
             events = []
             try:
@@ -98,9 +93,7 @@ class TapeSearcher:
 
         # Create tasks
         tasks = [
-            read_tape(path, sid)
-            for path, sid in zip(tape_paths, session_ids)
-            if path.exists()
+            read_tape(path, sid) for path, sid in zip(tape_paths, session_ids) if path.exists()
         ]
 
         # Execute concurrently

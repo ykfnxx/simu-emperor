@@ -25,7 +25,7 @@ class StructuredRetriever:
         memory_dir: Path,
         query_parser: QueryParser,
         manifest_index: ManifestIndex,
-        tape_searcher: TapeSearcher
+        tape_searcher: TapeSearcher,
     ):
         """
         Initialize StructuredRetriever.
@@ -47,7 +47,7 @@ class StructuredRetriever:
         agent_id: str,
         current_session_id: str,
         context_manager: "ContextManager" = None,
-        max_results: int = 5
+        max_results: int = 5,
     ) -> RetrievalResult:
         """
         Main retrieval entry point.
@@ -71,9 +71,7 @@ class StructuredRetriever:
 
         # Step 2: Route based on scope
         if structured.scope == "current_session":
-            results = await self._retrieve_current_session(
-                context_manager, structured
-            )
+            results = await self._retrieve_current_session(context_manager, structured)
 
         elif structured.scope == "cross_session":
             results, sessions_searched = await self._retrieve_cross_session(
@@ -93,13 +91,11 @@ class StructuredRetriever:
             scope=structured.scope,
             depth=structured.depth,
             results=results,
-            sessions_searched=sessions_searched
+            sessions_searched=sessions_searched,
         )
 
     async def _retrieve_current_session(
-        self,
-        context_manager: "ContextManager",
-        structured_query
+        self, context_manager: "ContextManager", structured_query
     ) -> list[dict]:
         """
         Retrieve from current session via ContextManager.
@@ -119,19 +115,12 @@ class StructuredRetriever:
         # Convert messages to result format
         results = []
         for msg in messages:
-            results.append({
-                "role": msg["role"],
-                "content": msg["content"]
-            })
+            results.append({"role": msg["role"], "content": msg["content"]})
 
         return results
 
     async def _retrieve_cross_session(
-        self,
-        agent_id: str,
-        entities: dict,
-        exclude_session: str,
-        max_results: int
+        self, agent_id: str, entities: dict, exclude_session: str, max_results: int
     ) -> tuple[list[dict], list[str]]:
         """
         Retrieve across sessions via ManifestIndex and TapeSearcher.
@@ -147,9 +136,7 @@ class StructuredRetriever:
         """
         # Get candidate sessions from manifest
         candidates = await self.manifest.get_candidate_sessions(
-            agent_id=agent_id,
-            entities=entities,
-            exclude_session=exclude_session
+            agent_id=agent_id, entities=entities, exclude_session=exclude_session
         )
 
         if not candidates:
@@ -160,10 +147,7 @@ class StructuredRetriever:
 
         # Search tapes
         results = await self.searcher.search(
-            agent_id=agent_id,
-            session_ids=session_ids,
-            entities=entities,
-            max_results=max_results
+            agent_id=agent_id, session_ids=session_ids, entities=entities, max_results=max_results
         )
 
         return results, session_ids
@@ -182,13 +166,15 @@ class StructuredRetriever:
         formatted = []
         for result in results:
             if "summary" in result:
-                formatted.append({
-                    "type": "summary",
-                    "content": result["summary"],
-                    "session_id": result.get("session_id"),
-                    "turn_start": result.get("turn_start"),
-                    "turn_end": result.get("turn_end")
-                })
+                formatted.append(
+                    {
+                        "type": "summary",
+                        "content": result["summary"],
+                        "session_id": result.get("session_id"),
+                        "turn_start": result.get("turn_start"),
+                        "turn_end": result.get("turn_end"),
+                    }
+                )
         return formatted
 
     def _format_tape_results(self, results: list[dict]) -> list[dict]:
@@ -203,13 +189,15 @@ class StructuredRetriever:
         """
         formatted = []
         for result in results:
-            formatted.append({
-                "type": "event",
-                "event_id": result.get("event_id"),
-                "event_type": result.get("event_type"),
-                "content": result.get("content"),
-                "timestamp": result.get("timestamp"),
-                "session_id": result.get("session_id"),
-                "relevance_score": result.get("relevance_score", 0)
-            })
+            formatted.append(
+                {
+                    "type": "event",
+                    "event_id": result.get("event_id"),
+                    "event_type": result.get("event_type"),
+                    "content": result.get("content"),
+                    "timestamp": result.get("timestamp"),
+                    "session_id": result.get("session_id"),
+                    "relevance_score": result.get("relevance_score", 0),
+                }
+            )
         return formatted

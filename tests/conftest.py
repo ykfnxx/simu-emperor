@@ -42,8 +42,7 @@ async def event_bus_cleanup():
             if background_tasks:
                 try:
                     await asyncio.wait_for(
-                        asyncio.gather(*background_tasks, return_exceptions=True),
-                        timeout=1.0
+                        asyncio.gather(*background_tasks, return_exceptions=True), timeout=1.0
                     )
                 except asyncio.TimeoutError:
                     for task in background_tasks:

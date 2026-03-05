@@ -16,7 +16,7 @@ class TestStructuredQuery:
             intent="query_history",
             entities={"action": ["拨款"], "target": ["直隶"], "time": "history"},
             scope="cross_session",
-            depth="tape"
+            depth="tape",
         )
 
         assert query.raw_query == "我之前给直隶拨过款吗？"
@@ -36,14 +36,10 @@ class TestParseResult:
             intent="query_history",
             entities={"action": ["拨款"], "target": ["直隶"], "time": "history"},
             scope="cross_session",
-            depth="tape"
+            depth="tape",
         )
 
-        result = ParseResult(
-            structured=structured_query,
-            parsed_by="llm",
-            latency_ms=150.5
-        )
+        result = ParseResult(structured=structured_query, parsed_by="llm", latency_ms=150.5)
 
         assert result.structured == structured_query
         assert result.parsed_by == "llm"
@@ -59,10 +55,8 @@ class TestRetrievalResult:
             query="我之前给直隶拨过款吗？",
             scope="cross_session",
             depth="tape",
-            results=[
-                {"event_id": "evt_001", "type": "TOOL_CALL", "content": "拨款给直隶"}
-            ],
-            sessions_searched=["session:cli:default"]
+            results=[{"event_id": "evt_001", "type": "TOOL_CALL", "content": "拨款给直隶"}],
+            sessions_searched=["session:cli:default"],
         )
 
         assert result.query == "我之前给直隶拨过款吗？"
@@ -74,10 +68,7 @@ class TestRetrievalResult:
     def test_retrieval_result_without_optional_fields(self):
         """Test creating RetrievalResult without optional sessions_searched"""
         result = RetrievalResult(
-            query="现在的国库情况？",
-            scope="current_session",
-            depth="overview",
-            results=[]
+            query="现在的国库情况？", scope="current_session", depth="overview", results=[]
         )
 
         assert result.query == "现在的国库情况？"
@@ -116,9 +107,7 @@ class TestRetrievalError:
     def test_retrieval_error_with_details(self):
         """Test creating RetrievalError with details"""
         error = RetrievalError(
-            "Search failed",
-            agent_id="revenue_minister",
-            session_ids=["session:cli:default"]
+            "Search failed", agent_id="revenue_minister", session_ids=["session:cli:default"]
         )
 
         assert "Search failed" in str(error)

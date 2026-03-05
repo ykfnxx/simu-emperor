@@ -73,22 +73,30 @@ class AnthropicProvider(LLMProvider):
 
         # Claude 3 和 Claude 3.5/3.7 系列通常有 200K context
         if "claude-3" in model_lower or "claude-3.5" in model_lower or "claude-3.7" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude 3 series)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 200K (Claude 3 series)"
+            )
             return 200000
 
         # Claude-2 系列通常有 200K context
         if "claude-2" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude 2 series)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 200K (Claude 2 series)"
+            )
             return 200000
 
         # Claude-instant (1.2) 系列通常有 100K context
         if "claude-instant" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 100K (Claude Instant)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 100K (Claude Instant)"
+            )
             return 100000
 
         # Claude Sonnet 4 (claude-sonnet-4-* 系列）
         if "claude-sonnet-4" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (Claude Sonnet 4)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 200K (Claude Sonnet 4)"
+            )
             return 200000
 
         # 无法推测，使用保守默认值并记录警告
@@ -170,8 +178,8 @@ class AnthropicProvider(LLMProvider):
                     "input_schema": {
                         "type": "object",
                         "properties": func.get("parameters", {}).get("properties", {}),
-                        "required": func.get("parameters", {}).get("required", [])
-                    }
+                        "required": func.get("parameters", {}).get("required", []),
+                    },
                 }
                 tools.append(tool)
 
@@ -196,18 +204,11 @@ class AnthropicProvider(LLMProvider):
                 if block.type == "text":
                     response_text += block.text
                 elif block.type == "tool_use":
-                    tool_calls.append({
-                        "id": block.id,
-                        "function": {
-                            "name": block.name,
-                            "arguments": block.input
-                        }
-                    })
+                    tool_calls.append(
+                        {"id": block.id, "function": {"name": block.name, "arguments": block.input}}
+                    )
 
-            return {
-                "response_text": response_text,
-                "tool_calls": tool_calls
-            }
+            return {"response_text": response_text, "tool_calls": tool_calls}
 
         except Exception as e:
             logger.error(f"Error calling Anthropic API with functions: {e}", exc_info=True)

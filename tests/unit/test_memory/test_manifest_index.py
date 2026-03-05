@@ -17,9 +17,7 @@ class TestManifestIndex:
         manifest_index = ManifestIndex(memory_dir=tmp_path)
 
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
 
         # Verify manifest.json was created
@@ -40,9 +38,7 @@ class TestManifestIndex:
         manifest_index = ManifestIndex(memory_dir=tmp_path)
 
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
 
         manifest_path = tmp_path / "manifest.json"
@@ -61,9 +57,7 @@ class TestManifestIndex:
 
         # First register a session
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
 
         # Update metadata
@@ -72,7 +66,7 @@ class TestManifestIndex:
             agent_id="revenue_minister",
             key_topics=["拨款", "直隶"],
             summary="玩家询问直隶税收，随后决定拨款。",
-            event_count=5
+            event_count=5,
         )
 
         # Verify updates
@@ -91,35 +85,31 @@ class TestManifestIndex:
 
         # Register multiple sessions with different topics
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
         await manifest_index.update_session(
             session_id="session:cli:default",
             agent_id="revenue_minister",
             key_topics=["拨款", "直隶"],
             summary="拨款给直隶",
-            event_count=3
+            event_count=3,
         )
 
         await manifest_index.register_session(
-            session_id="session:telegram:12345:chat:abc",
-            agent_id="revenue_minister",
-            turn=6
+            session_id="session:telegram:12345:chat:abc", agent_id="revenue_minister", turn=6
         )
         await manifest_index.update_session(
             session_id="session:telegram:12345:chat:abc",
             agent_id="revenue_minister",
             key_topics=["征税", "江南"],
             summary="讨论江南税收",
-            event_count=2
+            event_count=2,
         )
 
         # Query for sessions matching "拨款" action
         candidates = await manifest_index.get_candidate_sessions(
             agent_id="revenue_minister",
-            entities={"action": ["拨款"], "target": ["直隶"], "time": "history"}
+            entities={"action": ["拨款"], "target": ["直隶"], "time": "history"},
         )
 
         # Should return the first session with higher score
@@ -137,9 +127,7 @@ class TestManifestIndex:
 
         # Register session should handle empty file gracefully
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
 
         # Verify manifest.json was created with proper structure
@@ -160,9 +148,7 @@ class TestManifestIndex:
 
         # Register session should handle corrupted file gracefully
         await manifest_index.register_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            turn=5
+            session_id="session:cli:default", agent_id="revenue_minister", turn=5
         )
 
         # Verify manifest.json was recreated with proper structure
@@ -181,8 +167,7 @@ class TestManifestIndex:
 
         # Should return empty list instead of crashing
         candidates = await manifest_index.get_candidate_sessions(
-            agent_id="revenue_minister",
-            entities={"action": ["拨款"]}
+            agent_id="revenue_minister", entities={"action": ["拨款"]}
         )
 
         assert candidates == []
@@ -198,8 +183,7 @@ class TestManifestIndex:
 
         # Should return empty list instead of crashing
         candidates = await manifest_index.get_candidate_sessions(
-            agent_id="revenue_minister",
-            entities={"action": ["拨款"]}
+            agent_id="revenue_minister", entities={"action": ["拨款"]}
         )
 
         assert candidates == []
@@ -215,9 +199,7 @@ class TestManifestIndex:
 
         # Update should handle empty file gracefully (no-op)
         await manifest_index.update_session(
-            session_id="session:cli:default",
-            agent_id="revenue_minister",
-            key_topics=["拨款"]
+            session_id="session:cli:default", agent_id="revenue_minister", key_topics=["拨款"]
         )
 
         # File should still be empty (no data to update)

@@ -50,7 +50,7 @@ class QueryParser:
                     prompt=self._build_prompt(query),
                     system_prompt="你是一个查询解析助手，负责将用户的自然语言查询转换为结构化格式。",
                     temperature=0.1,
-                    max_tokens=300
+                    max_tokens=300,
                 )
 
                 # Parse JSON response
@@ -62,16 +62,12 @@ class QueryParser:
                     intent=structured_data.get("intent", "query_history"),
                     entities=structured_data.get("entities", {}),
                     scope=structured_data.get("scope", "current_session"),
-                    depth=structured_data.get("depth", "overview")
+                    depth=structured_data.get("depth", "overview"),
                 )
 
                 latency_ms = (time.time() - start_time) * 1000
 
-                return ParseResult(
-                    structured=structured,
-                    parsed_by="llm",
-                    latency_ms=latency_ms
-                )
+                return ParseResult(structured=structured, parsed_by="llm", latency_ms=latency_ms)
 
             except (json.JSONDecodeError, KeyError) as e:
                 if attempt == 2:  # Last attempt
@@ -82,10 +78,10 @@ class QueryParser:
                             intent="query_history",
                             entities={},
                             scope="current_session",
-                            depth="overview"
+                            depth="overview",
                         ),
                         parsed_by="llm_fallback",
-                        latency_ms=(time.time() - start_time) * 1000
+                        latency_ms=(time.time() - start_time) * 1000,
                     )
                 continue
 

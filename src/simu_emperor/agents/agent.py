@@ -22,6 +22,7 @@ from simu_emperor.agents.tools import ActionTools, QueryTools
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
+from simu_emperor.event_bus.event import Event as TapeEvent
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.base import LLMProvider
 
@@ -97,8 +98,6 @@ class Agent:
         # 初始化记忆系统组件（V3）
         from simu_emperor.memory.tape_writer import TapeWriter
         from simu_emperor.memory.manifest_index import ManifestIndex
-        from simu_emperor.memory.context_manager import ContextManager, ContextConfig
-        from simu_emperor.agents.tools.memory_tools import MemoryTools
 
         # Use configured memory_dir
         # Resolve to absolute path (relative to cwd when not absolute)
@@ -253,7 +252,7 @@ class Agent:
                 tape_path=tape_path,
                 config=ContextConfig(),
                 llm_provider=self.llm_provider,
-                manifest_index=self._manifest_index
+                manifest_index=self._manifest_index,
             )
 
             # 初始化 MemoryTools
@@ -261,14 +260,14 @@ class Agent:
                 agent_id=self.agent_id,
                 memory_dir=self._memory_dir,
                 llm_provider=self.llm_provider,
-                context_manager=self._context_manager
+                context_manager=self._context_manager,
             )
 
             # 注册 session（同步执行，确保完成）
             await self._manifest_index.register_session(
                 session_id=session_id,
                 agent_id=self.agent_id,
-                turn=1  # TODO: 从event payload获取实际回合数
+                turn=1,  # TODO: 从event payload获取实际回合数
             )
 
             # 从 tape 加载历史事件到 ContextManager
@@ -302,6 +301,7 @@ class Agent:
         """
         try:
             import tiktoken
+
             encoding = tiktoken.encoding_for_model("gpt-4")
 
             if isinstance(text, str):
@@ -383,11 +383,11 @@ class Agent:
             return
 
         # 2. 记录日志和初始化记忆组件
-        request_id = event.payload.get("_request_id", "unknown")
+        session_id = event.session_id
         event_id = event.id if hasattr(event, "id") else "unknown"
         self._log_event("RECV", event, f"{event.type} from {event.src}")
         logger.info(
-            f"📨 [Agent:{self.agent_id}:{request_id}] Received {event.type} event (id={event_id}) from {event.src}"
+            f"📨 [Agent:{self.agent_id}:{session_id}] Received {event.type} event (id={event_id}) from {event.src}"
         )
 
         if event.type in (EventType.COMMAND, EventType.QUERY, EventType.CHAT):
@@ -398,10 +398,10 @@ class Agent:
 
         # 4. 处理事件
         try:
-            await self._process_event_with_llm(event, request_id, tape_write_tasks)
+            await self._process_event_with_llm(event, session_id, tape_write_tasks)
         except Exception as e:
             logger.error(
-                f"❌ [Agent:{self.agent_id}:{request_id}] Error processing event: {e}",
+                f"❌ [Agent:{self.agent_id}:{session_id}] Error processing event: {e}",
                 exc_info=True,
             )
         finally:
@@ -410,11 +410,7 @@ class Agent:
 
     def _should_handle_event(self, event: Event) -> bool:
         """检查是否应该处理此事件"""
-        return (
-            f"agent:{self.agent_id}" in event.dst
-            or "agent:*" in event.dst
-            or "*" in event.dst
-        )
+        return f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst
 
     async def _prepare_tape_for_event(self, event: Event) -> list:
         """
@@ -438,35 +434,39 @@ class Agent:
             else:  # QUERY
                 query_content = event.payload.get("query", "")
 
-            tape_write_tasks.append(self._tape_writer.write_event(
+            # 构造 USER_QUERY Event
+            user_query_event = TapeEvent(
+                src=event.src,
+                dst=[f"agent:{self.agent_id}"],
+                type=EventType.USER_QUERY,
+                payload={"query": query_content, "event_type": event.type},
                 session_id=event.session_id,
-                agent_id=self.agent_id,
-                event_type="USER_QUERY",
-                content={"query": query_content, "event_type": event.type},
-                tokens=self._count_tokens(event)
-            ))
+            )
+            tape_write_tasks.append(self._tape_writer.write_event(user_query_event))
 
         return tape_write_tasks
 
-    async def _build_messages_for_event(self, event: Event, request_id: str) -> list[dict]:
+    async def _build_llm_context(self, event: Event, session_id: str) -> list[dict]:
         """
-        为事件构建 LLM messages
+        为事件构建完整的 LLM 上下文
+
+        整合：系统提示 + 历史消息 + 当前事件
 
         Args:
             event: 当前事件
-            request_id: 请求 ID
+            session_id: 会话 ID
 
         Returns:
             Messages 列表
         """
-        logger.info(f"🔧 [Agent:{self.agent_id}:{request_id}] Starting context build...")
+        logger.info(f"🔧 [Agent:{self.agent_id}:{session_id}] Starting context build...")
 
         # 使用 ContextManager 从 tape 构建完整 Context
         system_prompt = self._get_system_prompt_for_event(event.type)
 
         # 从 ContextManager 获取历史消息
         if self._context_manager:
-            context_messages = self._context_manager.build_messages()
+            context_messages = self._context_manager.get_context_messages()
 
             # 构建完整消息列表
             messages = [{"role": "system", "content": system_prompt}]
@@ -477,12 +477,12 @@ class Agent:
             messages.append({"role": "user", "content": user_prompt})
 
             logger.info(
-                f"🔧 [Agent:{self.agent_id}:{request_id}] Using ContextManager (loaded from tape)"
+                f"🔧 [Agent:{self.agent_id}:{session_id}] Using ContextManager (loaded from tape)"
             )
         else:
             # 回退到单事件模式
             logger.warning(
-                f"⚠️  [Agent:{self.agent_id}:{request_id}] No ContextManager, using single event mode"
+                f"⚠️  [Agent:{self.agent_id}:{session_id}] No ContextManager, using single event mode"
             )
             user_prompt = self._build_user_prompt(event)
             messages = [
@@ -491,26 +491,23 @@ class Agent:
             ]
 
         logger.info(
-            f"📝 [Agent:{self.agent_id}:{request_id}] Context built with {len(messages)} messages"
+            f"📝 [Agent:{self.agent_id}:{session_id}] Context built with {len(messages)} messages"
         )
         return messages
 
     async def _process_event_with_llm(
-        self,
-        event: Event,
-        request_id: str,
-        tape_write_tasks: list
+        self, event: Event, session_id: str, tape_write_tasks: list
     ) -> None:
         """
         使用 LLM 处理事件（多轮 function calling）
 
         Args:
             event: 当前事件
-            request_id: 请求 ID
+            session_id: 会话 ID
             tape_write_tasks: Tape 写入任务列表
         """
         # 构建消息
-        messages = await self._build_messages_for_event(event, request_id)
+        messages = await self._build_llm_context(event, session_id)
 
         # 多轮 function calling 循环
         max_iterations = 10  # 防止无限循环
@@ -519,28 +516,41 @@ class Agent:
         while iteration < max_iterations:
             iteration += 1
             logger.info(
-                f"🔄 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: Calling LLM..."
+                f"🔄 [Agent:{self.agent_id}:{session_id}] Iteration {iteration}: Calling LLM..."
             )
 
             # 调用 LLM
-            result = await self._call_llm(event, request_id, iteration, messages)
+            result = await self._call_llm(event, session_id, iteration, messages)
 
             # 提取结果
             tool_calls = result.get("tool_calls", [])
             response_text = result.get("response_text", "").strip()
 
             logger.info(
-                f"🔧 [Agent:{self.agent_id}:{request_id}] Iteration {iteration}: LLM returned {len(tool_calls)} tool calls"
+                f"🔧 [Agent:{self.agent_id}:{session_id}] Iteration {iteration}: LLM returned {len(tool_calls)} tool calls"
             )
             logger.info(
-                f"💬 [Agent:{self.agent_id}:{request_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
+                f"💬 [Agent:{self.agent_id}:{session_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
             )
+
+            # TapeWriter: 构造并写入 ASSISTANT_RESPONSE Event（包含完整 tool_calls）
+            assistant_response_event = TapeEvent(
+                src=f"agent:{self.agent_id}",
+                dst=["tape"],
+                type=EventType.ASSISTANT_RESPONSE,
+                payload={
+                    "response": response_text,
+                    "iteration": iteration,
+                    "has_tool_calls": len(tool_calls) > 0,
+                    "tool_calls": tool_calls if tool_calls else None,  # 完整的 tool_calls 数据
+                },
+                session_id=event.session_id,
+            )
+            tape_write_tasks.append(self._tape_writer.write_event(assistant_response_event))
 
             # 处理响应
             if not tool_calls:
-                await self._handle_no_tool_calls(
-                    event, request_id, response_text, tape_write_tasks
-                )
+                await self._handle_no_tool_calls(event, session_id, response_text, tape_write_tasks)
                 break
 
             # 有 tool calls，添加 assistant 消息
@@ -548,7 +558,7 @@ class Agent:
 
             # 执行 tool calls
             should_continue = await self._process_tool_calls(
-                event, request_id, iteration, tool_calls, messages, tape_write_tasks
+                event, session_id, iteration, tool_calls, messages, tape_write_tasks
             )
 
             # 检查是否应该继续循环
@@ -557,22 +567,18 @@ class Agent:
 
         if iteration >= max_iterations:
             logger.warning(
-                f"⚠️  [Agent:{self.agent_id}:{request_id}] Reached max iterations ({max_iterations})"
+                f"⚠️  [Agent:{self.agent_id}:{session_id}] Reached max iterations ({max_iterations})"
             )
 
     async def _call_llm(
-        self,
-        event: Event,
-        request_id: str,
-        iteration: int,
-        messages: list[dict]
+        self, event: Event, session_id: str, iteration: int, messages: list[dict]
     ) -> dict:
         """
         调用 LLM with functions
 
         Args:
             event: 当前事件
-            request_id: 请求 ID
+            session_id: 会话 ID
             iteration: 迭代次数
             messages: 消息历史
 
@@ -605,18 +611,18 @@ class Agent:
     async def _process_tool_calls(
         self,
         event: Event,
-        request_id: str,
+        session_id: str,
         iteration: int,
         tool_calls: list,
         messages: list[dict],
-        tape_write_tasks: list
+        tape_write_tasks: list,
     ) -> bool:
         """
         处理 tool calls
 
         Args:
             event: 当前事件
-            request_id: 请求 ID
+            session_id: 会话 ID
             iteration: 迭代次数
             tool_calls: 工具调用列表
             messages: 消息历史（会被修改）
@@ -625,7 +631,6 @@ class Agent:
         Returns:
             是否应该继续循环
         """
-        has_query_functions = False  # 是否有查询函数
         has_respond_to_player = False  # 是否有respond_to_player
 
         for idx, tool_call in enumerate(tool_calls, 1):
@@ -633,45 +638,33 @@ class Agent:
             function_args = json.loads(tool_call["function"]["arguments"])
 
             logger.info(
-                f"⚙️ [Agent:{self.agent_id}:{request_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
+                f"⚙️ [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
             )
-
-            # TapeWriter: 写入 TOOL_CALL 事件
-            tape_write_tasks.append(self._tape_writer.write_event(
-                session_id=event.session_id,
-                agent_id=self.agent_id,
-                event_type="TOOL_CALL",
-                content={"tool": function_name, "args": function_args},
-                tokens=self._count_tokens(function_args)
-            ))
-
-            # 检查是否是查询函数
-            if function_name in [
-                "query_province_data",
-                "query_national_data",
-                "list_provinces",
-            ]:
-                has_query_functions = True
 
             # 检查是否已经调用了respond_to_player
             if function_name == "respond_to_player":
                 has_respond_to_player = True
 
             # 调用 function handler 并获取结果
-            result_str = await self._call_function_with_result(
-                function_name, function_args, event
+            result_str = await self._call_function_with_result(function_name, function_args, event)
+
+            # 构建 TOOL_RESULT Event
+            tool_result_event = TapeEvent(
+                src=f"agent:{self.agent_id}",
+                dst=["tape"],
+                type=EventType.TOOL_RESULT,
+                payload={
+                    "tool_call_id": tool_call["id"],
+                    "tool": function_name,
+                    "result": result_str,
+                },
+                session_id=event.session_id,
             )
 
-            # TapeWriter: 写入 TOOL_RESULT 事件
-            tape_write_tasks.append(self._tape_writer.write_event(
-                session_id=event.session_id,
-                agent_id=self.agent_id,
-                event_type="TOOL_RESULT",
-                content={"tool": function_name, "result": result_str[:1000]},  # 限制结果长度
-                tokens=self._count_tokens(result_str[:1000])
-            ))
+            # TapeWriter: 写入 TOOL_RESULT Event
+            tape_write_tasks.append(self._tape_writer.write_event(tool_result_event))
 
-            # 记录 tool call 结果（使用OpenAI格式）
+            # 记录 tool call 结果（使用OpenAI格式，与 tape 中存储的格式一致）
             tool_result_message = {
                 "role": "tool",
                 "tool_call_id": tool_call["id"],
@@ -679,19 +672,19 @@ class Agent:
             }
             messages.append(tool_result_message)
             logger.debug(
-                f"📤 [Agent:{self.agent_id}:{request_id}] Tool result: {result_str[:100]}..."
+                f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )
 
         # 如果已经有respond_to_player，说明第一轮LLM已经生成了最终响应，可以结束
         if has_respond_to_player:
             logger.info(
-                f"✅ [Agent:{self.agent_id}:{request_id}] Already responded to player, ending loop"
+                f"✅ [Agent:{self.agent_id}:{session_id}] Already responded to player, ending loop"
             )
             return False
 
         # 否则继续循环，让 LLM 基于工具调用结果生成最终响应
         logger.info(
-            f"✅ [Agent:{self.agent_id}:{request_id}] Tool calls executed, requesting final response from LLM..."
+            f"✅ [Agent:{self.agent_id}:{session_id}] Tool calls executed, requesting final response from LLM..."
         )
         return True
 
@@ -709,13 +702,16 @@ class Agent:
                 # 检查是否有任务失败
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        logger.warning(f"[Agent:{self.agent_id}] Tape write task {i} failed: {result}")
+                        logger.warning(
+                            f"[Agent:{self.agent_id}] Tape write task {i} failed: {result}"
+                        )
 
                 if results:
-                    logger.debug(f"[Agent:{self.agent_id}] {len(results)} tape write tasks completed")
+                    logger.debug(
+                        f"[Agent:{self.agent_id}] {len(results)} tape write tasks completed"
+                    )
             except Exception as tape_error:
                 logger.warning(f"Failed to complete tape write tasks: {tape_error}")
-
 
     def _build_assistant_message(self, response_text: str, tool_calls: list) -> dict:
         """
@@ -744,47 +740,38 @@ class Agent:
             ],
         }
 
-
     async def _handle_no_tool_calls(
-        self,
-        event: Event,
-        request_id: str,
-        response_text: str,
-        tape_write_tasks: list
+        self, event: Event, session_id: str, response_text: str, tape_write_tasks: list
     ) -> None:
         """
         处理无 tool calls 的情况
 
         Args:
             event: 当前事件
-            request_id: 请求 ID
+            session_id: 会话 ID
             response_text: LLM 响应文本
             tape_write_tasks: Tape 写入任务列表
         """
-        logger.info(
-            f"✅ [Agent:{self.agent_id}:{request_id}] No more tool calls, ending loop"
-        )
+        logger.info(f"✅ [Agent:{self.agent_id}:{session_id}] No more tool calls, ending loop")
 
         # 发送最终响应（即使为空也要响应）
         final_response = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
 
-        # TapeWriter: 写入 AGENT_RESPONSE 事件
-        tape_write_tasks.append(self._tape_writer.write_event(
+        # TapeWriter: 构造并写入 AGENT_RESPONSE Event
+        agent_response_event = TapeEvent(
+            src=f"agent:{self.agent_id}",
+            dst=["tape"],
+            type=EventType.AGENT_RESPONSE,
+            payload={"response": final_response},
             session_id=event.session_id,
-            agent_id=self.agent_id,
-            event_type="AGENT_RESPONSE",
-            content={"response": final_response},
-            tokens=self._count_tokens(final_response)
-        ))
+        )
+        tape_write_tasks.append(self._tape_writer.write_event(agent_response_event))
 
         logger.info(
-            f"💬 [Agent:{self.agent_id}:{request_id}] Sending final response: {final_response[:50]}..."
+            f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_response[:50]}..."
         )
-        self._log_event(
-            "SEND", event, f"RESPONSE to {event.src}: {final_response[:50]}..."
-        )
+        self._log_event("SEND", event, f"RESPONSE to {event.src}: {final_response[:50]}...")
         await self._send_response(final_response, event)
-
 
     def _get_system_prompt_for_event(self, event_type: str) -> str:
         """
@@ -936,10 +923,10 @@ class Agent:
         Returns:
             函数执行结果（返回给LLM）
         """
-        request_id = original_event.payload.get("_request_id", "unknown")
+        session_id = original_event.session_id
 
-        logger.info(f"🎯 [Agent:{self.agent_id}:{request_id}] Executing function: {function_name}")
-        logger.debug(f"📋 [Agent:{self.agent_id}:{request_id}] Function arguments: {arguments}")
+        logger.info(f"🎯 [Agent:{self.agent_id}:{session_id}] Executing function: {function_name}")
+        logger.debug(f"📋 [Agent:{self.agent_id}:{session_id}] Function arguments: {arguments}")
 
         try:
             # 从映射表中获取处理函数
@@ -953,7 +940,7 @@ class Agent:
 
         except Exception as e:
             error_msg = f"❌ 函数执行失败: {e}"
-            logger.error(f"❌ [Agent:{self.agent_id}:{request_id}] {error_msg}", exc_info=True)
+            logger.error(f"❌ [Agent:{self.agent_id}:{session_id}] {error_msg}", exc_info=True)
             return error_msg
 
     async def _send_response(self, content: str, event: Event) -> None:

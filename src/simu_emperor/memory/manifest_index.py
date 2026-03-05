@@ -4,7 +4,8 @@ import aiofiles
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+
+from simu_emperor.event_bus.event_types import EventType
 
 
 class ManifestIndex:
@@ -20,12 +21,7 @@ class ManifestIndex:
         self.memory_dir = memory_dir
         self.manifest_path = memory_dir / "manifest.json"
 
-    async def register_session(
-        self,
-        session_id: str,
-        agent_id: str,
-        turn: int
-    ) -> None:
+    async def register_session(self, session_id: str, agent_id: str, turn: int) -> None:
         """
         Register a new session.
 
@@ -38,7 +34,7 @@ class ManifestIndex:
         manifest = {
             "version": "1.0",
             "last_updated": datetime.now(timezone.utc).isoformat(),
-            "sessions": {}
+            "sessions": {},
         }
 
         if self.manifest_path.exists():
@@ -50,6 +46,7 @@ class ManifestIndex:
             except (json.JSONDecodeError, IOError) as e:
                 # Log warning but continue with default manifest
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to load manifest.json, using default: {e}")
 
@@ -66,7 +63,7 @@ class ManifestIndex:
             "key_topics": [],
             "summary": "",
             "summary_tokens": 0,
-            "event_count": 0
+            "event_count": 0,
         }
 
         # Update last_updated
@@ -77,12 +74,7 @@ class ManifestIndex:
         async with aiofiles.open(self.manifest_path, mode="w", encoding="utf-8") as f:
             await f.write(json.dumps(manifest, ensure_ascii=False, indent=2))
 
-    async def update_session(
-        self,
-        session_id: str,
-        agent_id: str,
-        **updates
-    ) -> None:
+    async def update_session(self, session_id: str, agent_id: str, **updates) -> None:
         """
         Update session metadata.
 
@@ -103,6 +95,7 @@ class ManifestIndex:
                 manifest = json.loads(content)
         except (json.JSONDecodeError, IOError) as e:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to load manifest.json for update: {e}")
             return
@@ -116,17 +109,16 @@ class ManifestIndex:
 
         # Update last_updated and end_time
         manifest["last_updated"] = datetime.now(timezone.utc).isoformat()
-        manifest["sessions"][session_id]["agents"][agent_id]["end_time"] = datetime.now(timezone.utc).isoformat()
+        manifest["sessions"][session_id]["agents"][agent_id]["end_time"] = datetime.now(
+            timezone.utc
+        ).isoformat()
 
         # Write back
         async with aiofiles.open(self.manifest_path, mode="w", encoding="utf-8") as f:
             await f.write(json.dumps(manifest, ensure_ascii=False, indent=2))
 
     async def get_candidate_sessions(
-        self,
-        agent_id: str,
-        entities: dict,
-        exclude_session: str = None
+        self, agent_id: str, entities: dict, exclude_session: str = None
     ) -> list[dict]:
         """
         Get candidate sessions based on entity matching.
@@ -187,26 +179,24 @@ class ManifestIndex:
                 score += 0.2
 
             if score > 0:
-                candidates.append({
-                    "session_id": session_id,
-                    "score": score,
-                    "turn_start": agent_data.get("turn_start", 0),
-                    "turn_end": agent_data.get("turn_end", 0),
-                    "summary": agent_data.get("summary", ""),
-                    "key_topics": key_topics,
-                    "event_count": agent_data.get("event_count", 0)
-                })
+                candidates.append(
+                    {
+                        "session_id": session_id,
+                        "score": score,
+                        "turn_start": agent_data.get("turn_start", 0),
+                        "turn_end": agent_data.get("turn_end", 0),
+                        "summary": agent_data.get("summary", ""),
+                        "key_topics": key_topics,
+                        "event_count": agent_data.get("event_count", 0),
+                    }
+                )
 
         # Sort by score (highest first)
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates
 
     async def refresh_session_summary(
-        self,
-        session_id: str,
-        agent_id: str,
-        llm_provider,
-        tape_path: Path
+        self, session_id: str, agent_id: str, llm_provider, tape_path: Path
     ) -> None:
         """
         刷新session总结（基于完整tape）
@@ -228,6 +218,7 @@ class ManifestIndex:
                                 continue
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(f"Failed to read tape for summary: {e}")
                 return
 
@@ -242,17 +233,25 @@ class ManifestIndex:
             content = event.get("content", {})
 
             # 格式化事件类型
-            if event_type in ("USER_QUERY", "user_query"):
+            if event_type in (EventType.USER_QUERY, "user_query"):
                 role = "用户"
                 text = content.get("query", "") if isinstance(content, dict) else str(content)
-            elif event_type in ("AGENT_RESPONSE", "agent_response"):
+            elif event_type in (EventType.AGENT_RESPONSE, "agent_response"):
                 role = "官员"
                 text = content.get("response", "") if isinstance(content, dict) else str(content)
-            elif event_type in ("TOOL_CALL", "tool_call"):
-                role = "工具"
+            elif event_type in (EventType.ASSISTANT_RESPONSE, "assistant_response"):
+                # 中间响应标记为"思考"
+                role = "思考"
+                text = content.get("response", "") if isinstance(content, dict) else str(content)
+            elif event_type in (EventType.TOOL_RESULT, "tool_result"):
+                # 工具结果
                 tool = content.get("tool", "") if isinstance(content, dict) else str(content)
-                args = content.get("args", {}) if isinstance(content, dict) else {}
-                text = f"调用 {tool}({args})"
+                result = content.get("result", "") if isinstance(content, dict) else str(content)
+                # 限制结果显示长度
+                result_preview = (
+                    str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
+                )
+                text = f"工具 {tool} 返回: {result_preview}"
             else:
                 role = event_type
                 text = str(content)
@@ -273,7 +272,7 @@ class ManifestIndex:
                 prompt=prompt,
                 system_prompt="你是一个游戏记录助手，负责总结会话内容。",
                 max_tokens=200,
-                temperature=0.3
+                temperature=0.3,
             )
             summary = response.strip()
 
@@ -282,10 +281,11 @@ class ManifestIndex:
                 session_id=session_id,
                 agent_id=agent_id,
                 summary=summary,
-                event_count=len(all_events)
+                event_count=len(all_events),
             )
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning(f"Failed to generate summary: {e}")
 
     async def get_session_summary(self, session_id: str, agent_id: str) -> str | None:

@@ -2,8 +2,7 @@
 
 import aiofiles
 import json
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -24,6 +23,7 @@ def count_tokens(text: str, model: Literal["gpt-4", "claude-3"] = "gpt-4") -> in
     """
     try:
         import tiktoken
+
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except Exception:
@@ -37,7 +37,9 @@ class ContextConfig:
 
     max_tokens: int | None = 8000  # None = 从LLM API获取
     threshold_ratio: float = 0.95  # 触发滑动窗口的阈值比例
-    keep_recent_events: int = 20   # 滑动窗口后保留的事件数
+    keep_recent_events: int = 20  # 滑动窗口后保留的事件数
+    anchor_buffer: int = 3  # 锚点附近保留的事件数
+    enable_anchor_aware: bool = True  # 启用锚点感知滑动窗口
 
 
 class ContextManager:
@@ -54,7 +56,7 @@ class ContextManager:
         tape_path: Path,
         config: ContextConfig,
         llm_provider: "LLMProvider",
-        manifest_index=None
+        manifest_index=None,
     ):
         """
         Initialize ContextManager.
@@ -80,7 +82,7 @@ class ContextManager:
 
         # 窗口状态
         self.events: list[dict] = []  # 当前窗口内的事件（从tape加载）
-        self.summary: str = ""         # 历史摘要
+        self.summary: str = ""  # 历史摘要
 
     def _query_llm_context_window(self) -> int:
         """查询LLM API获取context window大小"""
@@ -136,17 +138,20 @@ class ContextManager:
 
     async def slide_window(self) -> None:
         """
-        滑动窗口：刷新session总结后，保留最近N条事件
+        锚点感知的滑动窗口
+
+        策略：
+        1. 识别窗口内所有锚点
+        2. 保留最近 N 个事件
+        3. 额外保留锚点附近 ±K 个事件
+        4. 刷新被丢弃事件的摘要
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
-        流程：
-        1. 调用manifest刷新本session总结（基于完整tape）
-        2. 从manifest读取最新summary
-        3. 保留最近N条事件，其余丢弃
         """
-        keep = self.config.keep_recent_events
+        keep_recent = self.config.keep_recent_events
+        anchor_buffer = self.config.anchor_buffer
 
-        if len(self.events) <= keep:
+        if len(self.events) <= keep_recent:
             return
 
         # Step 1: 刷新session总结（基于完整tape）
@@ -157,7 +162,7 @@ class ContextManager:
                     session_id=self.session_id,
                     agent_id=self.agent_id,
                     llm_provider=self.llm,
-                    tape_path=self.tape_path
+                    tape_path=self.tape_path,
                 )
 
                 # Step 2: 从manifest读取最新summary
@@ -166,12 +171,40 @@ class ContextManager:
             except Exception as e:
                 print(f"Warning: Failed to refresh summary: {e}")
 
-        # Step 3: 保留最近N条事件
-        self.events = self.events[-keep:]
+        # Step 3: 如果未启用锚点感知，直接保留最近N条事件
+        if not self.config.enable_anchor_aware:
+            self.events = self.events[-keep_recent:]
+            return
 
-    def build_messages(self) -> list[dict]:
+        # Step 4: 锚点感知的滑动窗口
+        # 4a. 识别锚点位置
+        anchor_positions = [
+            i for i, event in enumerate(self.events) if self._is_anchor_event(event)
+        ]
+
+        # 4b. 确定保留哪些事件
+        keep_indices = set()
+
+        # 总是保留最近的事件
+        recent_start = max(0, len(self.events) - keep_recent)
+        keep_indices.update(range(recent_start, len(self.events)))
+
+        # 保留锚点附近的事件（如果不在最近范围内）
+        for pos in anchor_positions:
+            if pos < recent_start:
+                buffer_start = max(0, pos - anchor_buffer)
+                buffer_end = min(recent_start, pos + anchor_buffer + 1)
+                keep_indices.update(range(buffer_start, buffer_end))
+
+        # Step 5: 过滤事件
+        keep_indices_sorted = sorted(keep_indices)
+        self.events = [self.events[i] for i in keep_indices_sorted]
+
+    def get_context_messages(self) -> list[dict]:
         """
-        组装为LLM messages格式
+        获取历史上下文消息
+
+        从 tape 加载的事件转换为 LLM messages 格式
 
         Returns:
             messages列表，可直接用于LLM调用
@@ -182,10 +215,7 @@ class ContextManager:
 
         # 2. 历史摘要（如果有）
         if self.summary:
-            messages.append({
-                "role": "system",
-                "content": f"[历史会话摘要] {self.summary}"
-            })
+            messages.append({"role": "system", "content": f"[历史会话摘要] {self.summary}"})
 
         # 3. 窗口内事件
         for event in self.events:
@@ -205,22 +235,90 @@ class ContextManager:
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         """
+        from simu_emperor.event_bus.event_types import EventType
+
         event_type = event.get("event_type", event.get("type", "UNKNOWN"))
         content = event.get("content", {})
 
-        if event_type in ("USER_QUERY", "user_query"):
+        if event_type in (EventType.USER_QUERY, "user_query"):
             query = content.get("query") if isinstance(content, dict) else content
             return [{"role": "user", "content": str(query)}]
-        elif event_type in ("AGENT_RESPONSE", "agent_response"):
+        elif event_type in (EventType.AGENT_RESPONSE, "agent_response"):
+            # 最终响应
             response = content.get("response") if isinstance(content, dict) else content
             return [{"role": "assistant", "content": str(response)}]
-        elif event_type in ("TOOL_CALL", "tool_call"):
-            # 工具调用作为system消息
-            tool = content.get("tool") if isinstance(content, dict) else content
-            return [{"role": "system", "content": f"[调用工具] {tool}"}]
-        elif event_type in ("TOOL_RESULT", "tool_result"):
-            # 工具结果不添加到context（避免token过多）
-            return []
+        elif event_type in (EventType.ASSISTANT_RESPONSE, "assistant_response"):
+            # 中间响应（LLM 思考过程）
+            response = content.get("response") if isinstance(content, dict) else content
+            tool_calls = content.get("tool_calls") if isinstance(content, dict) else None
+
+            # 构建与运行时一致的消息格式
+            msg = {"role": "assistant", "content": str(response) or None}
+
+            # 如果有 tool_calls，添加到消息中
+            if tool_calls:
+                msg["tool_calls"] = [
+                    {
+                        "id": tc.get("id", ""),
+                        "type": tc.get("type", "function"),
+                        "function": {
+                            "name": tc.get("function", {}).get("name", ""),
+                            "arguments": tc.get("function", {}).get("arguments", "{}"),
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+
+            return [msg]
+        elif event_type in (EventType.TOOL_RESULT, "tool_result"):
+            # 工具结果必须添加到context（LLM需要看到工具调用的结果）
+            # 使用 OpenAI tool role 格式，与运行时格式一致
+            tool_call_id = content.get("tool_call_id", "") if isinstance(content, dict) else ""
+            result = content.get("result") if isinstance(content, dict) else content
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": str(tool_call_id),
+                    "content": str(result),
+                }
+            ]
         else:
             # 其他事件类型
             return [{"role": "system", "content": f"[{event_type}] {str(content)}"}]
+
+    def _is_anchor_event(self, event: dict) -> bool:
+        """
+        判断事件是否为锚点
+
+        锚点事件包括：
+        - 用户查询 (USER_QUERY)
+        - Agent 响应 (AGENT_RESPONSE, ASSISTANT_RESPONSE)
+        - 关键游戏状态变化 (GAME_EVENT: allocate_funds, adjust_tax, etc.)
+
+        Args:
+            event: 事件数据
+
+        Returns:
+            bool: 是否为锚点事件
+        """
+        event_type = event.get("event_type", "")
+
+        # 用户和 Agent 消息总是锚点
+        if event_type in ("USER_QUERY", "AGENT_RESPONSE", "ASSISTANT_RESPONSE"):
+            return True
+
+        # 关键游戏状态变化是锚点
+        if event_type == "GAME_EVENT":
+            content = event.get("content", {})
+            if isinstance(content, dict):
+                subtype = content.get("event_type", "")
+                critical_events = {
+                    "allocate_funds",
+                    "adjust_tax",
+                    "build_irrigation",
+                    "recruit_troops",
+                    "dispatch_troops",
+                }
+                return subtype in critical_events
+
+        return False

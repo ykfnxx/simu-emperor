@@ -78,6 +78,7 @@ class LLMProvider(ABC):
         """
         # 默认返回保守值，子类应该覆盖
         import logging
+
         logger = logging.getLogger(__name__)
         logger.warning(
             f"{self.__class__.__name__} does not implement get_context_window_size(). "

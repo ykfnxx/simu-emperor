@@ -72,7 +72,9 @@ class OpenAIProvider(LLMProvider):
 
         self.client = openai.AsyncOpenAI(**client_kwargs)
         self.model = model
-        logger.info(f"OpenAIProvider initialized with model: {model}, base_url: {base_url or 'default'}")
+        logger.info(
+            f"OpenAIProvider initialized with model: {model}, base_url: {base_url or 'default'}"
+        )
 
     def get_context_window_size(self) -> int:
         """
@@ -93,17 +95,23 @@ class OpenAIProvider(LLMProvider):
 
         # GPT-4o 系列通常有 128K context
         if "gpt-4o" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 128K (GPT-4o series)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 128K (GPT-4o series)"
+            )
             return 128000
 
         # GPT-4 Turbo 系列通常有 128K context
         if "gpt-4-turbo" in model_lower or "gpt-4-turbo" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 128K (GPT-4 Turbo series)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 128K (GPT-4 Turbo series)"
+            )
             return 128000
 
         # GPT-4 系列（非32k版本）通常有 8K context
         if "gpt-4" in model_lower and "32k" not in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 8K (GPT-4 base)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 8K (GPT-4 base)"
+            )
             return 8192
 
         # GPT-4 32K 系列
@@ -113,22 +121,30 @@ class OpenAIProvider(LLMProvider):
 
         # O1 系列通常有 200K context
         if "o1" in model_lower and "mini" not in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 200K (O1 series)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 200K (O1 series)"
+            )
             return 200000
 
         # O1-mini 系列通常有 128K context
         if "o1-mini" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 128K (O1-mini)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 128K (O1-mini)"
+            )
             return 128000
 
         # GPT-3.5 Turbo 系列通常有 16K context
         if "gpt-3.5" in model_lower or "gpt-35" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 16K (GPT-3.5 Turbo)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 16K (GPT-3.5 Turbo)"
+            )
             return 16385
 
         # 中文模型（智谱、DeepSeek、通义千问等）通常有 128K context
         if any(prefix in model_lower for prefix in ["glm", "deepseek", "qwen", "yi", "baichuan"]):
-            logger.info(f"Model '{self.model}' not in context window table, assuming 128K (Chinese model)")
+            logger.info(
+                f"Model '{self.model}' not in context window table, assuming 128K (Chinese model)"
+            )
             return 128000
 
         # 无法推测，使用保守默认值并记录警告
@@ -223,13 +239,7 @@ class OpenAIProvider(LLMProvider):
             # 只有当 functions 非空时才传递 tools 参数（某些 API 如阿里云 DashScope 不接受空 tools）
             tools = None
             if functions and len(functions) > 0:
-                tools = [
-                    {
-                        "type": "function",
-                        "function": func
-                    }
-                    for func in functions
-                ]
+                tools = [{"type": "function", "function": func} for func in functions]
 
             # 构建 API 调用参数
             api_params = {
@@ -251,18 +261,17 @@ class OpenAIProvider(LLMProvider):
             tool_calls = []
             if message.tool_calls:
                 for tc in message.tool_calls:
-                    tool_calls.append({
-                        "id": tc.id,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
+                    tool_calls.append(
+                        {
+                            "id": tc.id,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
                         }
-                    })
+                    )
 
-            return {
-                "response_text": message.content or "",
-                "tool_calls": tool_calls
-            }
+            return {"response_text": message.content or "", "tool_calls": tool_calls}
 
         except Exception as e:
             logger.error(f"Error calling OpenAI API with functions: {e}", exc_info=True)

@@ -92,26 +92,21 @@ class MockProvider(LLMProvider):
 
             if has_tool_results:
                 # 多轮对话：结束循环，返回最终响应
-                return {
-                    "response_text": "启禀陛下，国库现有白银 100 万两。",
-                    "tool_calls": []
-                }
+                return {"response_text": "启禀陛下，国库现有白银 100 万两。", "tool_calls": []}
 
         # 如果有预定义 tool_calls，使用它们（只在第一次调用时）
         # 如果 tool_calls 是列表，说明是预定义的，只在第一次调用时返回
-        if self.tool_calls is not None and isinstance(self.tool_calls, list) and len(self.tool_calls) > 0:
+        if (
+            self.tool_calls is not None
+            and isinstance(self.tool_calls, list)
+            and len(self.tool_calls) > 0
+        ):
             # 第一次调用：返回预定义的tool calls
             if self.call_count == 1:
-                return {
-                    "response_text": self.response,
-                    "tool_calls": self.tool_calls
-                }
+                return {"response_text": self.response, "tool_calls": self.tool_calls}
             else:
                 # 后续调用：返回空
-                return {
-                    "response_text": "",
-                    "tool_calls": []
-                }
+                return {"response_text": "", "tool_calls": []}
 
         # 如果 tool_calls 是 None，智能生成
         if self.tool_calls is None:
@@ -119,10 +114,7 @@ class MockProvider(LLMProvider):
         else:
             tool_calls = []
 
-        return {
-            "response_text": self.response,
-            "tool_calls": tool_calls
-        }
+        return {"response_text": self.response, "tool_calls": tool_calls}
 
     def _generate_smart_tool_calls(self, prompt: str, system_prompt: str | None) -> list[dict]:
         """
@@ -145,34 +137,38 @@ class MockProvider(LLMProvider):
                     "id": "call_1",
                     "function": {
                         "name": "send_game_event",
-                        "arguments": json.dumps({
-                            "event_type": "adjust_tax",
-                            "payload": {
-                                "province": "zhili",
-                                "rate": 0.05
-                            }
-                        }, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps(
+                            {
+                                "event_type": "adjust_tax",
+                                "payload": {"province": "zhili", "rate": 0.05},
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
                 },
                 {
                     "id": "call_2",
                     "function": {
                         "name": "send_message_to_agent",
-                        "arguments": json.dumps({
-                            "target_agent": "governor_zhili",
-                            "message": "户部已拨下银两，请查收。"
-                        }, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps(
+                            {
+                                "target_agent": "governor_zhili",
+                                "message": "户部已拨下银两，请查收。",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
                 },
                 {
                     "id": "call_3",
                     "function": {
                         "name": "respond_to_player",
-                        "arguments": json.dumps({
-                            "content": "臣遵旨！已给直隶拨款5万两白银，并通知李卫查收。"
-                        }, ensure_ascii=False)
-                    }
-                }
+                        "arguments": json.dumps(
+                            {"content": "臣遵旨！已给直隶拨款5万两白银，并通知李卫查收。"},
+                            ensure_ascii=False,
+                        ),
+                    },
+                },
             ]
 
         elif event_type == "QUERY":
@@ -182,20 +178,20 @@ class MockProvider(LLMProvider):
                     "id": "call_1",
                     "function": {
                         "name": "query_national_data",
-                        "arguments": json.dumps({
-                            "field_name": "imperial_treasury"
-                        }, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps(
+                            {"field_name": "imperial_treasury"}, ensure_ascii=False
+                        ),
+                    },
                 },
                 {
                     "id": "call_2",
                     "function": {
                         "name": "respond_to_player",
-                        "arguments": json.dumps({
-                            "content": "启禀陛下，国库现有白银100万两。"
-                        }, ensure_ascii=False)
-                    }
-                }
+                        "arguments": json.dumps(
+                            {"content": "启禀陛下，国库现有白银100万两。"}, ensure_ascii=False
+                        ),
+                    },
+                },
             ]
 
         elif event_type == "CHAT":
@@ -205,10 +201,10 @@ class MockProvider(LLMProvider):
                     "id": "call_1",
                     "function": {
                         "name": "respond_to_player",
-                        "arguments": json.dumps({
-                            "content": "臣惶恐！陛下垂询，臣不胜感激。"
-                        }, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps(
+                            {"content": "臣惶恐！陛下垂询，臣不胜感激。"}, ensure_ascii=False
+                        ),
+                    },
                 }
             ]
 
@@ -219,8 +215,8 @@ class MockProvider(LLMProvider):
                     "id": "call_1",
                     "function": {
                         "name": "send_ready",
-                        "arguments": json.dumps({}, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps({}, ensure_ascii=False),
+                    },
                 }
             ]
 
@@ -231,10 +227,10 @@ class MockProvider(LLMProvider):
                     "id": "call_1",
                     "function": {
                         "name": "write_memory",
-                        "arguments": json.dumps({
-                            "content": "本回合臣完成了陛下的命令。"
-                        }, ensure_ascii=False)
-                    }
+                        "arguments": json.dumps(
+                            {"content": "本回合臣完成了陛下的命令。"}, ensure_ascii=False
+                        ),
+                    },
                 }
             ]
 
@@ -245,8 +241,8 @@ class MockProvider(LLMProvider):
                     "id": "call_default",
                     "function": {
                         "name": "respond_to_player",
-                        "arguments": f'{{"content": "{self.response}"}}'
-                    }
+                        "arguments": f'{{"content": "{self.response}"}}',
+                    },
                 }
             ]
 
@@ -276,7 +272,7 @@ class MockProvider(LLMProvider):
 
         # 检查 prompt 中的事件类型
         if "- 类型:" in prompt:
-            match = re.search(r'- 类型:\s*(\w+)', prompt)
+            match = re.search(r"- 类型:\s*(\w+)", prompt)
             if match:
                 event_type = match.group(1).upper()
                 if event_type in ["COMMAND", "QUERY", "CHAT", "END_TURN", "TURN_RESOLVED"]:

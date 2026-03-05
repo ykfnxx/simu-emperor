@@ -34,7 +34,7 @@ class MemoryTools:
         agent_id: str,
         memory_dir: Path,
         llm_provider: "LLMProvider",
-        context_manager: "ContextManager" = None
+        context_manager: "ContextManager" = None,
     ):
         """
         Initialize MemoryTools.
@@ -61,7 +61,7 @@ class MemoryTools:
             memory_dir=memory_dir,
             query_parser=QueryParser(llm_provider=llm_provider),
             manifest_index=ManifestIndex(memory_dir=memory_dir),
-            tape_searcher=TapeSearcher(memory_dir=memory_dir)
+            tape_searcher=TapeSearcher(memory_dir=memory_dir),
         )
 
     async def retrieve_memory(self, args: dict, event: Event) -> str:
@@ -96,7 +96,7 @@ class MemoryTools:
                 agent_id=self.agent_id,
                 current_session_id=event.session_id,
                 context_manager=self.context_manager,
-                max_results=max_results
+                max_results=max_results,
             )
 
             # Format results for LLM
@@ -123,7 +123,7 @@ class MemoryTools:
             f"## 检索结果：{result.query}",
             f"",
             f"找到 {len(result.results)} 条相关记录：",
-            f""
+            f"",
         ]
 
         # Group results by session
@@ -142,7 +142,9 @@ class MemoryTools:
                 if item.get("type") == "summary":
                     lines.append(f"**摘要**: {item.get('content', '')}")
                     if item.get("turn_start"):
-                        lines.append(f"- 回合范围: {item['turn_start']} - {item.get('turn_end', '?')}")
+                        lines.append(
+                            f"- 回合范围: {item['turn_start']} - {item.get('turn_end', '?')}"
+                        )
                 elif item.get("type") == "event":
                     event_type = item.get("event_type", "UNKNOWN")
                     content = item.get("content", {})

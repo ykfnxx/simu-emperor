@@ -1,10 +1,11 @@
 """TapeWriter for writing events to tape.jsonl files."""
 
 import aiofiles
-import json
 from pathlib import Path
 from datetime import datetime, timezone
 import uuid
+
+from simu_emperor.event_bus.event import Event
 
 
 class TapeWriter:
@@ -19,47 +20,39 @@ class TapeWriter:
         """
         self.memory_dir = memory_dir
 
-    async def write_event(
-        self,
-        session_id: str,
-        agent_id: str,
-        event_type: str,
-        content: dict,
-        tokens: int
-    ) -> str:
+    async def write_event(self, event: Event) -> str:
         """
         Write an event to tape.jsonl.
 
         Args:
-            session_id: Session identifier
-            agent_id: Agent identifier
-            event_type: Event type (USER_QUERY, TOOL_CALL, etc.)
-            content: Event content dictionary
-            tokens: Token count for the event
+            event: Event object to write
 
         Returns:
             Event ID string
         """
-        tape_path = self._get_tape_path(session_id, agent_id)
-        event_id = self._generate_event_id()
+        # Extract metadata from event
+        session_id = event.session_id
+        agent_id = event.src.replace("agent:", "") if event.src.startswith("agent:") else event.src
+        event_type = event.type
+        content = event.payload
 
-        event = {
-            "event_id": event_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event_type": event_type,
-            "content": content,
-            "tokens": tokens,
-            "agent_id": agent_id
-        }
+        # Count tokens if not provided
+        tokens = event.payload.get("tokens")
+        if tokens is None:
+            # Count tokens based on content
+            text = str(content)
+            tokens = len(text) // 2  # Simple fallback: 2 chars ≈ 1 token
+
+        tape_path = self._get_tape_path(session_id, agent_id)
 
         # Ensure directory exists
         tape_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Append to JSONL file
+        # Append to JSONL file (use event's to_json but override type for tape)
         async with aiofiles.open(tape_path, mode="a", encoding="utf-8") as f:
-            await f.write(json.dumps(event, ensure_ascii=False) + "\n")
+            await f.write(event.to_json() + "\n")
 
-        return event_id
+        return event.event_id
 
     def _get_tape_path(self, session_id: str, agent_id: str) -> Path:
         """
@@ -72,14 +65,7 @@ class TapeWriter:
         Returns:
             Path to tape.jsonl file
         """
-        return (
-            self.memory_dir
-            / "agents"
-            / agent_id
-            / "sessions"
-            / session_id
-            / "tape.jsonl"
-        )
+        return self.memory_dir / "agents" / agent_id / "sessions" / session_id / "tape.jsonl"
 
     def _generate_event_id(self) -> str:
         """

@@ -32,10 +32,10 @@ class TestMemorySystemE2E:
 
         # Patch memory config to use tmp_path
         test_memory_dir = str(tmp_path / "data" / "memory")
-        monkeypatch.setattr("simu_emperor.config.settings.memory", MemoryConfig(
-            enabled=True,
-            memory_dir=test_memory_dir
-        ))
+        monkeypatch.setattr(
+            "simu_emperor.config.settings.memory",
+            MemoryConfig(enabled=True, memory_dir=test_memory_dir),
+        )
 
         event_bus = EventBus()
         llm = MockProvider(response="这是测试响应")
@@ -45,7 +45,7 @@ class TestMemorySystemE2E:
             event_bus=event_bus,
             llm_provider=llm,
             data_dir=agent_dir,  # Changed from data_dir to agent_dir
-            session_id="test_session"
+            session_id="test_session",
         )
         agent.start()
 
@@ -55,7 +55,7 @@ class TestMemorySystemE2E:
             dst=["agent:test_agent"],
             type=EventType.QUERY,
             payload={"query": "测试查询"},
-            session_id="test_session"
+            session_id="test_session",
         )
 
         # Process event
