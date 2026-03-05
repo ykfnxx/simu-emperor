@@ -59,6 +59,7 @@ htmlcov/
 .claude/
 .prd/
 .design/
+.template/
 
 # Config
 config.yaml
