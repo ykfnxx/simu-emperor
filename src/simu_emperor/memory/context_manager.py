@@ -301,24 +301,20 @@ class ContextManager:
         Returns:
             bool: 是否为锚点事件
         """
-        event_type = event.get("event_type", "")
+        event_type = event.get("type", "")
 
         # 用户和 Agent 消息总是锚点
-        if event_type in ("USER_QUERY", "AGENT_RESPONSE", "ASSISTANT_RESPONSE"):
+        if event_type in ("user_query", "agent_response", "assistant_response"):
             return True
 
         # 关键游戏状态变化是锚点
         if event_type == "GAME_EVENT":
-            content = event.get("content", {})
-            if isinstance(content, dict):
-                subtype = content.get("event_type", "")
-                critical_events = {
-                    "allocate_funds",
-                    "adjust_tax",
-                    "build_irrigation",
-                    "recruit_troops",
-                    "dispatch_troops",
-                }
-                return subtype in critical_events
+            payload = event.get("payload", {})
+            if isinstance(payload, dict):
+                # Check if payload contains game action type
+                for action_type in ["allocate_funds", "adjust_tax", "build_irrigation",
+                                   "recruit_troops", "dispatch_troops"]:
+                    if action_type in str(payload):
+                        return True
 
         return False

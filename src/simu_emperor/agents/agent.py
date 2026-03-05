@@ -437,12 +437,25 @@ class Agent:
             # 构造 USER_QUERY Event
             user_query_event = TapeEvent(
                 src=event.src,
-                dst=[f"agent:{self.agent_id}"],
+                dst=event.dst,
                 type=EventType.USER_QUERY,
                 payload={"query": query_content, "event_type": event.type},
                 session_id=event.session_id,
             )
             tape_write_tasks.append(self._tape_writer.write_event(user_query_event))
+
+        # Handle AGENT_MESSAGE events (agent → agent) - record as USER_QUERY
+        elif event.type == EventType.AGENT_MESSAGE:
+            message = event.payload.get("message", "")
+
+            agent_message_event = TapeEvent(
+                src=event.src,
+                dst=event.dst,
+                type=EventType.USER_QUERY,
+                payload={"query": message, "event_type": EventType.AGENT_MESSAGE},
+                session_id=event.session_id,
+            )
+            tape_write_tasks.append(self._tape_writer.write_event(agent_message_event))
 
         return tape_write_tasks
 
@@ -536,7 +549,7 @@ class Agent:
             # TapeWriter: 构造并写入 ASSISTANT_RESPONSE Event（包含完整 tool_calls）
             assistant_response_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
-                dst=["tape"],
+                dst=event.dst,
                 type=EventType.ASSISTANT_RESPONSE,
                 payload={
                     "response": response_text,
@@ -651,7 +664,7 @@ class Agent:
             # 构建 TOOL_RESULT Event
             tool_result_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
-                dst=["tape"],
+                dst=event.dst,
                 type=EventType.TOOL_RESULT,
                 payload={
                     "tool_call_id": tool_call["id"],
@@ -760,7 +773,7 @@ class Agent:
         # TapeWriter: 构造并写入 AGENT_RESPONSE Event
         agent_response_event = TapeEvent(
             src=f"agent:{self.agent_id}",
-            dst=["tape"],
+            dst=event.dst,
             type=EventType.AGENT_RESPONSE,
             payload={"response": final_response},
             session_id=event.session_id,
@@ -894,6 +907,16 @@ class Agent:
             if message:
                 parts.append("\n# 皇帝的消息：")
                 parts.append("``")
+                parts.append(message)
+                parts.append("```")
+
+        # Handle AGENT_MESSAGE events
+        elif event.type == EventType.AGENT_MESSAGE and event.payload:
+            message = event.payload.get("message", "")
+            source_agent = event.src.replace("agent:", "")
+            if message:
+                parts.append(f"\n# 来自 {source_agent} 的消息：")
+                parts.append("```")
                 parts.append(message)
                 parts.append("```")
 

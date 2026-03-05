@@ -30,9 +30,13 @@ class TapeWriter:
         Returns:
             Event ID string
         """
+        # Only write tape for agents (skip player, system, etc.)
+        if not event.src.startswith("agent:"):
+            return event.event_id
+
         # Extract metadata from event
         session_id = event.session_id
-        agent_id = event.src.replace("agent:", "") if event.src.startswith("agent:") else event.src
+        agent_id = event.src.replace("agent:", "")
         event_type = event.type
         content = event.payload
 

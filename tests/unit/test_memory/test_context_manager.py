@@ -183,14 +183,14 @@ class TestContextManager:
         )
 
         # 创建测试事件
-        user_query = {"event_type": EventType.USER_QUERY, "content": {"query": "test"}}
-        tool_call = {"event_type": "TOOL_CALL", "content": {"tool": "query_data"}}
-        agent_response = {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "ok"}}
+        user_query = {"type": EventType.USER_QUERY, "payload": {"query": "test"}}
+        tool_call = {"type": "tool_result", "payload": {"tool": "query_data", "result": "ok"}}
+        agent_response = {"type": EventType.AGENT_RESPONSE, "payload": {"response": "ok"}}
         assistant_response = {
-            "event_type": EventType.ASSISTANT_RESPONSE,
-            "content": {"response": "thinking"},
+            "type": EventType.ASSISTANT_RESPONSE,
+            "payload": {"response": "thinking"},
         }
-        game_event = {"event_type": "GAME_EVENT", "content": {"event_type": "allocate_funds"}}
+        game_event = {"type": "GAME_EVENT", "payload": {"action": "allocate_funds"}}
 
         assert context_mgr._is_anchor_event(user_query)
         assert not context_mgr._is_anchor_event(tool_call)
@@ -217,22 +217,22 @@ class TestContextManager:
             llm_provider=llm,
         )
 
-        # 添加事件序列：USER_QUERY -> TOOL_CALL -> ASSISTANT_RESPONSE -> AGENT_RESPONSE
+        # 添加事件序列：USER_QUERY -> TOOL_RESULT -> ASSISTANT_RESPONSE -> AGENT_RESPONSE
         # 事件0: USER_QUERY (锚点)
         context_mgr.add_event(
-            {"event_type": EventType.USER_QUERY, "content": {"query": "old_query"}}, tokens=10
+            {"type": EventType.USER_QUERY, "payload": {"query": "old_query"}}, tokens=10
         )
-        # 事件1: TOOL_CALL (非锚点)
+        # 事件1: TOOL_RESULT (非锚点)
         context_mgr.add_event(
-            {"event_type": "TOOL_CALL", "content": {"tool": "query_data"}}, tokens=10
+            {"type": "tool_result", "payload": {"tool": "query_data", "result": "ok"}}, tokens=10
         )
         # 事件2: ASSISTANT_RESPONSE (锚点)
         context_mgr.add_event(
-            {"event_type": EventType.ASSISTANT_RESPONSE, "content": {"response": "thinking"}}, tokens=10
+            {"type": EventType.ASSISTANT_RESPONSE, "payload": {"response": "thinking"}}, tokens=10
         )
         # 事件3: AGENT_RESPONSE (锚点)
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "final"}}, tokens=10
+            {"type": EventType.AGENT_RESPONSE, "payload": {"response": "final"}}, tokens=10
         )
 
         # 执行滑动窗口
@@ -244,8 +244,8 @@ class TestContextManager:
         assert len(context_mgr.events) >= 3  # 至少保留最近3个
 
         # 验证最近的事件被保留
-        assert any(e.get("event_type") == "AGENT_RESPONSE" for e in context_mgr.events)
-        assert any(e.get("event_type") == "ASSISTANT_RESPONSE" for e in context_mgr.events)
+        assert any(e.get("type") == "agent_response" for e in context_mgr.events)
+        assert any(e.get("type") == "assistant_response" for e in context_mgr.events)
 
     @pytest.mark.asyncio
     async def test_anchor_aware_disabled(self, tmp_path):
@@ -267,7 +267,7 @@ class TestContextManager:
         # 添加5个事件
         for i in range(5):
             context_mgr.add_event(
-                {"event_type": EventType.USER_QUERY, "content": {"query": f"query_{i}"}}, tokens=10
+                {"type": EventType.USER_QUERY, "payload": {"query": f"query_{i}"}}, tokens=10
             )
 
         # 执行滑动窗口
@@ -275,9 +275,9 @@ class TestContextManager:
 
         # 验证：只保留最近3个事件
         assert len(context_mgr.events) == 3
-        assert context_mgr.events[0].get("content", {}).get("query") == "query_2"
-        assert context_mgr.events[1].get("content", {}).get("query") == "query_3"
-        assert context_mgr.events[2].get("content", {}).get("query") == "query_4"
+        assert context_mgr.events[0].get("payload", {}).get("query") == "query_2"
+        assert context_mgr.events[1].get("payload", {}).get("query") == "query_3"
+        assert context_mgr.events[2].get("payload", {}).get("query") == "query_4"
 
     @pytest.mark.asyncio
     async def test_tool_result_converted_to_message(self, tmp_path):
