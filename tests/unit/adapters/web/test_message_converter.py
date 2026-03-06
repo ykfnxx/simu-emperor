@@ -43,11 +43,20 @@ class TestMessageConverter:
             payload={
                 "turn": 5,
                 "metrics": {
-                    "national_treasury": 1250000,
-                    "total_population": 3000000,
-                    "total_military": 80000,
-                    "average_happiness": 80,
-                    "total_food_production": 800000,
+                    "province_metrics": [
+                        {
+                            "population": {"total": 3000000, "happiness": 0.8},
+                            "military": {"soldiers": 80000},
+                            "agriculture": {
+                                "crops": [
+                                    {"area_mu": 300000, "yield_per_mu": 1.3},
+                                    {"area_mu": 100000, "yield_per_mu": 3},
+                                ]
+                            },
+                        }
+                    ],
+                    "imperial_treasury_change": 50000,
+                    "tribute_total": 10000,
                 }
             },
             session_id="session:web:test"
@@ -59,11 +68,11 @@ class TestMessageConverter:
         assert result is not None
         assert result["kind"] == "state"
         assert result["data"]["turn"] == 5
-        assert result["data"]["treasury"] == 1250000
+        assert result["data"]["treasury_change"] == 50000
         assert result["data"]["population"] == 3000000
         assert result["data"]["military"] == 80000
-        assert result["data"]["happiness"] == 80
-        assert result["data"]["agriculture"] == "正常"
+        assert result["data"]["happiness"] == 0.8
+        assert result["data"]["agriculture"] == "正常"  # 690000 (300000*1.3 + 100000*3 = 390000 + 300000)
 
     def test_convert_chat_event(self):
         """测试转换聊天事件"""

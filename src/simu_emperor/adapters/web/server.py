@@ -131,7 +131,7 @@ async def handle_command(data: dict) -> None:
         src="player:web",
         dst=[f"agent:{agent}"],
         type=EventType.COMMAND,
-        payload={"intent": command, "source": "web"},
+        payload={"command": command, "source": "web"},
         session_id=game_instance.session_id
     )
 
@@ -153,7 +153,7 @@ async def handle_chat(data: dict) -> None:
         src="player:web",
         dst=[f"agent:{agent}"],
         type=EventType.CHAT,
-        payload={"query": text},
+        payload={"message": text},
         session_id=game_instance.session_id
     )
 
@@ -197,7 +197,7 @@ async def send_command(cmd: CommandRequest):
         src="player:web",
         dst=[f"agent:{cmd.agent}"],
         type=EventType.COMMAND,
-        payload={"intent": cmd.command, "source": "web"},
+        payload={"command": cmd.command, "source": "web"},
         session_id=game_instance.session_id
     )
 
@@ -238,7 +238,7 @@ async def list_agents():
     if not game_instance.agent_manager:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    agents = game_instance.agent_manager.list_agents()
+    agents = game_instance.agent_manager.get_active_agents()
     return agents
 
 @app.get("/api/health")

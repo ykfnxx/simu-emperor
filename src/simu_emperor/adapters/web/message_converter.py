@@ -64,16 +64,48 @@ class MessageConverter:
         turn = event.payload.get("turn", 0)
         metrics = event.payload.get("metrics", {})
 
-        # 从 metrics 中提取游戏状态数据
+        # 从 metrics (NationalTurnMetrics) 中提取可用数据
+        # NationalTurnMetrics 包含: turn, province_metrics, imperial_treasury_change, tribute_total
+
+        # 从 province_metrics 聚合数据
+        province_metrics = metrics.get("province_metrics", [])
+        total_population = sum(p.get("population", {}).get("total", 0) for p in province_metrics)
+        total_military = sum(p.get("military", {}).get("soldiers", 0) for p in province_metrics)
+
+        # 计算平均幸福度
+        avg_happiness = 0
+        if province_metrics:
+            total_happiness = sum(p.get("population", {}).get("happiness", 0) for p in province_metrics)
+            avg_happiness = total_happiness / len(province_metrics)
+
+        # 计算农业总产量
+        total_food = 0
+        for p in province_metrics:
+            crops = p.get("agriculture", {}).get("crops", [])
+            for crop in crops:
+                area = crop.get("area_mu", 0)
+                yield_per = crop.get("yield_per_mu", 0)
+                total_food += area * yield_per
+
+        # 农业状况描述
+        agriculture = "正常"
+        if total_food > 1000000:
+            agriculture = "丰收"
+        elif total_food < 500000:
+            agriculture = "歉收"
+
+        # 获取国库变动（这是实际可用的数据）
+        treasury_change = metrics.get("imperial_treasury_change", 0)
+
         return {
             "kind": "state",
             "data": {
                 "turn": turn,
-                "treasury": metrics.get("national_treasury", 0),
-                "population": metrics.get("total_population", 0),
-                "military": metrics.get("total_military", 0),
-                "happiness": metrics.get("average_happiness", 0),
-                "agriculture": self._describe_agriculture(metrics),
+                "treasury_change": treasury_change,  # 国库变动
+                "population": total_population,
+                "military": total_military,
+                "happiness": round(avg_happiness, 2),
+                "agriculture": agriculture,
                 "corruption": 0,  # TODO: 计算贪腐指数
             }
         }

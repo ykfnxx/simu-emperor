@@ -4,9 +4,7 @@
 Web 模式的游戏实例管理器（单例，全局共享）。
 """
 
-import asyncio
 import logging
-from pathlib import Path
 
 from simu_emperor.config import GameConfig
 from simu_emperor.event_bus.core import EventBus
@@ -193,24 +191,107 @@ class WebGameInstance:
 
     async def _initialize_game_state(self) -> None:
         """
-        初始化游戏状态（如果为空）
+        初始化游戏状态（如果数据库为空）
 
         检查数据库中是否有游戏状态，如果没有则创建初始状态。
+        参考 telegram adapter 的实现。
         """
-        if not self.repository:
-            logger.warning("Repository not initialized, skipping game state initialization")
+        # 检查是否已有数据
+        state = await self.repository.load_state()
+
+        if state.get("provinces"):
+            logger.info("Game state already initialized")
             return
 
-        state = await self.repository.load_state()
-        if state is None:
-            logger.info("Game state is empty, initializing default state")
-            # TODO: 创建默认游戏状态
-            # 这里可以调用 engine 中的初始化逻辑
-            pass
-        else:
-            # state 可能是 Pydantic 模型或 dict
-            turn = getattr(state, 'turn', state.get('turn') if isinstance(state, dict) else None)
-            logger.info(f"Game state loaded, turn={turn}")
+        # 创建初始游戏状态
+        from simu_emperor.engine.models.base_data import (
+            ProvinceBaseData,
+            NationalBaseData,
+            PopulationData,
+            AgricultureData,
+            CommerceData,
+            TradeData,
+            MilitaryData,
+            TaxationData,
+            ConsumptionData,
+            AdministrationData,
+            CropData,
+            CropType,
+        )
+        from decimal import Decimal
+
+        # 创建直隶省
+        zhili = ProvinceBaseData(
+            province_id="zhili",
+            name="直隶",
+            population=PopulationData(
+                total=Decimal("2600000"),
+                happiness=Decimal("0.7"),
+                growth_rate=Decimal("0.002"),
+                labor_ratio=Decimal("0.55"),
+            ),
+            agriculture=AgricultureData(
+                irrigation_level=Decimal("0.3"),
+                crops=[
+                    CropData(
+                        crop_type=CropType.WHEAT,
+                        area_mu=Decimal("300000"),
+                        yield_per_mu=Decimal("1.3"),
+                    ),
+                    CropData(
+                        crop_type=CropType.RICE,
+                        area_mu=Decimal("100000"),
+                        yield_per_mu=Decimal("3"),
+                    ),
+                ],
+            ),
+            commerce=CommerceData(
+                merchant_households=Decimal("150000"),
+                market_prosperity=Decimal("0.7"),
+            ),
+            trade=TradeData(
+                trade_volume=Decimal("500000"),
+                trade_route_quality=Decimal("0.6"),
+            ),
+            military=MilitaryData(
+                soldiers=Decimal("50000"),
+                morale=Decimal("0.7"),
+                garrison_size=Decimal("30000"),
+                equipment_level=Decimal("0.5"),
+                upkeep_per_soldier=Decimal("3"),
+            ),
+            taxation=TaxationData(
+                land_tax_rate=Decimal("0.03"),
+                commercial_tax_rate=Decimal("0.05"),
+                tariff_rate=Decimal("0.1"),
+            ),
+            consumption=ConsumptionData(
+                civilian_grain_per_capita=Decimal("3"),
+                military_grain_per_soldier=Decimal("5"),
+            ),
+            administration=AdministrationData(
+                official_count=Decimal("5000"),
+                official_salary=Decimal("20"),
+                infrastructure_value=Decimal("0.5"),
+            ),
+            granary_stock=Decimal("1200000"),
+            local_treasury=Decimal("80000"),
+        )
+
+        # 创建初始国家数据
+        initial_state = NationalBaseData(
+            turn=0,
+            provinces=[zhili],
+            imperial_treasury=Decimal("100000"),
+            national_tax_modifier=Decimal("1.0"),
+            tribute_rate=Decimal("0.1"),
+        )
+
+        # 保存到数据库（使用 JSON 序列化模式）
+        state_dict = initial_state.model_dump(mode="json")
+        await self.repository.save_state(state_dict)
+
+        logger.info(f"Initialized game state with {len(initial_state.provinces)} province(s)")
 
     async def _on_response(self, event: Event) -> None:
         """
