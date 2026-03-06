@@ -8,6 +8,16 @@
 export type WSMessageKind = 'chat' | 'state' | 'event' | 'error';
 
 /**
+ * 连接状态
+ */
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+/**
+ * 消息处理器类型
+ */
+export type MessageHandler<T> = (data: T) => void;
+
+/**
  * WebSocket 消息格式
  */
 export interface WSMessage {

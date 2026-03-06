@@ -42,19 +42,12 @@ class TestMessageConverter:
             type=EventType.TURN_RESOLVED,
             payload={
                 "turn": 5,
-                "state": {
-                    "turn": 5,
-                    "national": {"treasury": 1250000},
-                    "provinces": [
-                        {
-                            "population": {"total": 1000000, "happiness": 85},
-                            "military": {"soldiers": 50000}
-                        },
-                        {
-                            "population": {"total": 2000000, "happiness": 75},
-                            "military": {"soldiers": 30000}
-                        }
-                    ]
+                "metrics": {
+                    "national_treasury": 1250000,
+                    "total_population": 3000000,
+                    "total_military": 80000,
+                    "average_happiness": 80,
+                    "total_food_production": 800000,
                 }
             },
             session_id="session:web:test"
@@ -69,7 +62,7 @@ class TestMessageConverter:
         assert result["data"]["treasury"] == 1250000
         assert result["data"]["population"] == 3000000
         assert result["data"]["military"] == 80000
-        assert result["data"]["happiness"] == 80  # (85 + 75) / 2
+        assert result["data"]["happiness"] == 80
         assert result["data"]["agriculture"] == "正常"
 
     def test_convert_chat_event(self):
@@ -121,51 +114,19 @@ class TestMessageConverter:
         # 未知 agent 返回原名称
         assert MessageConverter._get_agent_display_name("agent:unknown") == "unknown"
 
-    def test_calculate_population(self):
-        """测试计算总人口"""
-        state = {
-            "provinces": [
-                {"population": {"total": 1000000}},
-                {"population": {"total": 2000000}},
-            ]
-        }
-        assert MessageConverter._calculate_population(state) == 3000000
-
-    def test_calculate_population_empty(self):
-        """测试空省份数据"""
-        state = {"provinces": []}
-        assert MessageConverter._calculate_population(state) == 0
-
-    def test_calculate_military(self):
-        """测试计算总兵力"""
-        state = {
-            "provinces": [
-                {"military": {"soldiers": 50000}},
-                {"military": {"soldiers": 30000}},
-            ]
-        }
-        assert MessageConverter._calculate_military(state) == 80000
-
-    def test_calculate_happiness(self):
-        """测试计算平均民心"""
-        state = {
-            "provinces": [
-                {"population": {"happiness": 85}},
-                {"population": {"happiness": 75}},
-            ]
-        }
-        assert MessageConverter._calculate_happiness(state) == 80
-
-    def test_calculate_happiness_empty(self):
-        """测试空省份数据"""
-        state = {"provinces": []}
-        assert MessageConverter._calculate_happiness(state) == 0
-
     def test_describe_agriculture(self):
         """测试描述农业产量"""
-        state = {}
-        # 目前返回固定值
-        assert MessageConverter._describe_agriculture(state) == "正常"
+        # 丰收
+        metrics = {"total_food_production": 1200000}
+        assert MessageConverter._describe_agriculture(metrics) == "丰收"
+
+        # 正常
+        metrics = {"total_food_production": 800000}
+        assert MessageConverter._describe_agriculture(metrics) == "正常"
+
+        # 歉收
+        metrics = {"total_food_production": 300000}
+        assert MessageConverter._describe_agriculture(metrics) == "歉收"
 
     def test_convert_response_without_narrative(self):
         """测试转换无 narrative 的响应事件"""
