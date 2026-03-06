@@ -136,7 +136,7 @@ async def handle_command(data: dict) -> None:
     )
 
     if game_instance.event_bus:
-        await game_instance.event_bus.publish(event)
+        await game_instance.event_bus.send_event(event)
     else:
         logger.error("EventBus not initialized")
 
@@ -158,7 +158,7 @@ async def handle_chat(data: dict) -> None:
     )
 
     if game_instance.event_bus:
-        await game_instance.event_bus.publish(event)
+        await game_instance.event_bus.send_event(event)
 
 async def _on_event(event: Event) -> None:
     """
@@ -202,7 +202,7 @@ async def send_command(cmd: CommandRequest):
     )
 
     if game_instance.event_bus:
-        await game_instance.event_bus.publish(event)
+        await game_instance.event_bus.send_event(event)
         return {"success": True}
     else:
         raise HTTPException(status_code=503, detail="Game not initialized")
@@ -219,7 +219,13 @@ async def get_state():
         raise HTTPException(status_code=503, detail="Game not initialized")
 
     state = await game_instance.repository.load_state()
-    return state.dict() if state else {}
+    if state is None:
+        return {}
+    # state 可能是 Pydantic 模型或 dict
+    if isinstance(state, dict):
+        return state
+    else:
+        return state.dict()
 
 @app.get("/api/agents")
 async def list_agents():

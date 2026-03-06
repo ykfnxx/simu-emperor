@@ -186,7 +186,7 @@ class WebGameInstance:
             self.calculator.stop()
 
         if self.repository:
-            await close_database(self.repository.conn)
+            await close_database()
 
         self._running = False
         logger.info("WebGameInstance shut down")

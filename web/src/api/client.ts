@@ -12,9 +12,9 @@ import type {
   StateData,
   EventData,
   ErrorData,
+  MessageHandler,
+  ConnectionState,
 } from './types';
-
-export type MessageHandler<T> = (data: T) => void;
 
 /**
  * GameClient 配置
@@ -25,11 +25,6 @@ export interface GameClientConfig {
   reconnectInterval?: number;
   maxReconnectAttempts?: number;
 }
-
-/**
- * WebSocket 连接状态
- */
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 /**
  * 游戏客户端类
@@ -43,7 +38,7 @@ export class GameClient {
   private reconnectInterval: number;
   private maxReconnectAttempts: number;
   private reconnectAttempts: number = 0;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: number | null = null;
 
   private messageHandlers: Map<WSMessageKind, Set<MessageHandler<unknown>>>;
   private connectionStateListeners: Set<(state: ConnectionState) => void>;

@@ -61,18 +61,19 @@ class MessageConverter:
 
     def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
         """转换回合结算事件"""
-        state = event.payload.get("state", {})
-        national = state.get("national", {})
+        turn = event.payload.get("turn", 0)
+        metrics = event.payload.get("metrics", {})
 
+        # 从 metrics 中提取游戏状态数据
         return {
             "kind": "state",
             "data": {
-                "turn": state.get("turn", 0),
-                "treasury": national.get("treasury", 0),
-                "population": self._calculate_population(state),
-                "military": self._calculate_military(state),
-                "happiness": self._calculate_happiness(state),
-                "agriculture": self._describe_agriculture(state),
+                "turn": turn,
+                "treasury": metrics.get("national_treasury", 0),
+                "population": metrics.get("total_population", 0),
+                "military": metrics.get("total_military", 0),
+                "happiness": metrics.get("average_happiness", 0),
+                "agriculture": self._describe_agriculture(metrics),
                 "corruption": 0,  # TODO: 计算贪腐指数
             }
         }
@@ -135,71 +136,21 @@ class MessageConverter:
         return display_names.get(agent_name, agent_name)
 
     @staticmethod
-    def _calculate_population(state: dict) -> int:
-        """
-        计算总人口
-
-        Args:
-            state: 游戏状态字典
-
-        Returns:
-            总人口数
-        """
-        provinces = state.get("provinces", [])
-        return sum(
-            p.get("population", {}).get("total", 0)
-            for p in provinces
-        )
-
-    @staticmethod
-    def _calculate_military(state: dict) -> int:
-        """
-        计算总兵力
-
-        Args:
-            state: 游戏状态字典
-
-        Returns:
-            总兵力数
-        """
-        provinces = state.get("provinces", [])
-        return sum(
-            p.get("military", {}).get("soldiers", 0)
-            for p in provinces
-        )
-
-    @staticmethod
-    def _calculate_happiness(state: dict) -> int:
-        """
-        计算平均民心稳定度
-
-        Args:
-            state: 游戏状态字典
-
-        Returns:
-            平均民心稳定度 (0-100)
-        """
-        provinces = state.get("provinces", [])
-        if not provinces:
-            return 0
-
-        total_happiness = sum(
-            p.get("population", {}).get("happiness", 0)
-            for p in provinces
-        )
-
-        return int(total_happiness / len(provinces))
-
-    @staticmethod
-    def _describe_agriculture(state: dict) -> str:
+    def _describe_agriculture(metrics: dict) -> str:
         """
         描述农业产量
 
         Args:
-            state: 游戏状态字典
+            metrics: 回合指标字典
 
         Returns:
             农业产量描述（如 "丰收", "正常", "歉收"）
         """
         # TODO: 根据实际农业数据计算
-        return "正常"
+        total_food = metrics.get("total_food_production", 0)
+        if total_food > 1000000:
+            return "丰收"
+        elif total_food > 500000:
+            return "正常"
+        else:
+            return "歉收"
