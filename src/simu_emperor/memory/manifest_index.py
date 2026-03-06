@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from simu_emperor.common import FileOperationsHelper
+from simu_emperor.event_bus.event_types import EventType
 
 
 class ManifestIndex:
@@ -200,10 +201,10 @@ class ManifestIndex:
             event_type = event.get("type") or event.get("event_type", "")
             payload = event.get("payload") or event.get("content", {})
 
-            if event_type == "USER_QUERY":
+            if event_type == EventType.USER_QUERY:
                 query = payload.get("query", "") if isinstance(payload, dict) else payload
                 summary_parts.append(f"用户查询: {query}")
-            elif event_type == "AGENT_RESPONSE":
+            elif event_type == EventType.AGENT_RESPONSE:
                 response = payload.get("response", "") if isinstance(payload, dict) else payload
                 summary_parts.append(f"Agent响应: {response}")
             elif event_type == "GAME_EVENT":

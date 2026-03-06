@@ -1,7 +1,6 @@
 """Tests for RoleMapParser"""
 
 import pytest
-from pathlib import Path
 from simu_emperor.agents.tools.role_map_parser import RoleMapParser
 
 
@@ -75,17 +74,23 @@ def test_cache_mechanism(parser, temp_role_map):
 
 
 def test_parse_handles_missing_file(tmp_path):
-    """测试处理文件不存在的情况（使用tmp_path确保没有其他文件）"""
-    # Use a path that definitely doesn't have role_map.md in any search location
-    # Create an isolated directory with no role_map.md
-    isolated_dir = tmp_path / "isolated"
+    """测试处理文件不存在的情况（使用完全隔离的目录）"""
+    import os
+
+    # 创建一个完全隔离的临时目录（避免fallback到项目文件）
+    isolated_dir = tmp_path / "completely_isolated"
     isolated_dir.mkdir()
 
-    parser = RoleMapParser(isolated_dir)
-    agents = parser.parse()
-    # Since we have fallback paths, this might still find the project file
-    # Just verify the parser doesn't crash and returns something
-    assert isinstance(agents, list)
+    # 临时设置cwd到隔离目录，防止fallback到当前项目
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(isolated_dir)
+        parser = RoleMapParser(isolated_dir)
+        agents = parser.parse()
+        assert isinstance(agents, list)
+        assert len(agents) == 0  # 明确验证为空列表
+    finally:
+        os.chdir(original_cwd)
 
 
 def test_parse_handles_empty_file(tmp_path):
