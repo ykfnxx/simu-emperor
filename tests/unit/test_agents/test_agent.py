@@ -82,16 +82,16 @@ def temp_data_dir(tmp_path):
 
 
 @pytest.fixture
-def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path):
+def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, monkeypatch):
     """创建 Agent 实例，使用临时 memory 目录"""
-    import os
-
     # 创建临时 memory 目录
     memory_dir = tmp_path / "memory"
     memory_dir.mkdir()
 
-    # 通过环境变量覆盖配置（pydantic-settings 自动读取 SIMU_MEMORY__MEMORY_DIR）
-    os.environ["SIMU_MEMORY__MEMORY_DIR"] = str(memory_dir)
+    # 使用 monkeypatch.setattr 直接修改 settings.memory.memory_dir
+    # 注意：必须在 Agent 实例化之前 patch，因为 Agent.__init__ 会读取 settings
+    from simu_emperor.config import settings
+    monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
 
     agent = Agent(
         agent_id="test_agent",
@@ -102,10 +102,6 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path):
     )
 
     yield agent
-
-    # 清理环境变量
-    if "SIMU_MEMORY__MEMORY_DIR" in os.environ:
-        del os.environ["SIMU_MEMORY__MEMORY_DIR"]
 
 
 class TestAgent:
@@ -142,14 +138,6 @@ class TestAgent:
         # 创建新的 MockProvider 实例以避免测试之间的状态污染
         fresh_mock = MockProvider(response="", tool_calls=None)
         agent.llm_provider = fresh_mock
-
-        # 清空之前的 tape 数据
-        from pathlib import Path
-        import shutil
-
-        memory_dir = Path("data/memory")
-        if memory_dir.exists():
-            shutil.rmtree(memory_dir)
 
         agent.start()
 
@@ -198,14 +186,6 @@ class TestAgent:
         # 创建新的 MockProvider 实例以避免测试之间的状态污染
         fresh_mock = MockProvider(response="", tool_calls=None)
         agent.llm_provider = fresh_mock
-
-        # 清空之前的 tape 数据
-        from pathlib import Path
-        import shutil
-
-        memory_dir = Path("data/memory")
-        if memory_dir.exists():
-            shutil.rmtree(memory_dir)
 
         agent.start()
 
@@ -326,14 +306,6 @@ class TestAgent:
         # 创建新的 MockProvider 实例以避免测试之间的状态污染
         fresh_mock = MockProvider(response="", tool_calls=None)
         agent.llm_provider = fresh_mock
-
-        # 清空之前的 tape 数据
-        from pathlib import Path
-        import shutil
-
-        memory_dir = Path("data/memory")
-        if memory_dir.exists():
-            shutil.rmtree(memory_dir)
 
         agent.start()
 
