@@ -10,7 +10,7 @@ class EventType:
     事件类型常量
 
     事件类型分类：
-    - 玩家交互：COMMAND, QUERY, CHAT
+    - 玩家交互：COMMAND, CHAT
     - Agent 响应：RESPONSE, AGENT_MESSAGE
     - 记忆系统：USER_QUERY, ASSISTANT_RESPONSE, AGENT_RESPONSE, TOOL_RESULT
     - 游戏动作：ADJUST_TAX, BUILD_IRRIGATION, RECRUIT_TROOPS
@@ -19,7 +19,6 @@ class EventType:
 
     # 玩家交互事件
     COMMAND = "command"  # 玩家 → Agent (执行命令)
-    QUERY = "query"  # 玩家 → Agent (查询信息)
     CHAT = "chat"  # 玩家 → Agent (进入对话)
 
     # Agent 响应事件
@@ -48,7 +47,6 @@ class EventType:
         """获取所有事件类型"""
         return [
             cls.COMMAND,
-            cls.QUERY,
             cls.CHAT,
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
@@ -73,7 +71,7 @@ class EventType:
     @classmethod
     def player_events(cls) -> list[str]:
         """玩家发起的事件类型"""
-        return [cls.COMMAND, cls.QUERY, cls.CHAT, cls.END_TURN]
+        return [cls.COMMAND, cls.CHAT, cls.END_TURN]
 
     @classmethod
     def agent_events(cls) -> list[str]:

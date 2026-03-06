@@ -167,5 +167,6 @@ class QueryTools:
         name = agent.get("name", "未知")
         title = agent.get("title", "未知职位")
         duty = agent.get("duty", "暂无职责描述")
+        commands = agent.get("commands", "暂无适用命令")
 
-        return f"{title} {name}：{duty}"
+        return f"## {title} {name}\n**职责**: {duty}\n**适用命令**: {commands}"

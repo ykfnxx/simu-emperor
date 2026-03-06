@@ -119,8 +119,10 @@ class TapeSearcher:
         """
         score = 0.0
 
-        event_content = str(event.get("content", {}))
-        event_type = event.get("event_type", "")
+        # Support both dict formats (tape.jsonl uses type/payload, old format used event_type/content)
+        event_payload = event.get("payload") or event.get("content", {})
+        event_content = str(event_payload) if isinstance(event_payload, dict) else str(event_payload)
+        event_type = event.get("type") or event.get("event_type", "")
 
         # Action matching: +0.4
         actions = entities.get("action", [])

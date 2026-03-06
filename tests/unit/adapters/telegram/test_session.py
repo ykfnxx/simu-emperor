@@ -87,10 +87,10 @@ async def test_game_session_lifecycle(mock_settings, mock_bot_application, mock_
                     mock_bus.subscribe = MagicMock()
                     mock_bus_cls.return_value = mock_bus
 
-                    with patch("simu_emperor.adapters.telegram.session.Calculator") as mock_calc:
-                        mock_calc_instance = MagicMock()
-                        mock_calc_instance.start = MagicMock()
-                        mock_calc.return_value = mock_calc_instance
+                    with patch("simu_emperor.adapters.telegram.session.TurnCoordinator") as mock_coord:
+                        mock_coord_instance = MagicMock()
+                        mock_coord_instance.start = MagicMock()
+                        mock_coord.return_value = mock_coord_instance
 
                         with patch(
                             "simu_emperor.adapters.telegram.session.AgentManager"
