@@ -12,7 +12,6 @@ class TestDefaultEventSkillMap:
         """验证默认事件映射正确性"""
         # 验证映射包含所有预期的事件类型
         assert EventType.COMMAND in DEFAULT_EVENT_SKILL_MAP
-        assert EventType.QUERY in DEFAULT_EVENT_SKILL_MAP
         assert EventType.CHAT in DEFAULT_EVENT_SKILL_MAP
         assert EventType.AGENT_MESSAGE in DEFAULT_EVENT_SKILL_MAP
         assert EventType.END_TURN in DEFAULT_EVENT_SKILL_MAP
@@ -20,7 +19,6 @@ class TestDefaultEventSkillMap:
 
         # 验证映射值正确
         assert DEFAULT_EVENT_SKILL_MAP[EventType.COMMAND] == "execute_command"
-        assert DEFAULT_EVENT_SKILL_MAP[EventType.QUERY] == "query_data"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.CHAT] == "chat"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.AGENT_MESSAGE] == "receive_message"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.END_TURN] == "prepare_turn"
@@ -35,7 +33,6 @@ class TestSkillRegistry:
         registry = SkillRegistry()
 
         assert registry.get_skill_for_event(EventType.COMMAND) == "execute_command"
-        assert registry.get_skill_for_event(EventType.QUERY) == "query_data"
         assert registry.get_skill_for_event(EventType.CHAT) == "chat"
         assert registry.get_skill_for_event(EventType.AGENT_MESSAGE) == "receive_message"
         assert registry.get_skill_for_event(EventType.END_TURN) == "prepare_turn"

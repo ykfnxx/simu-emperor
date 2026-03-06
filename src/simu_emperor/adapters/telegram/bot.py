@@ -8,7 +8,6 @@ Telegram Bot 服务
 - 处理传入消息
 """
 
-import asyncio
 import logging
 from typing import Any, Callable, Awaitable
 

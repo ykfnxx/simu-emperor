@@ -196,17 +196,19 @@ class ManifestIndex:
         # Build summary text from events
         summary_parts = []
         for event in events:
-            event_type = event.get("event_type", "")
-            content = event.get("content", {})
+            # Support both dict formats (tape.jsonl uses type/payload, old format used event_type/content)
+            event_type = event.get("type") or event.get("event_type", "")
+            payload = event.get("payload") or event.get("content", {})
+
             if event_type == "USER_QUERY":
-                query = content.get("query", "") if isinstance(content, dict) else content
+                query = payload.get("query", "") if isinstance(payload, dict) else payload
                 summary_parts.append(f"用户查询: {query}")
             elif event_type == "AGENT_RESPONSE":
-                response = content.get("response", "") if isinstance(content, dict) else content
+                response = payload.get("response", "") if isinstance(payload, dict) else payload
                 summary_parts.append(f"Agent响应: {response}")
             elif event_type == "GAME_EVENT":
-                payload = content if isinstance(content, dict) else {}
-                summary_parts.append(f"游戏事件: {payload.get('event_type', 'unknown')}")
+                game_payload = payload if isinstance(payload, dict) else {}
+                summary_parts.append(f"游戏事件: {game_payload.get('event_type', 'unknown')}")
 
         # Generate summary with LLM
         summary_text = "\n".join(summary_parts)

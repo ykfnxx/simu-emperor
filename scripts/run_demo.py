@@ -36,9 +36,13 @@ def print_state(loop: GameLoop) -> None:
     print(f"回合: {state.current_turn} | 阶段: {state.phase.value}")
     print(f"国库: {state.base_data.imperial_treasury:.0f} 两")
     for p in state.base_data.provinces:
-        print(
-            f"  {p.name}: 人口 {p.population.total:.0f} | 粮仓 {p.granary_stock:.0f} | 库银 {p.local_treasury:.0f}"
+        province_info = (
+            f"  {p.name}: "
+            f"人口 {p.population.total:.0f} | "
+            f"粮仓 {p.granary_stock:.0f} | "
+            f"库银 {p.local_treasury:.0f}"
         )
+        print(province_info)
 
 
 async def run_demo(num_turns: int = 3) -> None:

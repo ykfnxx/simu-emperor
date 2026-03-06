@@ -13,7 +13,6 @@ class TestEventType:
         all_types = EventType.all()
 
         assert EventType.COMMAND in all_types
-        assert EventType.QUERY in all_types
         assert EventType.CHAT in all_types
         assert EventType.RESPONSE in all_types
         assert EventType.AGENT_MESSAGE in all_types
@@ -27,19 +26,18 @@ class TestEventType:
     def test_is_valid(self):
         """测试验证事件类型"""
         assert EventType.is_valid("command")
-        assert EventType.is_valid("query")
         assert EventType.is_valid("chat")
 
         # 无效类型
         assert not EventType.is_valid("invalid_type")
         assert not EventType.is_valid("")
+        assert not EventType.is_valid("query")  # QUERY removed
 
     def test_player_events(self):
         """测试玩家事件类型"""
         player_events = EventType.player_events()
 
         assert EventType.COMMAND in player_events
-        assert EventType.QUERY in player_events
         assert EventType.CHAT in player_events
         assert EventType.END_TURN in player_events
 

@@ -210,7 +210,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.QUERY,
+            type=EventType.COMMAND,
             payload={"query": "国库还有多少银两？"},
             session_id="test_session_query",
         )
@@ -390,7 +390,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.QUERY,
+            type=EventType.COMMAND,
             payload={"query": "查询直隶人口"},
             session_id="test_session_query_province",
         )
@@ -414,7 +414,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.QUERY,
+            type=EventType.COMMAND,
             payload={"query": "查询国库"},
             session_id="test_session_query_national",
         )
@@ -438,7 +438,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.QUERY,
+            type=EventType.COMMAND,
             payload={"query": "列出所有省份"},
             session_id="test_session_list_provinces",
         )
@@ -465,7 +465,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.QUERY,
+            type=EventType.COMMAND,
             payload={"query": "查询直隶人口"},
             session_id="test_session_query_province",
         )

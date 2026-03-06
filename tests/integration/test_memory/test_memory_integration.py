@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from simu_emperor.event_bus.event import Event
 from simu_emperor.memory.tape_writer import TapeWriter
 from simu_emperor.memory.manifest_index import ManifestIndex
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
@@ -23,36 +24,37 @@ class TestMemoryIntegration:
         tape_writer = TapeWriter(memory_dir=tmp_path)
 
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "拨款给直隶"},
-                "tokens": 10,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "拨款给直隶", "tokens": 10},
+                session_id="session:cli:default",
+            )
         )
 
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "TOOL_CALL",
-                "content": {
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="TOOL_CALL",
+                payload={
                     "tool": "allocate_funds",
                     "args": {"province": "zhili", "amount": 50000},
+                    "tokens": 25,
                 },
-                "tokens": 25,
-            }
+                session_id="session:cli:default",
+            )
         )
 
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "AGENT_RESPONSE",
-                "content": {"response": "好的，已拨款50000两给直隶。"},
-                "tokens": 20,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="AGENT_RESPONSE",
+                payload={"response": "好的，已拨款50000两给直隶。", "tokens": 20},
+                session_id="session:cli:default",
+            )
         )
 
         # Step 2: Register session in manifest
@@ -77,7 +79,7 @@ class TestMemoryIntegration:
 
         # Step 4: Verify results
         assert len(results) > 0
-        assert any("拨款" in str(r.get("content", {})) for r in results)
+        assert any("拨款" in str(r.get("payload", {})) for r in results)
 
     @pytest.mark.asyncio
     async def test_cross_session_retrieval(self, tmp_path):
@@ -88,13 +90,13 @@ class TestMemoryIntegration:
 
         # Session 1: About funding
         await tape_writer.write_event(
-            {
-                "session_id": "session:day1",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "拨款给直隶"},
-                "tokens": 10,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "拨款给直隶", "tokens": 10},
+                session_id="session:day1",
+            )
         )
 
         await manifest_index.register_session("session:day1", "revenue_minister", 5)
@@ -108,13 +110,13 @@ class TestMemoryIntegration:
 
         # Session 2: About taxation
         await tape_writer.write_event(
-            {
-                "session_id": "session:day2",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "调整江南税率"},
-                "tokens": 10,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "调整江南税率", "tokens": 10},
+                session_id="session:day2",
+            )
         )
 
         await manifest_index.register_session("session:day2", "revenue_minister", 6)
@@ -171,31 +173,31 @@ class TestMemoryIntegration:
 
         # 写入一些测试数据到 tape（使用正确的路径）
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "Q1"},
-                "tokens": 15,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "Q1", "tokens": 15},
+                session_id="session:cli:default",
+            )
         )
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "AGENT_RESPONSE",
-                "content": {"response": "A1"},
-                "tokens": 15,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="AGENT_RESPONSE",
+                payload={"response": "A1", "tokens": 15},
+                session_id="session:cli:default",
+            )
         )
         await tape_writer.write_event(
-            {
-                "session_id": "session:cli:default",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "Q2"},
-                "tokens": 15,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "Q2", "tokens": 15},
+                session_id="session:cli:default",
+            )
         )
 
         # 使用正确的 tape 路径
@@ -236,7 +238,8 @@ class TestMemoryIntegration:
 
         # 应该生成总结
         assert context_mgr.summary is not None
-        assert "总结" in context_mgr.summary
+        # Summary is built from tape events by ManifestIndex
+        assert "Q1" in context_mgr.summary or "A1" in context_mgr.summary
 
         # Should keep only recent events
         assert len(context_mgr.events) <= 2  # keep_recent_events
@@ -249,13 +252,13 @@ class TestMemoryIntegration:
         manifest_index = ManifestIndex(memory_dir=tmp_path)
 
         await tape_writer.write_event(
-            {
-                "session_id": "session:history",
-                "agent_id": "revenue_minister",
-                "event_type": "USER_QUERY",
-                "content": {"query": "给直隶拨款5万两"},
-                "tokens": 15,
-            }
+            Event(
+                src="agent:revenue_minister",
+                dst=[],
+                type="USER_QUERY",
+                payload={"query": "给直隶拨款5万两", "tokens": 15},
+                session_id="session:history",
+            )
         )
 
         await manifest_index.register_session("session:history", "revenue_minister", 5)
@@ -278,8 +281,6 @@ class TestMemoryIntegration:
         )
 
         # Create mock event
-        from simu_emperor.event_bus.event import Event
-
         event = Event(
             src="player",
             dst=["agent:revenue_minister"],

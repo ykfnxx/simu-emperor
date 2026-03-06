@@ -21,7 +21,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "我之前给直隶拨过款吗？", "event_type": EventType.QUERY},
+            payload={"query": "我之前给直隶拨过款吗？", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         event_id = await tape_writer.write_event(event)
@@ -50,7 +50,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "拨款给直隶", "event_type": EventType.QUERY},
+            payload={"query": "拨款给直隶", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         await tape_writer.write_event(event)
@@ -86,7 +86,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "拨款给直隶", "event_type": EventType.QUERY},
+            payload={"query": "拨款给直隶", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         await tape_writer.write_event(event1)
@@ -132,7 +132,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "test1", "event_type": EventType.QUERY},
+            payload={"query": "test1", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         event_id_1 = await tape_writer.write_event(event1)
@@ -141,7 +141,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "test2", "event_type": EventType.QUERY},
+            payload={"query": "test2", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         event_id_2 = await tape_writer.write_event(event2)
@@ -189,7 +189,7 @@ class TestTapeWriter:
             src="agent:revenue_minister",
             dst=["player"],
             type=EventType.USER_QUERY,
-            payload={"query": "拨款给直隶", "event_type": EventType.QUERY},
+            payload={"query": "拨款给直隶", "event_type": EventType.COMMAND},
             session_id="session:cli:default",
         )
         await tape_writer.write_event(event)

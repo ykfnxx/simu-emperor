@@ -23,8 +23,9 @@ class RoleMapParser:
     def _find_role_map_path(self) -> Optional[Path]:
         """查找 role_map.md 文件"""
         possible_paths = [
-            Path("data/role_map.md"),
+            self.data_dir / "role_map.md",  # Prioritize data_dir from constructor
             self.data_dir / "../../role_map.md",
+            Path("data/role_map.md"),
             Path.cwd() / "data" / "role_map.md",
         ]
 
@@ -78,6 +79,7 @@ class RoleMapParser:
                         "agent_id": agent_id,
                         "name": None,
                         "duty": None,
+                        "commands": None,
                     }
 
             elif line.startswith("- 姓名：") or line.startswith("- 姓名:"):
@@ -87,6 +89,10 @@ class RoleMapParser:
             elif line.startswith("- 职责：") or line.startswith("- 职责:"):
                 if current_section:
                     current_section["duty"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+
+            elif line.startswith("- 适用命令：") or line.startswith("- 适用命令:"):
+                if current_section:
+                    current_section["commands"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
 
         if current_section:
             agents_info.append(current_section)
