@@ -49,6 +49,10 @@ async def startup():
     logger.info("Starting FastAPI server...")
     await game_instance.start()
 
+    # 初始化 MessageConverter，传入 repository
+    global message_converter
+    message_converter = MessageConverter(repository=game_instance.repository)
+
     # 订阅所有事件，广播给 WebSocket 客户端
     if game_instance.event_bus:
         game_instance.event_bus.subscribe("*", _on_event)
@@ -168,7 +172,7 @@ async def _on_event(event: Event) -> None:
         event: EventBus 事件
     """
     # 转换为 WSMessage
-    ws_message = message_converter.convert(event)
+    ws_message = await message_converter.convert(event)
 
     if ws_message:
         await connection_manager.broadcast(ws_message)

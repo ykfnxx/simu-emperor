@@ -21,7 +21,16 @@ class MessageConverter:
     - 支持多种消息类型（chat, state, event, error）
     """
 
-    def convert(self, event: Event) -> dict[str, Any] | None:
+    def __init__(self, repository=None):
+        """
+        初始化消息转换器
+
+        Args:
+            repository: Repository实例，用于获取GameState数据（如imperial_treasury）
+        """
+        self._repository = repository
+
+    async def convert(self, event: Event) -> dict[str, Any] | None:
         """
         转换 EventBus Event 为 WSMessage
 
@@ -40,7 +49,7 @@ class MessageConverter:
         if event.type == EventType.RESPONSE:
             return self._convert_response(event)
         elif event.type == EventType.TURN_RESOLVED:
-            return self._convert_turn_resolved(event)
+            return await self._convert_turn_resolved(event)
         elif event.type == EventType.CHAT:
             # Chat 消息也转换为 chat 类型（用户聊天）
             return self._convert_chat(event)
@@ -59,7 +68,7 @@ class MessageConverter:
             }
         }
 
-    def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
+    async def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
         """转换回合结算事件"""
         turn = event.payload.get("turn", 0)
         metrics = event.payload.get("metrics", {})
@@ -94,14 +103,30 @@ class MessageConverter:
         elif total_food < 500000:
             agriculture = "歉收"
 
-        # 获取国库变动（这是实际可用的数据）
-        treasury_change = metrics.get("imperial_treasury_change", 0)
+        # 获取国库总额（从 GameState.base_data.imperial_treasury）
+        treasury = 0
+        if self._repository:
+            try:
+                state = await self._repository.load_state()
+                if state:
+                    # state 可能是 dict 或 Pydantic 模型
+                    if isinstance(state, dict):
+                        base_data = state.get("base_data", {})
+                        if isinstance(base_data, dict):
+                            treasury = base_data.get("imperial_treasury", 0)
+                        else:
+                            treasury = getattr(base_data, "imperial_treasury", 0)
+                    else:
+                        treasury = getattr(getattr(state, "base_data", None), "imperial_treasury", 0)
+            except Exception as e:
+                # 降级到 treasury_change
+                treasury = metrics.get("imperial_treasury_change", 0)
 
         return {
             "kind": "state",
             "data": {
                 "turn": turn,
-                "treasury_change": treasury_change,  # 国库变动
+                "treasury": float(treasury),  # 国库总额（与前端契约一致）
                 "population": total_population,
                 "military": total_military,
                 "happiness": round(avg_happiness, 2),
@@ -117,7 +142,7 @@ class MessageConverter:
             "data": {
                 "agent": "player",  # 用户消息
                 "agentDisplayName": "皇帝",
-                "text": event.payload.get("query", ""),
+                "text": event.payload.get("message", ""),
                 "timestamp": event.timestamp or datetime.utcnow().isoformat() + "Z",
             }
         }
