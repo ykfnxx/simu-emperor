@@ -121,7 +121,9 @@ class TapeSearcher:
 
         # Support both dict formats (tape.jsonl uses type/payload, old format used event_type/content)
         event_payload = event.get("payload") or event.get("content", {})
-        event_content = str(event_payload) if isinstance(event_payload, dict) else str(event_payload)
+        event_content = (
+            str(event_payload) if isinstance(event_payload, dict) else str(event_payload)
+        )
         event_type = event.get("type") or event.get("event_type", "")
 
         # Action matching: +0.4

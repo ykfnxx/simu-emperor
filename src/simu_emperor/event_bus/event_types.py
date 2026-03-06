@@ -29,6 +29,7 @@ class EventType:
     USER_QUERY = "user_query"  # 用户查询（写入 tape）
     ASSISTANT_RESPONSE = "assistant_response"  # LLM 响应（写入 tape）
     AGENT_RESPONSE = "agent_response"  # Agent 最终响应（写入 tape）
+    TOOL_CALL = "tool_call"  # 工具调用（写入 tape）
     TOOL_RESULT = "tool_result"  # 工具执行结果（写入 tape）
 
     # 游戏动作事件 (Agent → Calculator)
@@ -53,6 +54,7 @@ class EventType:
             cls.USER_QUERY,
             cls.ASSISTANT_RESPONSE,
             cls.AGENT_RESPONSE,
+            cls.TOOL_CALL,
             cls.TOOL_RESULT,
             cls.ALLOCATE_FUNDS,
             cls.ADJUST_TAX,

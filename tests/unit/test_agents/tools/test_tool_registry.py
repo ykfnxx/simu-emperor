@@ -78,9 +78,7 @@ def test_to_openai_schemas():
         description="A test tool",
         parameters={
             "type": "object",
-            "properties": {
-                "arg1": {"type": "string", "description": "First argument"}
-            },
+            "properties": {"arg1": {"type": "string", "description": "First argument"}},
             "required": ["arg1"],
         },
         category="query",

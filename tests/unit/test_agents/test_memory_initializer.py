@@ -42,6 +42,7 @@ async def test_initialize_registers_session(tmp_path):
 
     # 验证session被注册
     from simu_emperor.common import FileOperationsHelper
+
     manifest = await FileOperationsHelper.read_json_file(manifest_path)
     assert manifest is not None
     assert "test_session" in manifest["sessions"]
@@ -79,7 +80,9 @@ async def test_initialize_handles_missing_tape(tmp_path):
     )
 
     # 初始化一个不存在的session应该正常工作
-    context_manager, memory_tools = await initializer.initialize(session_id="nonexistent_session", turn=1)
+    context_manager, memory_tools = await initializer.initialize(
+        session_id="nonexistent_session", turn=1
+    )
 
     assert context_manager is not None
     assert memory_tools is not None
