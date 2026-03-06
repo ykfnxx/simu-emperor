@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from simu_emperor.engine.calculator import resolve_turn
+from simu_emperor.engine.resolver import resolve_turn
 from simu_emperor.engine.models.base_data import NationalBaseData
 from simu_emperor.engine.models.effects import EffectOperation, EffectScope, EventEffect
 from simu_emperor.engine.models.events import AgentEvent, PlayerEvent, RandomEvent

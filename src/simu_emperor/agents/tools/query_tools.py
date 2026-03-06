@@ -149,9 +149,7 @@ class QueryTools:
 
             result_lines.append(f"- {title} {name}（ID: {agent_id}）: {duty}")
 
-        logger.info(
-            f"Agent {self.agent_id} listed agents: {[a['agent_id'] for a in agents]}"
-        )
+        logger.info(f"Agent {self.agent_id} listed agents: {[a['agent_id'] for a in agents]}")
         return "\n".join(result_lines)
 
     async def get_agent_info(self, args: dict, event: Event) -> str:

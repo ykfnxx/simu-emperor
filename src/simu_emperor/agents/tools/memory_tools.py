@@ -121,9 +121,9 @@ class MemoryTools:
 
         lines = [
             f"## 检索结果：{result.query}",
-            f"",
+            "",
             f"找到 {len(result.results)} 条相关记录：",
-            f"",
+            "",
         ]
 
         # Group results by session

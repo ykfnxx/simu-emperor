@@ -30,7 +30,9 @@ class MemoryInitializer:
         self._tape_writer = TapeWriter(memory_dir)
         self._manifest_index = ManifestIndex(memory_dir)
 
-    async def initialize(self, session_id: str, turn: int = 1) -> tuple[ContextManager, MemoryTools]:
+    async def initialize(
+        self, session_id: str, turn: int = 1
+    ) -> tuple[ContextManager, MemoryTools]:
         """初始化记忆组件"""
         logger.info(f"🧠 [Agent:{self.agent_id}] Initializing memory components...")
 

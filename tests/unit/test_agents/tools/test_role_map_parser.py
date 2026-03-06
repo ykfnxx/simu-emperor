@@ -71,6 +71,12 @@ def test_cache_mechanism(parser, temp_role_map):
     assert len(agents3) == 1  # 现在只有1个新官
 
 
+def test_parse_handles_missing_file():
+    """测试处理文件不存在的情况"""
+    parser = RoleMapParser(Path("/nonexistent/path"))
+    agents = parser.parse()
+    assert agents == []
+
 
 def test_parse_handles_empty_file(tmp_path):
     """测试处理空文件的情况"""
@@ -83,7 +89,7 @@ def test_parse_handles_empty_file(tmp_path):
 
 
 def test_parse_handles_malformed_markdown(tmp_path):
-    """测试处理缺少agent_id的格式"""
+    """测试处理格式错误的 Markdown"""
     malformed_content = """
 ## 不完整的官员信息
 - 姓名：只有姓名
@@ -93,5 +99,6 @@ def test_parse_handles_malformed_markdown(tmp_path):
 
     parser = RoleMapParser(tmp_path)
     agents = parser.parse()
-    # 没有agent_id的section不会被添加到结果中
-    assert len(agents) == 0
+    assert len(agents) == 1
+    assert agents[0]["name"] == "只有姓名"
+    assert agents[0]["agent_id"] is None  # 没有 agent_id

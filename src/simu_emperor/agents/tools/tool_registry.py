@@ -63,14 +63,8 @@ class ToolRegistry:
 
     def list_all(self) -> dict[str, ToolMetadata]:
         """列出所有工具"""
-        return {
-            name: data["metadata"]
-            for name, data in self._tools.items()
-        }
+        return {name: data["metadata"] for name, data in self._tools.items()}
 
     def to_openai_schemas(self) -> list[dict]:
         """转换为 OpenAI function calling 格式"""
-        return [
-            metadata.to_openai_schema()
-            for metadata in self.list_all().values()
-        ]
+        return [metadata.to_openai_schema() for metadata in self.list_all().values()]

@@ -253,8 +253,9 @@ class Agent:
             session_id: 会话ID
         """
         if not self._context_manager or not self._memory_tools:
-            self._context_manager, self._memory_tools = \
-                await self._memory_initializer.initialize(session_id)
+            self._context_manager, self._memory_tools = await self._memory_initializer.initialize(
+                session_id
+            )
 
     async def _retrieve_memory_wrapper(self, args: dict, event: Event) -> str:
         """
@@ -416,9 +417,7 @@ class Agent:
         ):
             # 直接记录原始事件，不做二次封装
             # agent_id 参数指定写入当前 agent 的 tape（而不是从 event.src 提取）
-            tape_write_tasks.append(
-                self._tape_writer.write_event(event, agent_id=self.agent_id)
-            )
+            tape_write_tasks.append(self._tape_writer.write_event(event, agent_id=self.agent_id))
 
         return tape_write_tasks
 
