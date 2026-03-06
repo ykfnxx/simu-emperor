@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-03-06T16:05:36.077809+00:00",
+  "sessions": {
+    "test_session_send_message": {
+      "agents": {
+        "test_agent": {
+          "start_time": "2026-03-06T16:05:36.077806+00:00",
+          "end_time": "2026-03-06T16:05:36.077807+00:00",
+          "turn_start": 1,
+          "turn_end": 1,
+          "key_topics": [],
+          "summary": "",
+          "summary_tokens": 0,
+          "event_count": 0
+        }
+      }
+    }
+  }
+}

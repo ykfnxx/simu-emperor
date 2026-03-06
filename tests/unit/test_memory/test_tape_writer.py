@@ -70,7 +70,7 @@ class TestTapeWriter:
         assert len(lines) == 1
 
         event_data = json.loads(lines[0])
-        assert event_data["type"] == "user_query"
+        assert event_data["type"] == EventType.USER_QUERY
         assert event_data["payload"]["query"] == "拨款给直隶"
         assert event_data["src"] == "agent:revenue_minister"
         assert event_data["dst"] == ["player"]
@@ -119,8 +119,8 @@ class TestTapeWriter:
         data1 = json.loads(lines[0])
         data2 = json.loads(lines[1])
 
-        assert data1["type"] == "user_query"
-        assert data2["type"] == "tool_result"
+        assert data1["type"] == EventType.USER_QUERY
+        assert data2["type"] == EventType.TOOL_RESULT
         assert data1["event_id"] != data2["event_id"]
 
     @pytest.mark.asyncio
@@ -170,12 +170,7 @@ class TestTapeWriter:
 
         # Verify no file was created for player
         player_tape_path = (
-            tmp_path
-            / "agents"
-            / "player"
-            / "sessions"
-            / "session:cli:default"
-            / "tape.jsonl"
+            tmp_path / "agents" / "player" / "sessions" / "session:cli:default" / "tape.jsonl"
         )
         assert not player_tape_path.exists()
 

@@ -250,14 +250,14 @@ class ContextManager:
         event_type = event.get("event_type", event.get("type", "UNKNOWN"))
         content = event.get("content", {})
 
-        if event_type in (EventType.USER_QUERY, "user_query"):
+        if event_type == EventType.USER_QUERY:
             query = content.get("query") if isinstance(content, dict) else content
             return [{"role": "user", "content": str(query)}]
-        elif event_type in (EventType.AGENT_RESPONSE, "agent_response"):
+        elif event_type == EventType.AGENT_RESPONSE:
             # 最终响应
             response = content.get("response") if isinstance(content, dict) else content
             return [{"role": "assistant", "content": str(response)}]
-        elif event_type in (EventType.ASSISTANT_RESPONSE, "assistant_response"):
+        elif event_type == EventType.ASSISTANT_RESPONSE:
             # 中间响应（LLM 思考过程）
             response = content.get("response") if isinstance(content, dict) else content
             tool_calls = content.get("tool_calls") if isinstance(content, dict) else None
@@ -280,7 +280,7 @@ class ContextManager:
                 ]
 
             return [msg]
-        elif event_type in (EventType.TOOL_RESULT, "tool_result"):
+        elif event_type == EventType.TOOL_RESULT:
             # 工具结果必须添加到context（LLM需要看到工具调用的结果）
             # 使用 OpenAI tool role 格式，与运行时格式一致
             tool_call_id = content.get("tool_call_id", "") if isinstance(content, dict) else ""

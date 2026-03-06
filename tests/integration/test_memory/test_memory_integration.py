@@ -1,5 +1,7 @@
 """Integration tests for V3 memory system."""
 
+from simu_emperor.event_bus.event_types import EventType
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -27,7 +29,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "拨款给直隶", "tokens": 10},
                 session_id="session:cli:default",
             )
@@ -37,7 +39,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="TOOL_CALL",
+                type=EventType.TOOL_CALL,
                 payload={
                     "tool": "allocate_funds",
                     "args": {"province": "zhili", "amount": 50000},
@@ -51,7 +53,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="AGENT_RESPONSE",
+                type=EventType.AGENT_RESPONSE,
                 payload={"response": "好的，已拨款50000两给直隶。", "tokens": 20},
                 session_id="session:cli:default",
             )
@@ -93,7 +95,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "拨款给直隶", "tokens": 10},
                 session_id="session:day1",
             )
@@ -113,7 +115,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "调整江南税率", "tokens": 10},
                 session_id="session:day2",
             )
@@ -176,7 +178,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "Q1", "tokens": 15},
                 session_id="session:cli:default",
             )
@@ -185,7 +187,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="AGENT_RESPONSE",
+                type=EventType.AGENT_RESPONSE,
                 payload={"response": "A1", "tokens": 15},
                 session_id="session:cli:default",
             )
@@ -194,7 +196,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "Q2", "tokens": 15},
                 session_id="session:cli:default",
             )
@@ -224,13 +226,17 @@ class TestMemoryIntegration:
         )
 
         # 添加事件直到超过阈值 (100 * 0.95 = 95)
-        context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q1"}}, tokens=30)
         context_mgr.add_event(
-            {"event_type": "AGENT_RESPONSE", "content": {"response": "A1"}}, tokens=30
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30
         )
-        context_mgr.add_event({"event_type": "USER_QUERY", "content": {"query": "Q2"}}, tokens=30)
         context_mgr.add_event(
-            {"event_type": "AGENT_RESPONSE", "content": {"response": "A2"}}, tokens=30
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=30
+        )
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=30
+        )
+        context_mgr.add_event(
+            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A2"}}, tokens=30
         )
 
         # 触发滑动窗口（会从 tape 读取并生成总结）
@@ -255,7 +261,7 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type="USER_QUERY",
+                type=EventType.USER_QUERY,
                 payload={"query": "给直隶拨款5万两", "tokens": 15},
                 session_id="session:history",
             )

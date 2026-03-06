@@ -45,7 +45,6 @@ class TapeWriter:
 
         # Extract metadata from event
         session_id = event.session_id
-        event_type = event.type
         content = event.payload
 
         # Count tokens if not provided

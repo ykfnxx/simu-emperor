@@ -1,5 +1,7 @@
 """Test TapeSearcher for searching tape.jsonl files."""
 
+from simu_emperor.event_bus.event_types import EventType
+
 from pathlib import Path
 import json
 
@@ -22,21 +24,21 @@ class TestTapeSearcher:
         events = [
             {
                 "event_id": "evt_001",
-                "event_type": "USER_QUERY",
+                "event_type": EventType.USER_QUERY,
                 "content": {"query": "拨款给直隶"},
                 "tokens": 10,
                 "agent_id": "revenue_minister",
             },
             {
                 "event_id": "evt_002",
-                "event_type": "TOOL_CALL",
+                "event_type": EventType.TOOL_CALL,
                 "content": {"tool": "allocate_funds", "args": {"province": "zhili"}},
                 "tokens": 25,
                 "agent_id": "revenue_minister",
             },
             {
                 "event_id": "evt_003",
-                "event_type": "AGENT_RESPONSE",
+                "event_type": EventType.AGENT_RESPONSE,
                 "content": {"response": "已拨款"},
                 "tokens": 15,
                 "agent_id": "revenue_minister",
