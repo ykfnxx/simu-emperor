@@ -82,15 +82,30 @@ def temp_data_dir(tmp_path):
 
 
 @pytest.fixture
-def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository):
-    """创建 Agent 实例"""
-    return Agent(
+def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path):
+    """创建 Agent 实例，使用临时 memory 目录"""
+    import os
+
+    # 创建临时 memory 目录
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+
+    # 通过环境变量覆盖配置（pydantic-settings 自动读取 SIMU_MEMORY__MEMORY_DIR）
+    os.environ["SIMU_MEMORY__MEMORY_DIR"] = str(memory_dir)
+
+    agent = Agent(
         agent_id="test_agent",
         event_bus=mock_event_bus,
         llm_provider=mock_llm,
         data_dir=temp_data_dir,
         repository=mock_repository,
     )
+
+    yield agent
+
+    # 清理环境变量
+    if "SIMU_MEMORY__MEMORY_DIR" in os.environ:
+        del os.environ["SIMU_MEMORY__MEMORY_DIR"]
 
 
 class TestAgent:
