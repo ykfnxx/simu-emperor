@@ -13,7 +13,8 @@ from simu_emperor.adapters.web.message_converter import MessageConverter
 class TestMessageConverter:
     """测试 MessageConverter 类"""
 
-    def test_convert_response_event(self):
+    @pytest.mark.asyncio
+    async def test_convert_response_event(self):
         """测试转换 Agent 响应事件"""
         event = Event(
             src="agent:governor_zhili",
@@ -25,7 +26,7 @@ class TestMessageConverter:
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         assert result["kind"] == "chat"
@@ -34,7 +35,8 @@ class TestMessageConverter:
         assert result["data"]["text"] == "陛下，直隶省..."
         assert result["data"]["timestamp"] == "2026-03-06T12:00:00Z"
 
-    def test_convert_turn_resolved_event(self):
+    @pytest.mark.asyncio
+    async def test_convert_turn_resolved_event(self):
         """测试转换回合结算事件"""
         event = Event(
             src="system:calculator",
@@ -63,30 +65,31 @@ class TestMessageConverter:
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         assert result["kind"] == "state"
         assert result["data"]["turn"] == 5
-        assert result["data"]["treasury_change"] == 50000
+        assert result["data"]["treasury"] == 0  # 无 repository 时返回 0
         assert result["data"]["population"] == 3000000
         assert result["data"]["military"] == 80000
         assert result["data"]["happiness"] == 0.8
         assert result["data"]["agriculture"] == "正常"  # 690000 (300000*1.3 + 100000*3 = 390000 + 300000)
 
-    def test_convert_chat_event(self):
+    @pytest.mark.asyncio
+    async def test_convert_chat_event(self):
         """测试转换聊天事件"""
         event = Event(
             src="player:web",
             dst=["agent:governor_zhili"],
             type=EventType.CHAT,
-            payload={"query": "查看直隶省情况"},
+            payload={"message": "查看直隶省情况"},
             timestamp="2026-03-06T12:00:00Z",
             session_id="session:web:test"
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         assert result["kind"] == "chat"
@@ -94,7 +97,8 @@ class TestMessageConverter:
         assert result["data"]["agentDisplayName"] == "皇帝"
         assert result["data"]["text"] == "查看直隶省情况"
 
-    def test_convert_command_event_returns_none(self):
+    @pytest.mark.asyncio
+    async def test_convert_command_event_returns_none(self):
         """测试转换命令事件返回 None（不广播）"""
         event = Event(
             src="player:web",
@@ -105,7 +109,7 @@ class TestMessageConverter:
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is None  # COMMAND 事件不广播
 
@@ -137,7 +141,8 @@ class TestMessageConverter:
         metrics = {"total_food_production": 300000}
         assert MessageConverter._describe_agriculture(metrics) == "歉收"
 
-    def test_convert_response_without_narrative(self):
+    @pytest.mark.asyncio
+    async def test_convert_response_without_narrative(self):
         """测试转换无 narrative 的响应事件"""
         event = Event(
             src="agent:governor_zhili",
@@ -149,12 +154,13 @@ class TestMessageConverter:
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         assert result["data"]["text"] == ""  # 默认为空字符串
 
-    def test_convert_without_timestamp(self):
+    @pytest.mark.asyncio
+    async def test_convert_without_timestamp(self):
         """测试转换无时间戳的事件"""
         event = Event(
             src="agent:governor_zhili",
@@ -166,7 +172,7 @@ class TestMessageConverter:
         )
 
         converter = MessageConverter()
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         # 应该生成 ISO 格式的时间戳

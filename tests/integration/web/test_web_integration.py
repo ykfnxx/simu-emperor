@@ -108,7 +108,8 @@ class TestWebSocketIntegration:
 class TestMessageFlowIntegration:
     """消息流程集成测试"""
 
-    def test_message_converter_integration(self):
+    @pytest.mark.asyncio
+    async def test_message_converter_integration(self):
         """测试 MessageConverter 与 WebSocket 的集成"""
         from simu_emperor.adapters.web.message_converter import MessageConverter
         from simu_emperor.event_bus.event import Event
@@ -125,7 +126,7 @@ class TestMessageFlowIntegration:
             session_id="session:web:test"
         )
 
-        result = converter.convert(event)
+        result = await converter.convert(event)
 
         assert result is not None
         assert result["kind"] == "chat"
