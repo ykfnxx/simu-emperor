@@ -114,7 +114,12 @@ class Agent:
         # 初始化独立日志
         self._init_agent_logger()
 
-        # 初始化函数处理器映射
+        # 初始化工具注册表（未来版本将取代_function_handlers）
+        from simu_emperor.agents.tools.tool_registry import ToolRegistry
+
+        self._tool_registry = ToolRegistry()
+
+        # 初始化函数处理器映射（保持向后兼容）
         self._function_handlers: dict[str, callable] = {}
         self._init_function_handlers()
 
