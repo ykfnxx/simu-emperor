@@ -243,15 +243,28 @@ async def main() -> None:
 def entrypoint() -> None:
     """CLI 入口点（非 async）"""
     # 检查命令行参数
-    if len(sys.argv) > 1 and sys.argv[1] == "telegram":
-        try:
-            asyncio.run(main_telegram())
-        except KeyboardInterrupt:
-            logger.info("收到中断信号，退出")
-        except Exception as e:
-            logger.error(f"发生错误: {e}", exc_info=True)
-            raise
-        return
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+
+        if command == "telegram":
+            try:
+                asyncio.run(main_telegram())
+            except KeyboardInterrupt:
+                logger.info("收到中断信号，退出")
+            except Exception as e:
+                logger.error(f"发生错误: {e}", exc_info=True)
+                raise
+            return
+
+        elif command == "web":
+            try:
+                asyncio.run(main_web())
+            except KeyboardInterrupt:
+                logger.info("收到中断信号，退出")
+            except Exception as e:
+                logger.error(f"发生错误: {e}", exc_info=True)
+                raise
+            return
 
     # 默认：启动 CLI
     try:
@@ -331,6 +344,60 @@ async def main_telegram() -> None:
         await bot.stop()
         await session_manager.shutdown_all()
         logger.info("=== Telegram Bot 正常退出 ===")
+
+
+async def main_web() -> None:
+    """
+    Web Adapter 主函数
+
+    启动 FastAPI 服务器，提供 WebSocket 和 REST API。
+    """
+    logger.info("=== 皇帝模拟器 V2 - Web Adapter 启动 ===")
+
+    # 解析命令行参数（支持 --host 和 --port）
+    import uvicorn
+
+    host = "0.0.0.0"
+    port = 8000
+    reload = False
+
+    # 简单的参数解析
+    args = sys.argv[2:]  # 跳过 "web" 命令
+    i = 0
+    while i < len(args):
+        if args[i] == "--host" and i + 1 < len(args):
+            host = args[i + 1]
+            i += 2
+        elif args[i] == "--port" and i + 1 < len(args):
+            port = int(args[i + 1])
+            i += 2
+        elif args[i] == "--reload":
+            reload = True
+            i += 1
+        else:
+            i += 1
+
+    logger.info(f"Starting web server on {host}:{port}")
+
+    # 导入 FastAPI 应用
+    from simu_emperor.adapters.web.server import app
+
+    # 启动服务器
+    config = uvicorn.Config(
+        "simu_emperor.adapters.web.server:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+
+    try:
+        await server.serve()
+    except KeyboardInterrupt:
+        logger.info("收到中断信号，正在关闭...")
+    finally:
+        logger.info("=== Web Adapter 正常退出 ===")
 
 
 if __name__ == "__main__":
