@@ -208,7 +208,9 @@ class WebGameInstance:
             # 这里可以调用 engine 中的初始化逻辑
             pass
         else:
-            logger.info(f"Game state loaded, turn={state.turn}")
+            # state 可能是 Pydantic 模型或 dict
+            turn = getattr(state, 'turn', state.get('turn') if isinstance(state, dict) else None)
+            logger.info(f"Game state loaded, turn={turn}")
 
     async def _on_response(self, event: Event) -> None:
         """
