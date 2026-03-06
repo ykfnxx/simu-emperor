@@ -16,7 +16,7 @@ from simu_emperor.event_bus.event_types import EventType
 logger = logging.getLogger(__name__)
 
 
-class Calculator:
+class TurnCoordinator:
     """
     游戏状态管理器（Calculator）
 
@@ -190,7 +190,7 @@ class Calculator:
 
             # 转换为 Pydantic 模型
             from simu_emperor.engine.models.base_data import NationalBaseData
-            from simu_emperor.engine.calculator import resolve_turn
+            from simu_emperor.engine.resolver import resolve_turn
 
             current_data = NationalBaseData.model_validate(state_dict)
             logger.info(f"Loaded game state for turn {current_turn}")

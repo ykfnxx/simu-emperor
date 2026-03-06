@@ -14,7 +14,7 @@ from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.config import settings
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
-from simu_emperor.core.calculator import Calculator
+from simu_emperor.engine.coordinator import TurnCoordinator
 from simu_emperor.cli.app import EmperorCLI
 from simu_emperor.agents.manager import AgentManager
 
@@ -218,7 +218,7 @@ async def main() -> None:
     logger.info(f"AgentManager initialized with {len(default_agents)} agents")
 
     # 5. 初始化 Calculator（传入 AgentManager）
-    calculator = Calculator(event_bus, repository, agent_manager)
+    calculator = TurnCoordinator(event_bus, repository, agent_manager)
     calculator.start()
     logger.info("Calculator started")
 

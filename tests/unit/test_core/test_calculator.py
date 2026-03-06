@@ -1,11 +1,11 @@
 """
-测试 Calculator 核心逻辑
+测试 TurnCoordinator 核心逻辑
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from simu_emperor.core.calculator import Calculator
+from simu_emperor.engine.coordinator import TurnCoordinator
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -98,12 +98,12 @@ def mock_repository():
 
 @pytest.fixture
 def calculator(mock_event_bus, mock_repository):
-    """创建 Calculator 实例"""
-    return Calculator(mock_event_bus, mock_repository)
+    """创建 TurnCoordinator 实例"""
+    return TurnCoordinator(mock_event_bus, mock_repository)
 
 
-class TestCalculator:
-    """测试 Calculator 类"""
+class TestTurnCoordinator:
+    """测试 TurnCoordinator 类"""
 
     def test_init(self, calculator, mock_event_bus, mock_repository):
         """测试初始化"""
