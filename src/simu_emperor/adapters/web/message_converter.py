@@ -1,0 +1,205 @@
+"""
+消息转换器
+
+将 EventBus Event 转换为前端友好的 WSMessage 格式。
+"""
+
+from typing import Any
+from datetime import datetime
+
+from simu_emperor.event_bus.event import Event
+from simu_emperor.event_bus.event_types import EventType
+
+
+class MessageConverter:
+    """
+    EventBus Event 到 WSMessage 的转换器
+
+    职责：
+    - 隐藏 EventBus 实现细节
+    - 提供类型安全的消息格式
+    - 支持多种消息类型（chat, state, event, error）
+    """
+
+    def convert(self, event: Event) -> dict[str, Any] | None:
+        """
+        转换 EventBus Event 为 WSMessage
+
+        Args:
+            event: EventBus 原始事件
+
+        Returns:
+            WSMessage 或 None（如果不支持的类型）
+
+        WSMessage 格式:
+        {
+            "kind": "chat" | "state" | "event" | "error",
+            "data": {...}
+        }
+        """
+        if event.type == EventType.RESPONSE:
+            return self._convert_response(event)
+        elif event.type == EventType.TURN_RESOLVED:
+            return self._convert_turn_resolved(event)
+        elif event.type == EventType.CHAT:
+            # Chat 消息也转换为 chat 类型（用户聊天）
+            return self._convert_chat(event)
+        # COMMAND 事件不广播（避免循环）
+        return None
+
+    def _convert_response(self, event: Event) -> dict[str, Any]:
+        """转换 Agent 响应事件"""
+        return {
+            "kind": "chat",
+            "data": {
+                "agent": self._extract_agent_name(event.src),
+                "agentDisplayName": self._get_agent_display_name(event.src),
+                "text": event.payload.get("narrative", ""),
+                "timestamp": event.timestamp or datetime.utcnow().isoformat() + "Z",
+            }
+        }
+
+    def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
+        """转换回合结算事件"""
+        state = event.payload.get("state", {})
+        national = state.get("national", {})
+
+        return {
+            "kind": "state",
+            "data": {
+                "turn": state.get("turn", 0),
+                "treasury": national.get("treasury", 0),
+                "population": self._calculate_population(state),
+                "military": self._calculate_military(state),
+                "happiness": self._calculate_happiness(state),
+                "agriculture": self._describe_agriculture(state),
+                "corruption": 0,  # TODO: 计算贪腐指数
+            }
+        }
+
+    def _convert_chat(self, event: Event) -> dict[str, Any]:
+        """转换聊天消息（用户消息确认）"""
+        return {
+            "kind": "chat",
+            "data": {
+                "agent": "player",  # 用户消息
+                "agentDisplayName": "皇帝",
+                "text": event.payload.get("query", ""),
+                "timestamp": event.timestamp or datetime.utcnow().isoformat() + "Z",
+            }
+        }
+
+    @staticmethod
+    def _extract_agent_name(src: str) -> str:
+        """
+        从 event.src 提取 agent 名称
+
+        Args:
+            src: 事件源 ID（如 "agent:governor_zhili"）
+
+        Returns:
+            Agent 名称（如 "governor_zhili"）
+
+        Examples:
+            >>> MessageConverter._extract_agent_name("agent:governor_zhili")
+            "governor_zhili"
+            >>> MessageConverter._extract_agent_name("player:web")
+            "player:web"
+        """
+        return src.replace("agent:", "")
+
+    @staticmethod
+    def _get_agent_display_name(src: str) -> str:
+        """
+        获取 agent 显示名称
+
+        Args:
+            src: 事件源 ID
+
+        Returns:
+            Agent 显示名称（中文名）
+
+        Examples:
+            >>> MessageConverter._get_agent_display_name("agent:governor_zhili")
+            "直隶巡抚"
+        """
+        agent_name = MessageConverter._extract_agent_name(src)
+
+        # Agent ID 到显示名称的映射
+        display_names = {
+            "governor_zhili": "直隶巡抚",
+            "minister_of_revenue": "户部尚书",
+            "player:web": "皇帝",
+        }
+
+        return display_names.get(agent_name, agent_name)
+
+    @staticmethod
+    def _calculate_population(state: dict) -> int:
+        """
+        计算总人口
+
+        Args:
+            state: 游戏状态字典
+
+        Returns:
+            总人口数
+        """
+        provinces = state.get("provinces", [])
+        return sum(
+            p.get("population", {}).get("total", 0)
+            for p in provinces
+        )
+
+    @staticmethod
+    def _calculate_military(state: dict) -> int:
+        """
+        计算总兵力
+
+        Args:
+            state: 游戏状态字典
+
+        Returns:
+            总兵力数
+        """
+        provinces = state.get("provinces", [])
+        return sum(
+            p.get("military", {}).get("soldiers", 0)
+            for p in provinces
+        )
+
+    @staticmethod
+    def _calculate_happiness(state: dict) -> int:
+        """
+        计算平均民心稳定度
+
+        Args:
+            state: 游戏状态字典
+
+        Returns:
+            平均民心稳定度 (0-100)
+        """
+        provinces = state.get("provinces", [])
+        if not provinces:
+            return 0
+
+        total_happiness = sum(
+            p.get("population", {}).get("happiness", 0)
+            for p in provinces
+        )
+
+        return int(total_happiness / len(provinces))
+
+    @staticmethod
+    def _describe_agriculture(state: dict) -> str:
+        """
+        描述农业产量
+
+        Args:
+            state: 游戏状态字典
+
+        Returns:
+            农业产量描述（如 "丰收", "正常", "歉收"）
+        """
+        # TODO: 根据实际农业数据计算
+        return "正常"
