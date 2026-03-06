@@ -119,6 +119,15 @@ class Agent:
 
         self._tool_registry = ToolRegistry()
 
+        # 初始化记忆系统初始化器
+        from simu_emperor.agents.memory_initializer import MemoryInitializer
+
+        self._memory_initializer = MemoryInitializer(
+            self.agent_id,
+            self._memory_dir,
+            self.llm_provider,
+        )
+
         # 初始化函数处理器映射（保持向后兼容）
         self._function_handlers: dict[str, callable] = {}
         self._init_function_handlers()
@@ -244,41 +253,8 @@ class Agent:
             session_id: 会话ID
         """
         if not self._context_manager or not self._memory_tools:
-            logger.info(f"🧠 [Agent:{self.agent_id}] Initializing memory components...")
-
-            from simu_emperor.memory.context_manager import ContextManager, ContextConfig
-            from simu_emperor.agents.tools.memory_tools import MemoryTools
-
-            # 初始化 ContextManager
-            tape_path = self._tape_writer._get_tape_path(session_id, self.agent_id)
-            self._context_manager = ContextManager(
-                session_id=session_id,
-                agent_id=self.agent_id,
-                tape_path=tape_path,
-                config=ContextConfig(),
-                llm_provider=self.llm_provider,
-                manifest_index=self._manifest_index,
-            )
-
-            # 初始化 MemoryTools
-            self._memory_tools = MemoryTools(
-                agent_id=self.agent_id,
-                memory_dir=self._memory_dir,
-                llm_provider=self.llm_provider,
-                context_manager=self._context_manager,
-            )
-
-            # 注册 session（同步执行，确保完成）
-            await self._manifest_index.register_session(
-                session_id=session_id,
-                agent_id=self.agent_id,
-                turn=1,  # TODO: 从event payload获取实际回合数
-            )
-
-            # 从 tape 加载历史事件到 ContextManager
-            await self._context_manager.load_from_tape()
-
-            logger.info(f"✅ [Agent:{self.agent_id}] Memory components initialized")
+            self._context_manager, self._memory_tools = \
+                await self._memory_initializer.initialize(session_id)
 
     async def _retrieve_memory_wrapper(self, args: dict, event: Event) -> str:
         """
