@@ -18,6 +18,14 @@ dependencies = [
     "filelock>=3.0",
     "python-telegram-bot>=22.0",
     "tiktoken>=0.7.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "websockets>=12.0",
 ]
 
 [project.scripts]
