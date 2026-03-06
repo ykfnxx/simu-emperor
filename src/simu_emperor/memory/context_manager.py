@@ -1,10 +1,10 @@
 """ContextManager for sliding window context management."""
 
-import aiofiles
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+
+from simu_emperor.common import FileOperationsHelper
 
 if TYPE_CHECKING:
     from simu_emperor.llm.base import LLMProvider
@@ -97,21 +97,8 @@ class ContextManager:
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         """
-        if not self.tape_path.exists():
-            return
-
-        try:
-            async with aiofiles.open(self.tape_path, "r", encoding="utf-8") as f:
-                async for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        event = json.loads(line)
-                        self.events.append(event)
-                    except json.JSONDecodeError:
-                        continue  # Skip invalid lines
-        except Exception as e:
-            print(f"Warning: Failed to load tape: {e}")
+        events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
+        self.events.extend(events)
 
     def add_event(self, event: dict, tokens: int) -> bool:
         """
