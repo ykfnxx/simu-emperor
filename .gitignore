@@ -33,6 +33,12 @@ data/log/
 data/logs/
 data/saves/
 
+# Runtime memory data (V3 Memory System)
+data/memory/
+
+# Backup files
+*.bak
+
 # Database
 *.db
 *.sqlite
