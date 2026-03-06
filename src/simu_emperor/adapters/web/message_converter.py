@@ -103,7 +103,7 @@ class MessageConverter:
         elif total_food < 500000:
             agriculture = "歉收"
 
-        # 获取国库总额（从 GameState.base_data.imperial_treasury）
+        # 获取国库总额（优先从顶层字段读取，兼容 base_data 包装）
         treasury = 0
         if self._repository:
             try:
@@ -111,13 +111,22 @@ class MessageConverter:
                 if state:
                     # state 可能是 dict 或 Pydantic 模型
                     if isinstance(state, dict):
-                        base_data = state.get("base_data", {})
-                        if isinstance(base_data, dict):
-                            treasury = base_data.get("imperial_treasury", 0)
-                        else:
-                            treasury = getattr(base_data, "imperial_treasury", 0)
+                        # 优先读取顶层的 imperial_treasury
+                        treasury = state.get("imperial_treasury", 0)
+                        # 如果顶层没有，尝试从 base_data 读取
+                        if treasury == 0 and "base_data" in state:
+                            base_data = state.get("base_data", {})
+                            if isinstance(base_data, dict):
+                                treasury = base_data.get("imperial_treasury", 0)
+                            else:
+                                treasury = getattr(base_data, "imperial_treasury", 0)
                     else:
-                        treasury = getattr(getattr(state, "base_data", None), "imperial_treasury", 0)
+                        # Pydantic 模型
+                        # 优先读取顶层属性
+                        treasury = getattr(state, "imperial_treasury", 0)
+                        # 如果顶层没有，尝试从 base_data 读取
+                        if treasury == 0 and hasattr(state, "base_data"):
+                            treasury = getattr(getattr(state, "base_data", None), "imperial_treasury", 0)
             except Exception as e:
                 # 降级到 treasury_change
                 treasury = metrics.get("imperial_treasury_change", 0)
