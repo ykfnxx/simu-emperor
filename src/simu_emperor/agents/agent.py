@@ -390,7 +390,7 @@ class Agent:
             f"📨 [Agent:{self.agent_id}:{session_id}] Received {event.type} event (id={event_id}) from {event.src}"
         )
 
-        if event.type in (EventType.COMMAND, EventType.QUERY, EventType.CHAT):
+        if event.type in (EventType.COMMAND, EventType.CHAT):
             await self._ensure_memory_components(event.session_id)
 
         # 3. 准备 Tape 写入任务
@@ -430,7 +430,6 @@ class Agent:
         # 这些事件都是 agent 的"输入"，需要记录到当前 agent 的 tape
         if event.type in (
             EventType.COMMAND,
-            EventType.QUERY,
             EventType.CHAT,
             EventType.AGENT_MESSAGE,
         ):

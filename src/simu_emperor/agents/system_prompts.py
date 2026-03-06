@@ -45,13 +45,6 @@ SYSTEM_PROMPTS: dict[str, str] = {
 ❌ 错误：
 1. query_national_data(...) - 只查询不执行
 2. respond_to_player(...) - 没有真正执行命令""",
-    EventType.QUERY: """# 当前任务：查询数据
-
-皇帝要查询数据，你需要：
-1. 使用 query_* functions 查询相关数据
-2. 使用 respond_to_player function 返回结果
-
-重要：只查询数据，不要执行任何动作。""",
     EventType.CHAT: """# 当前任务：与皇帝聊天
 
 皇帝想和你聊天，你需要：
