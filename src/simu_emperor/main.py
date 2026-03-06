@@ -205,7 +205,6 @@ async def main() -> None:
         agent_dir=settings.data_dir / "agent",
         repository=repository,
         session_id=session_id,
-        db_logger=db_logger,
     )
 
     # 初始化并启动默认 agents
