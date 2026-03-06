@@ -17,7 +17,7 @@ from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
-from simu_emperor.core.calculator import Calculator
+from simu_emperor.engine.coordinator import TurnCoordinator
 from simu_emperor.agents.manager import AgentManager
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.adapters.telegram.session_context import SessionContextManager
@@ -156,7 +156,7 @@ class GameSession:
         logger.info(f"AgentManager initialized with {len(default_agents)} agents")
 
         # 4. 初始化 Calculator（传入 AgentManager）
-        self.calculator = Calculator(self.event_bus, self.repository, self.agent_manager)
+        self.calculator = TurnCoordinator(self.event_bus, self.repository, self.agent_manager)
         self.calculator.start()
         logger.info("Calculator started")
         self._running = True

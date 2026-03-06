@@ -21,19 +21,11 @@ class RoleMapParser:
         self._cache: Optional[list[dict]] = None
 
     def _find_role_map_path(self) -> Optional[Path]:
-        """查找 role_map.md 文件
-
-        优先级：
-        1. data_dir/role_map.md (传入的目录)
-        2. data/role_map.md (项目根目录)
-        3. data_dir上两级的role_map.md (兼容旧路径)
-        4. 当前工作目录的data/role_map.md
-        """
+        """查找 role_map.md 文件"""
         possible_paths = [
-            self.data_dir / "role_map.md",  # 优先使用传入的data_dir
-            Path("data/role_map.md"),  # 项目根目录
-            self.data_dir / "../../role_map.md",  # 向上两级
-            Path.cwd() / "data" / "role_map.md",  # 当前工作目录
+            Path("data/role_map.md"),
+            self.data_dir / "../../role_map.md",
+            Path.cwd() / "data" / "role_map.md",
         ]
 
         for path in possible_paths:
@@ -80,9 +72,7 @@ class RoleMapParser:
                 title_line = line[3:].strip()
                 if "(" in title_line and ")" in title_line:
                     title = title_line[: title_line.index("(")].strip()
-                    agent_id = title_line[
-                        title_line.index("(") + 1 : title_line.index(")")
-                    ].strip()
+                    agent_id = title_line[title_line.index("(") + 1 : title_line.index(")")].strip()
                     current_section = {
                         "title": title,
                         "agent_id": agent_id,
@@ -92,15 +82,11 @@ class RoleMapParser:
 
             elif line.startswith("- 姓名：") or line.startswith("- 姓名:"):
                 if current_section:
-                    current_section["name"] = (
-                        line.split("：", 1)[-1].split(":", 1)[-1].strip()
-                    )
+                    current_section["name"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
 
             elif line.startswith("- 职责：") or line.startswith("- 职责:"):
                 if current_section:
-                    current_section["duty"] = (
-                        line.split("：", 1)[-1].split(":", 1)[-1].strip()
-                    )
+                    current_section["duty"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
 
         if current_section:
             agents_info.append(current_section)

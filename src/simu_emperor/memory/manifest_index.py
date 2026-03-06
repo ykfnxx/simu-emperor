@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from simu_emperor.common import FileOperationsHelper
-from simu_emperor.event_bus.event_types import EventType
 
 
 class ManifestIndex:
