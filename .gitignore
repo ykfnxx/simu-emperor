@@ -36,6 +36,9 @@ data/saves/
 # Runtime memory data (V3 Memory System)
 data/memory/
 
+# Project root logs
+logs/
+
 # Backup files
 *.bak
 

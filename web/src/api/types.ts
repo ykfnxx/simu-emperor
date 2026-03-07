@@ -2,42 +2,25 @@
  * WebSocket 消息类型定义
  */
 
-/**
- * WebSocket 消息类型
- */
 export type WSMessageKind = 'chat' | 'state' | 'event' | 'error';
 
-/**
- * 连接状态
- */
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-/**
- * 消息处理器类型
- */
 export type MessageHandler<T> = (data: T) => void;
 
-/**
- * WebSocket 消息格式
- */
 export interface WSMessage {
   kind: WSMessageKind;
   data: unknown;
 }
 
-/**
- * 聊天消息数据
- */
 export interface ChatData {
   agent: string;
   agentDisplayName: string;
   text: string;
   timestamp: string;
+  session_id?: string;
 }
 
-/**
- * 游戏状态数据
- */
 export interface StateData {
   turn: number;
   treasury: number;
@@ -48,9 +31,6 @@ export interface StateData {
   corruption: number;
 }
 
-/**
- * 游戏事件数据
- */
 export interface EventData {
   id: string;
   title: string;
@@ -60,67 +40,28 @@ export interface EventData {
   content?: string;
 }
 
-/**
- * 错误数据
- */
 export interface ErrorData {
   message: string;
   code?: string;
   details?: unknown;
 }
 
-/**
- * 类型守卫：检查是否是 ChatData
- */
 export function isChatData(data: unknown): data is ChatData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'agent' in data &&
-    'text' in data &&
-    'timestamp' in data
-  );
+  return typeof data === 'object' && data !== null && 'agent' in data && 'text' in data;
 }
 
-/**
- * 类型守卫：检查是否是 StateData
- */
 export function isStateData(data: unknown): data is StateData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'turn' in data &&
-    'treasury' in data
-  );
+  return typeof data === 'object' && data !== null && 'turn' in data && 'treasury' in data;
 }
 
-/**
- * 类型守卫：检查是否是 EventData
- */
 export function isEventData(data: unknown): data is EventData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'id' in data &&
-    'title' in data &&
-    'severity' in data
-  );
+  return typeof data === 'object' && data !== null && 'id' in data && 'title' in data;
 }
 
-/**
- * 类型守卫：检查是否是 ErrorData
- */
 export function isErrorData(data: unknown): data is ErrorData {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    'message' in data
-  );
+  return typeof data === 'object' && data !== null && 'message' in data;
 }
 
-/**
- * Agent 信息
- */
 export interface AgentInfo {
   id: string;
   name: string;
@@ -128,80 +69,124 @@ export interface AgentInfo {
   description?: string;
 }
 
-/**
- * REST API 请求/响应类型
- */
-
-/**
- * 命令请求
- */
 export interface CommandRequest {
   agent: string;
   command: string;
 }
 
-/**
- * API 响应
- */
 export interface APIResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
 }
 
-/**
- * 健康检查响应
- */
 export interface HealthResponse {
   status: 'running' | 'stopped';
   connections: number;
 }
 
-/**
- * Agent 列表响应
- */
 export type AgentsResponse = string[];
 
-/**
- * 游戏状态响应
- */
 export interface GameStateResponse {
+  turn: number;
+  imperial_treasury?: number;
+  population?: number;
+  military?: number;
+  happiness?: number;
+  provinces?: ProvinceData[];
+  [key: string]: unknown;
+}
+
+export interface ProvinceData {
+  id?: string;
+  province_id?: string;
+  name: string;
+  population: PopulationData;
+  military: MilitaryData;
+  treasury?: number;
+  local_treasury?: number;
+  happiness?: number;
+  [key: string]: unknown;
+}
+
+export interface PopulationData {
+  total: number;
+  happiness: number;
+  growth_rate?: number;
+}
+
+export interface MilitaryData {
+  soldiers: number;
+  morale?: number;
+  upkeep_per_soldier?: number;
+}
+
+export interface EmpireOverview {
   turn: number;
   treasury: number;
   population: number;
   military: number;
   happiness: number;
-  provinces: ProvinceData[];
-  [key: string]: unknown;
+  province_count: number;
 }
 
-/**
- * 省份数据
- */
-export interface ProvinceData {
-  id: string;
-  name: string;
-  population: PopulationData;
-  military: MilitaryData;
-  treasury: number;
-  happiness: number;
-  [key: string]: unknown;
+export interface SessionInfo {
+  session_id: string;
+  title: string;
+  created_at: string | null;
+  updated_at: string | null;
+  event_count: number;
+  agents: string[];
+  is_current: boolean;
 }
 
-/**
- * 人口数据
- */
-export interface PopulationData {
+export interface SessionsResponse {
+  current_session_id: string;
+  current_agent_id?: string | null;
+  sessions: SessionInfo[];
+  agent_sessions?: AgentSessionGroup[];
+}
+
+export interface SessionCreateResponse {
+  success: boolean;
+  current_session_id: string;
+  current_agent_id?: string | null;
+  session: SessionInfo;
+}
+
+export interface SessionSelectResponse {
+  success: boolean;
+  current_session_id: string;
+  current_agent_id?: string | null;
+  session: {
+    session_id: string;
+    is_current: boolean;
+    agent_id?: string;
+  };
+}
+
+export interface AgentSessionGroup {
+  agent_id: string;
+  agent_name: string;
+  sessions: SessionInfo[];
+}
+
+export interface TapeEvent {
+  event_id: string;
+  src: string;
+  dst: string[];
+  type: string;
+  payload: Record<string, unknown>;
+  timestamp: string;
+  session_id: string;
+  parent_event_id?: string | null;
+  root_event_id?: string;
+  agent_id?: string;
+}
+
+export interface CurrentTapeResponse {
+  agent_id?: string | null;
+  session_id: string;
+  events: TapeEvent[];
   total: number;
-  happiness: number;
-  growth_rate: number;
-}
-
-/**
- * 军事数据
- */
-export interface MilitaryData {
-  soldiers: number;
-  morale: number;
-  upkeep_per_soldier: number;
 }

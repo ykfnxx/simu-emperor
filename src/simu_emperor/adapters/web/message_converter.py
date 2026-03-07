@@ -5,7 +5,7 @@
 """
 
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -64,7 +64,8 @@ class MessageConverter:
                 "agent": self._extract_agent_name(event.src),
                 "agentDisplayName": self._get_agent_display_name(event.src),
                 "text": event.payload.get("narrative", ""),
-                "timestamp": event.timestamp or datetime.utcnow().isoformat() + "Z",
+                "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
+                "session_id": event.session_id,
             }
         }
 
@@ -152,7 +153,8 @@ class MessageConverter:
                 "agent": "player",  # 用户消息
                 "agentDisplayName": "皇帝",
                 "text": event.payload.get("message", ""),
-                "timestamp": event.timestamp or datetime.utcnow().isoformat() + "Z",
+                "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
+                "session_id": event.session_id,
             }
         }
 

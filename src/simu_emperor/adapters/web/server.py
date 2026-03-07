@@ -126,17 +126,21 @@ async def handle_command(data: dict) -> None:
     """处理命令消息"""
     agent = data.get("agent")
     command = data.get("text", "")
+    session_id = data.get("session_id")
 
     if not agent:
         logger.warning("Command missing agent field")
         return
+
+    target_session_id = session_id or game_instance.get_session_for_agent(agent)
+    game_instance.set_current_context(agent, target_session_id)
 
     event = Event(
         src="player:web",
         dst=[f"agent:{agent}"],
         type=EventType.COMMAND,
         payload={"command": command, "source": "web"},
-        session_id=game_instance.session_id
+        session_id=target_session_id
     )
 
     if game_instance.event_bus:
@@ -148,17 +152,21 @@ async def handle_chat(data: dict) -> None:
     """处理聊天消息"""
     agent = data.get("agent")
     text = data.get("text", "")
+    session_id = data.get("session_id")
 
     if not agent:
         logger.warning("Chat missing agent field")
         return
+
+    target_session_id = session_id or game_instance.get_session_for_agent(agent)
+    game_instance.set_current_context(agent, target_session_id)
 
     event = Event(
         src="player:web",
         dst=[f"agent:{agent}"],
         type=EventType.CHAT,
         payload={"message": text},
-        session_id=game_instance.session_id
+        session_id=target_session_id
     )
 
     if game_instance.event_bus:
@@ -185,6 +193,18 @@ class CommandRequest(BaseModel):
     """命令请求"""
     agent: str
     command: str
+
+
+class SessionCreateRequest(BaseModel):
+    """新建 session 请求"""
+    name: str | None = None
+    agent_id: str | None = None
+
+
+class SessionSelectRequest(BaseModel):
+    """选择 session 请求"""
+    session_id: str
+    agent_id: str | None = None
 
 @app.post("/api/command")
 async def send_command(cmd: CommandRequest):
@@ -231,6 +251,81 @@ async def get_state():
     else:
         return state.dict()
 
+
+@app.get("/api/overview")
+async def get_overview():
+    """
+    查询帝国概况（前端右侧状态面板）。
+    """
+    return await game_instance.get_empire_overview()
+
+
+@app.get("/api/sessions")
+async def list_sessions_api():
+    """
+    列出所有 session，并返回当前选中 session。
+    """
+    sessions = await game_instance.list_sessions()
+    agent_sessions = await game_instance.list_agent_sessions()
+    return {
+        "current_session_id": game_instance.session_id,
+        "current_agent_id": game_instance.current_agent_id,
+        "sessions": sessions,
+        "agent_sessions": agent_sessions,
+    }
+
+
+@app.post("/api/sessions")
+async def create_session(request: SessionCreateRequest):
+    """
+    新建 session 并切换为当前 session。
+    """
+    session = await game_instance.create_session(request.name, agent_id=request.agent_id)
+    return {
+        "success": True,
+        "current_session_id": game_instance.session_id,
+        "current_agent_id": game_instance.current_agent_id,
+        "session": session,
+    }
+
+
+@app.post("/api/sessions/select")
+async def select_session(request: SessionSelectRequest):
+    """
+    选择当前 session。
+    """
+    try:
+        session = await game_instance.select_session(
+            request.session_id,
+            agent_id=request.agent_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "success": True,
+        "current_session_id": game_instance.session_id,
+        "current_agent_id": game_instance.current_agent_id,
+        "session": session,
+    }
+
+
+@app.get("/api/tape/current")
+async def get_current_tape(
+    limit: int = 100,
+    agent_id: str | None = None,
+    session_id: str | None = None,
+):
+    """
+    查询当前 session 的 tape 事件。
+    """
+    safe_limit = max(1, min(limit, 500))
+    return await game_instance.get_current_tape(
+        limit=safe_limit,
+        agent_id=agent_id,
+        session_id=session_id,
+    )
+
 @app.get("/api/agents")
 async def list_agents():
     """
@@ -239,11 +334,10 @@ async def list_agents():
     Returns:
         ["governor_zhili", "minister_of_revenue", ...]
     """
-    if not game_instance.agent_manager:
+    if not game_instance._running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    agents = game_instance.agent_manager.get_active_agents()
-    return agents
+    return game_instance.get_available_agents()
 
 @app.get("/api/health")
 async def health_check():

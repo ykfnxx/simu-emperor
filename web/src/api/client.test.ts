@@ -22,6 +22,7 @@ describe('GameClient', () => {
 
   afterEach(() => {
     client.disconnect();
+    vi.restoreAllMocks();
   });
 
   describe('initialization', () => {
@@ -118,6 +119,24 @@ describe('GameClient', () => {
 
     it('should have healthCheck method', () => {
       expect(typeof client.healthCheck).toBe('function');
+    });
+
+    it('should normalize getAgents array response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(['governor_zhili', 'minister_of_revenue']), { status: 200 })
+      );
+
+      const agents = await client.getAgents();
+      expect(agents).toEqual(['governor_zhili', 'minister_of_revenue']);
+    });
+
+    it('should normalize getAgents object response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ agents: ['governor_zhili'] }), { status: 200 })
+      );
+
+      const agents = await client.getAgents();
+      expect(agents).toEqual(['governor_zhili']);
     });
   });
 
