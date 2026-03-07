@@ -56,6 +56,7 @@ class Agent:
         repository=None,
         session_id: str | None = None,
         skill_loader=None,
+        session_manager=None,
     ):
         """
         初始化 Agent
@@ -68,6 +69,7 @@ class Agent:
             repository: GameRepository（用于数据查询）
             session_id: 会话标识符（用于 Context 组装）
             skill_loader: SkillLoader 实例（用于动态加载 Skill 内容）
+            session_manager: SessionManager（V4 Task Session 支持）
         """
         self.agent_id = agent_id
         self.event_bus = event_bus
@@ -76,6 +78,7 @@ class Agent:
         self.repository = repository
         self.session_id = session_id
         self._skill_loader = skill_loader
+        self.session_manager = session_manager
 
         # 加载 soul 和 data_scope
         self._soul: str | None = None
@@ -110,6 +113,18 @@ class Agent:
         # ContextManager - 用于当前session的上下文管理
         self._context_manager = None  # 延迟初始化，需要session_id
         self._memory_tools = None  # 延迟初始化，需要session_id
+
+        # Task Session 工具（V4）
+        if self.session_manager:
+            from simu_emperor.agents.tools.task_session_tools import TaskSessionTools
+
+            self._task_session_tools = TaskSessionTools(
+                agent_id=self.agent_id,
+                session_manager=self.session_manager,
+                event_bus=self.event_bus,
+            )
+        else:
+            self._task_session_tools = None
 
         # 初始化独立日志
         self._init_agent_logger()
@@ -195,6 +210,15 @@ class Agent:
 
         for func_name, (handler, success_msg) in action_handlers.items():
             self._function_handlers[func_name] = self._create_action_wrapper(handler, success_msg)
+
+        # Task Session 类函数（V4）
+        if self._task_session_tools:
+            task_handlers = {
+                "create_task_session": self._task_session_tools.create_task_session,
+                "finish_task_session": self._task_session_tools.finish_task_session,
+                "fail_task_session": self._task_session_tools.fail_task_session,
+            }
+            self._function_handlers.update(task_handlers)
 
     @staticmethod
     def _create_action_wrapper(handler_func: callable, success_message: str) -> callable:
