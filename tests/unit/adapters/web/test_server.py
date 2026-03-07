@@ -65,9 +65,18 @@ class TestFastAPIServer:
         # Pydantic 验证应该返回 422
         assert response.status_code == 422
 
+    def test_send_command_unknown_agent(self, client):
+        """测试发送命令（未知 agent）。"""
+        response = client.post(
+            "/api/command",
+            json={"agent": "agent:not_exists", "command": "test"},
+        )
+        assert response.status_code == 400
+        assert "Unknown agent" in response.json()["detail"]
+
     def test_websocket_connect(self, client):
         """测试 WebSocket 连接"""
-        with client.websocket_connect("/ws") as websocket:
+        with client.websocket_connect("/ws"):
             # 连接成功，不期望接收数据
             pass
 
@@ -108,6 +117,20 @@ class TestFastAPIServer:
             # 应该收到错误消息（如果实现了）
             # 或者连接可能关闭
 
+    def test_websocket_command_unknown_agent_returns_error(self, client):
+        """测试 WebSocket 未知 agent 返回错误。"""
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json(
+                {
+                    "type": "command",
+                    "agent": "not_exists",
+                    "text": "test command",
+                }
+            )
+            message = websocket.receive_json()
+            assert message["kind"] == "error"
+            assert "Unknown agent" in message["data"]["message"]
+
     def test_get_overview(self, client):
         """测试帝国概况端点"""
         response = client.get("/api/overview")
@@ -126,18 +149,44 @@ class TestFastAPIServer:
         assert "sessions" in data
         assert "agent_sessions" in data
 
-    def test_create_session(self, client):
+    def test_create_session(self, client, monkeypatch):
         """测试新建会话端点"""
+        from simu_emperor.adapters.web import server as server_module
+
+        monkeypatch.setattr(
+            server_module.game_instance,
+            "get_available_agents",
+            lambda: ["governor_zhili", "minister_of_revenue"],
+        )
+
         response = client.post(
             "/api/sessions",
             json={"name": "测试会话", "agent_id": "governor_zhili"},
         )
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
         assert "current_session_id" in data
         assert "current_agent_id" in data
         assert "session" in data
+
+    def test_create_session_invalid_agent(self, client):
+        """测试新建会话时 agent 不存在。"""
+        response = client.post(
+            "/api/sessions",
+            json={"name": "测试会话", "agent_id": "not_exists"},
+        )
+        assert response.status_code == 400
+        assert "Unknown agent" in response.json()["detail"]
+
+    def test_create_session_empty_name(self, client):
+        """测试新建会话时 name 为空字符串。"""
+        response = client.post(
+            "/api/sessions",
+            json={"name": "   ", "agent_id": "governor_zhili"},
+        )
+        assert response.status_code == 422
 
     def test_select_session_not_found(self, client, monkeypatch):
         """测试选择不存在会话"""
@@ -151,6 +200,15 @@ class TestFastAPIServer:
             json={"session_id": "session:web:not-found"},
         )
         assert response.status_code == 404
+
+    def test_select_session_invalid_format(self, client):
+        """测试选择会话时 session_id 格式非法。"""
+        response = client.post(
+            "/api/sessions/select",
+            json={"session_id": "invalid-session-id"},
+        )
+        assert response.status_code == 400
+        assert "Invalid session_id format" in response.json()["detail"]
 
     def test_get_current_tape(self, client, monkeypatch):
         """测试获取当前 tape 端点"""
@@ -166,3 +224,9 @@ class TestFastAPIServer:
         data = response.json()
         assert data["session_id"] == "session:web:test"
         assert "events" in data
+
+    def test_get_current_tape_invalid_agent(self, client):
+        """测试获取 tape 时 agent_id 不存在。"""
+        response = client.get("/api/tape/current?agent_id=not_exists")
+        assert response.status_code == 400
+        assert "Unknown agent" in response.json()["detail"]
