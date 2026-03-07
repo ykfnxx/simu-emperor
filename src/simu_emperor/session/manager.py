@@ -153,8 +153,9 @@ class SessionManager:
                 config=ContextConfig(),
                 llm_provider=self.llm_provider,
                 manifest_index=self.manifest_index,
+                session_manager=self,
             )
-            await cm.load_from_tape()
+            await cm.load_from_tape(include_ancestors=include_ancestors)
             self._context_managers[cache_key] = cm
 
         return self._context_managers[cache_key]
