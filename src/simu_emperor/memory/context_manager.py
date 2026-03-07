@@ -57,6 +57,7 @@ class ContextManager:
         config: ContextConfig,
         llm_provider: "LLMProvider",
         manifest_index=None,
+        session_manager=None,
     ):
         """
         Initialize ContextManager.
@@ -68,13 +69,15 @@ class ContextManager:
             config: Context configuration
             llm_provider: LLM provider for summarization
             manifest_index: Optional ManifestIndex for summary storage
+            session_manager: Optional SessionManager for ancestor loading
         """
         self.session_id = session_id
         self.agent_id = agent_id
         self.tape_path = tape_path
         self.llm = llm_provider
-        self.manifest = manifest_index  # 用于刷新session总结
-        self.config = config  # 保存 config
+        self.manifest = manifest_index
+        self.config = config
+        self.session_manager = session_manager
 
         # 初始化max_tokens（如果为None则查询LLM）
         self.max_tokens = config.max_tokens or self._query_llm_context_window()
@@ -91,14 +94,38 @@ class ContextManager:
         except (AttributeError, NotImplementedError):
             return 8192  # 默认值
 
-    async def load_from_tape(self) -> None:
+    async def load_from_tape(self, include_ancestors: bool = False) -> None:
         """
         从tape加载历史事件
+
+        Args:
+            include_ancestors: 是否包含祖先 Session 的事件
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         """
         events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
         self.events.extend(events)
+
+        if include_ancestors and self.session_manager:
+            ancestors = self.session_manager.get_parent_chain(self.session_id)
+            for ancestor in ancestors:
+                ancestor_events = await self._load_session_events(ancestor.session_id)
+                self.events.extend(ancestor_events)
+
+            self.events.sort(key=lambda e: e.get("timestamp", ""))
+
+    async def _load_session_events(self, session_id: str) -> list[dict]:
+        """加载指定 session 的事件"""
+        tape_path = self._get_tape_path(session_id)
+        if not tape_path.exists():
+            return []
+        return await FileOperationsHelper.read_jsonl_file(tape_path)
+
+    def _get_tape_path(self, session_id: str) -> Path:
+        """获取 tape 文件路径"""
+        if self.session_manager:
+            return self.session_manager.get_tape_path(session_id, self.agent_id)
+        return self.tape_path
 
     def add_event(self, event: dict, tokens: int) -> bool:
         """
