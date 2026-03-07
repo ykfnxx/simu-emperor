@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 import logging.handlers
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -414,8 +414,8 @@ class Agent:
         流程：
         1. 过滤事件
         2. 初始化记忆组件
-        3. 构建上下文
-        4. 多轮 LLM 调用
+        3. 构建上下文。
+        4. 多轮 LLM 调用。
         5. 发送响应
 
         Args:
@@ -435,6 +435,9 @@ class Agent:
 
         if event.type in (EventType.COMMAND, EventType.CHAT):
             await self._ensure_memory_components(event.session_id)
+
+        # 获取当前turn的基准时间戳，确保事件顺序
+        turn_start_time = datetime.now(timezone.utc)
 
         # 3. 准备 Tape 写入任务
         tape_write_tasks = await self._prepare_tape_for_event(event)
@@ -542,6 +545,9 @@ class Agent:
             session_id: 会话 ID
             tape_write_tasks: Tape 写入任务列表
         """
+        # Capture turn start time to ensure event ordering
+        turn_start_time = datetime.now(timezone.utc).isoformat()
+
         # 构建消息
         messages = await self._build_llm_context(event, session_id)
 
@@ -581,6 +587,7 @@ class Agent:
                     "tool_calls": tool_calls if tool_calls else None,  # 完整的 tool_calls 数据
                 },
                 session_id=event.session_id,
+                timestamp=turn_start_time,
             )
             tape_write_tasks.append(self._tape_writer.write_event(assistant_response_event))
 
@@ -594,10 +601,15 @@ class Agent:
 
             # 执行 tool calls
             should_continue = await self._process_tool_calls(
-                event, session_id, iteration, tool_calls, messages, tape_write_tasks
+                event,
+                session_id,
+                iteration,
+                tool_calls,
+                messages,
+                tape_write_tasks,
+                turn_start_time,
             )
 
-            # 检查是否应该继续循环
             if not should_continue:
                 break
 
@@ -652,6 +664,7 @@ class Agent:
         tool_calls: list,
         messages: list[dict],
         tape_write_tasks: list,
+        turn_start_time: str,
     ) -> bool:
         """
         处理 tool calls
@@ -663,28 +676,32 @@ class Agent:
             tool_calls: 工具调用列表
             messages: 消息历史（会被修改）
             tape_write_tasks: Tape 写入任务列表
+            turn_start_time: Turn开始时间戳（用于确保事件顺序）
 
         Returns:
             是否应该继续循环
         """
-        has_respond_to_player = False  # 是否有respond_to_player
+        has_respond_to_player = False
 
         for idx, tool_call in enumerate(tool_calls, 1):
             function_name = tool_call["function"]["name"]
             function_args = json.loads(tool_call["function"]["arguments"])
 
             logger.info(
-                f"⚙️ [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
+                f"⚙️  [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
             )
 
-            # 检查是否已经调用了respond_to_player
             if function_name == "respond_to_player":
                 has_respond_to_player = True
 
-            # 调用 function handler 并获取结果
             result_str = await self._call_function_with_result(function_name, function_args, event)
 
-            # 构建 TOOL_RESULT Event
+            # Fix: Ensure tool_result timestamps come AFTER assistant_response
+            # Parse base timestamp and increment microseconds to maintain ordering
+            base_dt = datetime.fromisoformat(turn_start_time.replace("Z", "+00:00"))
+            tool_result_dt = base_dt + timedelta(microseconds=idx)
+            tool_result_timestamp = tool_result_dt.isoformat()
+
             tool_result_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
                 dst=event.dst,
@@ -695,9 +712,31 @@ class Agent:
                     "result": result_str,
                 },
                 session_id=event.session_id,
+                timestamp=tool_result_timestamp,
             )
 
-            # TapeWriter: 写入 TOOL_RESULT Event
+            if function_name == "respond_to_player":
+                has_respond_to_player = True
+
+            result_str = await self._call_function_with_result(function_name, function_args, event)
+
+            base_dt = datetime.fromisoformat(turn_start_time.replace("Z", "+00:00"))
+            tool_result_dt = base_dt + timedelta(microseconds=idx)
+            tool_result_timestamp = tool_result_dt.isoformat()
+
+            tool_result_event = TapeEvent(
+                src=f"agent:{self.agent_id}",
+                dst=event.dst,
+                type=EventType.TOOL_RESULT,
+                payload={
+                    "tool_call_id": tool_call["id"],
+                    "tool": function_name,
+                    "result": result_str,
+                },
+                session_id=event.session_id,
+                timestamp=tool_result_timestamp,
+            )
+
             tape_write_tasks.append(self._tape_writer.write_event(tool_result_event))
 
             # 记录 tool call 结果（使用OpenAI格式，与 tape 中存储的格式一致）

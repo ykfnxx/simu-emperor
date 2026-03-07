@@ -110,7 +110,7 @@ class StructuredRetriever:
         if not context_manager:
             return []
 
-        messages = await context_manager.get_messages()
+        messages = context_manager.get_context_messages()
 
         # Convert messages to result format
         results = []
