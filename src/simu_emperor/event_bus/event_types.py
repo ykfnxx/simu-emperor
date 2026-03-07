@@ -43,6 +43,18 @@ class EventType:
     TURN_RESOLVED = "turn_resolved"  # Calculator → * (回合结算完成)
     END_TURN = "end_turn"  # 玩家 → * (结束回合)
 
+    # Task Session 生命周期事件
+    TASK_CREATED = "task_created"  # Agent 创建 Task Session
+    TASK_FINISHED = "task_finished"  # Agent 完成 Task
+    TASK_FAILED = "task_failed"  # Agent 标记 Task 失败
+    TASK_TIMEOUT = "task_timeout"  # TaskMonitor 检测到超时
+
+    # Task Session 事件 (V4)
+    TASK_CREATED = "task_created"  # Agent 创建 Task Session
+    TASK_FINISHED = "task_finished"  # Agent 完成 Task
+    TASK_FAILED = "task_failed"  # Agent 标记 Task 失败
+    TASK_TIMEOUT = "task_timeout"  # TaskMonitor 检测到超时
+
     @classmethod
     def all(cls) -> list[str]:
         """获取所有事件类型"""
@@ -63,6 +75,10 @@ class EventType:
             cls.READY,
             cls.TURN_RESOLVED,
             cls.END_TURN,
+            cls.TASK_CREATED,
+            cls.TASK_FINISHED,
+            cls.TASK_FAILED,
+            cls.TASK_TIMEOUT,
         ]
 
     @classmethod
@@ -86,9 +102,12 @@ class EventType:
             cls.BUILD_IRRIGATION,
             cls.RECRUIT_TROOPS,
             cls.READY,
+            cls.TASK_CREATED,
+            cls.TASK_FINISHED,
+            cls.TASK_FAILED,
         ]
 
     @classmethod
     def system_events(cls) -> list[str]:
         """系统事件类型"""
-        return [cls.TURN_RESOLVED]
+        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT]
