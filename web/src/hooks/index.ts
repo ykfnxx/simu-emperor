@@ -168,7 +168,7 @@ export function useGameState(client: GameClient, refreshInterval: number = 0) {
 
     try {
       const data = await client.getState();
-      const stateData = data as StateData;
+      const stateData = data as unknown as StateData;
 
       if (stateData && typeof stateData === 'object') {
         setState(stateData);

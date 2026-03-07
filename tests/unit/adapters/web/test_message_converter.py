@@ -34,6 +34,7 @@ class TestMessageConverter:
         assert result["data"]["agentDisplayName"] == "直隶巡抚"
         assert result["data"]["text"] == "陛下，直隶省..."
         assert result["data"]["timestamp"] == "2026-03-06T12:00:00Z"
+        assert result["data"]["session_id"] == "session:web:test"
 
     @pytest.mark.asyncio
     async def test_convert_turn_resolved_event(self):
@@ -96,6 +97,7 @@ class TestMessageConverter:
         assert result["data"]["agent"] == "player"
         assert result["data"]["agentDisplayName"] == "皇帝"
         assert result["data"]["text"] == "查看直隶省情况"
+        assert result["data"]["session_id"] == "session:web:test"
 
     @pytest.mark.asyncio
     async def test_convert_command_event_returns_none(self):
@@ -177,4 +179,4 @@ class TestMessageConverter:
         assert result is not None
         # 应该生成 ISO 格式的时间戳
         assert "T" in result["data"]["timestamp"]
-        assert result["data"]["timestamp"].endswith("Z")
+        assert result["data"]["timestamp"].endswith("+00:00")

@@ -3,6 +3,7 @@ Unit tests for WebGameInstance
 """
 
 import pytest
+import json
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -49,6 +50,7 @@ class TestWebGameInstance:
         assert instance.settings == settings
         assert instance.player_id == "player:web"
         assert instance.session_id == "session:web:main"
+        assert instance.memory_dir == settings.data_dir / "memory"
         assert instance._running is False
         assert instance.event_bus is None
         assert instance.repository is None
@@ -85,3 +87,108 @@ class TestWebGameInstance:
 
         expected_path = str(settings.data_dir / "game.db")
         assert instance.db_path == expected_path
+
+    @pytest.mark.asyncio
+    async def test_create_session_and_select(self, settings):
+        """测试创建并切换 session"""
+        instance = WebGameInstance(settings)
+
+        created = await instance.create_session("水灾赈灾")
+        assert created["session_id"].startswith("session:web:")
+        assert created["is_current"] is True
+        assert instance.session_id == created["session_id"]
+
+        sessions = await instance.list_sessions()
+        session_ids = {item["session_id"] for item in sessions}
+        assert "session:web:main" in session_ids
+        assert created["session_id"] in session_ids
+
+        selected = await instance.select_session("session:web:main")
+        assert selected["session_id"] == "session:web:main"
+        assert instance.session_id == "session:web:main"
+
+    @pytest.mark.asyncio
+    async def test_select_session_not_found(self, settings):
+        """测试切换不存在 session 报错"""
+        instance = WebGameInstance(settings)
+        with pytest.raises(ValueError):
+            await instance.select_session("session:web:not-found")
+
+    @pytest.mark.asyncio
+    async def test_get_empire_overview_without_repository(self, settings):
+        """测试未初始化时的帝国概况"""
+        instance = WebGameInstance(settings)
+        overview = await instance.get_empire_overview()
+
+        assert overview["turn"] == 0
+        assert overview["treasury"] == 0
+        assert overview["population"] == 0
+        assert overview["military"] == 0
+        assert overview["happiness"] == 0.0
+        assert overview["province_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_current_tape(self, settings):
+        """测试读取当前 session 的 tape"""
+        instance = WebGameInstance(settings)
+        instance.session_id = "session:web:test"
+
+        tape_path = (
+            instance.memory_dir
+            / "agents"
+            / "governor_zhili"
+            / "sessions"
+            / "session:web:test"
+            / "tape.jsonl"
+        )
+        tape_path.parent.mkdir(parents=True, exist_ok=True)
+
+        event = {
+            "event_id": "evt_1",
+            "src": "agent:governor_zhili",
+            "dst": ["player:web"],
+            "type": "agent_response",
+            "payload": {"response": "启禀陛下"},
+            "timestamp": "2026-03-07T00:00:00+00:00",
+            "session_id": "session:web:test",
+            "parent_event_id": None,
+            "root_event_id": "",
+        }
+        tape_path.write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        result = await instance.get_current_tape(limit=20)
+        assert result["session_id"] == "session:web:test"
+        assert result["total"] == 1
+        assert result["events"][0]["event_id"] == "evt_1"
+        assert result["events"][0]["agent_id"] == "governor_zhili"
+
+    def test_get_available_agents_union_sources(self, settings):
+        """测试可用 agent 聚合（活跃 + 工作目录 + 模板 + memory + 会话映射）。"""
+        instance = WebGameInstance(settings)
+
+        # 模板目录
+        (settings.data_dir / "default_agents" / "governor_zhili").mkdir(parents=True, exist_ok=True)
+        (settings.data_dir / "default_agents" / "minister_of_revenue").mkdir(parents=True, exist_ok=True)
+        # memory 目录
+        (instance.memory_dir / "agents" / "archivist" / "sessions").mkdir(parents=True, exist_ok=True)
+        # 当前会话映射
+        instance._current_session_by_agent["grand_secretary"] = "session:web:main"
+
+        class MockAgentManager:
+            def get_active_agents(self):
+                return ["governor_zhili"]
+
+            def get_all_agents(self):
+                return ["governor_zhili", "minister_of_revenue"]
+
+        instance.agent_manager = MockAgentManager()
+
+        agents = instance.get_available_agents()
+        assert agents == sorted(
+            [
+                "archivist",
+                "governor_zhili",
+                "grand_secretary",
+                "minister_of_revenue",
+            ]
+        )

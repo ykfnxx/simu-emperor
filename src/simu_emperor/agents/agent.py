@@ -252,7 +252,11 @@ class Agent:
         Args:
             session_id: 会话ID
         """
-        if not self._context_manager or not self._memory_tools:
+        if (
+            not self._context_manager
+            or not self._memory_tools
+            or self._context_manager.session_id != session_id
+        ):
             self._context_manager, self._memory_tools = await self._memory_initializer.initialize(
                 session_id
             )
