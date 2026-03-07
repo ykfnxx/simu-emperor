@@ -4,13 +4,15 @@ FastAPI 服务器
 提供 WebSocket 实时通信和 REST API 端点。
 """
 
+from contextlib import asynccontextmanager
 import logging
 import os
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from simu_emperor.config import settings
 from simu_emperor.event_bus.event import Event
@@ -22,13 +24,100 @@ from simu_emperor.adapters.web.message_converter import MessageConverter
 
 logger = logging.getLogger(__name__)
 
-# FastAPI 应用
-app = FastAPI(title="Emperor Simulator Web API")
-
 # 全局单例
 game_instance = WebGameInstance(settings)
 connection_manager = ConnectionManager()
 message_converter = MessageConverter()
+
+# ============================================================================
+# Validation Helpers
+# ============================================================================
+
+def _normalize_agent_id(agent_id: str) -> str:
+    """规范化 agent_id，兼容 agent: 前缀。"""
+    normalized = agent_id.strip()
+    if normalized.startswith("agent:"):
+        return normalized.replace("agent:", "", 1)
+    return normalized
+
+
+def _validate_agent_id(
+    agent_id: str | None,
+    *,
+    required: bool,
+    field_name: str,
+) -> str | None:
+    """校验 agent_id 非空且存在。"""
+    if agent_id is None:
+        if required:
+            raise ValueError(f"{field_name} is required")
+        return None
+
+    normalized = _normalize_agent_id(agent_id)
+    if not normalized:
+        raise ValueError(f"{field_name} cannot be empty")
+
+    available_agents = {_normalize_agent_id(agent) for agent in game_instance.get_available_agents()}
+    if normalized not in available_agents:
+        raise ValueError(f"Unknown agent: {normalized}")
+
+    return normalized
+
+
+def _validate_session_id(session_id: str | None, *, required: bool) -> str | None:
+    """校验 session_id 格式。"""
+    if session_id is None:
+        if required:
+            raise ValueError("session_id is required")
+        return None
+
+    normalized = session_id.strip()
+    if not normalized:
+        raise ValueError("session_id cannot be empty")
+    if not normalized.startswith("session:web:"):
+        raise ValueError(f"Invalid session_id format: {normalized}")
+    return normalized
+
+
+def _validate_text(value: Any, *, field_name: str) -> str:
+    """校验文本字段是字符串。"""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value
+
+
+async def _send_ws_error(websocket: WebSocket, message: str) -> None:
+    """向当前 WebSocket 返回参数校验错误。"""
+    await connection_manager.send_personal(
+        {"kind": "error", "data": {"message": message}},
+        websocket,
+    )
+
+# FastAPI 应用
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """应用生命周期管理。"""
+    logger.info("Starting FastAPI server...")
+    await game_instance.start()
+
+    global message_converter
+    message_converter = MessageConverter(repository=game_instance.repository)
+
+    if game_instance.event_bus:
+        game_instance.event_bus.subscribe("*", _on_event)
+
+    logger.info("FastAPI server started")
+    try:
+        yield
+    finally:
+        logger.info("Shutting down FastAPI server...")
+        await game_instance.shutdown()
+        logger.info("FastAPI server shut down")
+
+
+app = FastAPI(title="Emperor Simulator Web API", lifespan=lifespan)
 
 # CORS 配置
 app.add_middleware(
@@ -38,33 +127,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ============================================================================
-# Startup/Shutdown
-# ============================================================================
-
-@app.on_event("startup")
-async def startup():
-    """应用启动时初始化游戏实例"""
-    logger.info("Starting FastAPI server...")
-    await game_instance.start()
-
-    # 初始化 MessageConverter，传入 repository
-    global message_converter
-    message_converter = MessageConverter(repository=game_instance.repository)
-
-    # 订阅所有事件，广播给 WebSocket 客户端
-    if game_instance.event_bus:
-        game_instance.event_bus.subscribe("*", _on_event)
-
-    logger.info("FastAPI server started")
-
-@app.on_event("shutdown")
-async def shutdown():
-    """应用关闭时清理资源"""
-    logger.info("Shutting down FastAPI server...")
-    await game_instance.shutdown()
-    logger.info("FastAPI server shut down")
 
 # ============================================================================
 # WebSocket Endpoint
@@ -113,24 +175,27 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
     msg_type = data.get("type")
 
     if msg_type == "command":
-        await handle_command(data)
+        try:
+            await handle_command(data)
+        except ValueError as exc:
+            logger.warning("Invalid command payload: %s", exc)
+            await _send_ws_error(websocket, str(exc))
     elif msg_type == "chat":
-        await handle_chat(data)
+        try:
+            await handle_chat(data)
+        except ValueError as exc:
+            logger.warning("Invalid chat payload: %s", exc)
+            await _send_ws_error(websocket, str(exc))
     else:
-        await connection_manager.send_personal({
-            "kind": "error",
-            "data": {"message": f"Unknown message type: {msg_type}"}
-        }, websocket)
+        await _send_ws_error(websocket, f"Unknown message type: {msg_type}")
 
 async def handle_command(data: dict) -> None:
     """处理命令消息"""
-    agent = data.get("agent")
-    command = data.get("text", "")
-    session_id = data.get("session_id")
-
-    if not agent:
-        logger.warning("Command missing agent field")
-        return
+    agent = _validate_agent_id(data.get("agent"), required=True, field_name="agent")
+    command = _validate_text(data.get("text", ""), field_name="text").strip()
+    session_id = _validate_session_id(data.get("session_id"), required=False)
+    if not command:
+        raise ValueError("text cannot be empty")
 
     target_session_id = session_id or game_instance.get_session_for_agent(agent)
     game_instance.set_current_context(agent, target_session_id)
@@ -146,17 +211,15 @@ async def handle_command(data: dict) -> None:
     if game_instance.event_bus:
         await game_instance.event_bus.send_event(event)
     else:
-        logger.error("EventBus not initialized")
+        raise ValueError("Game not initialized")
 
 async def handle_chat(data: dict) -> None:
     """处理聊天消息"""
-    agent = data.get("agent")
-    text = data.get("text", "")
-    session_id = data.get("session_id")
-
-    if not agent:
-        logger.warning("Chat missing agent field")
-        return
+    agent = _validate_agent_id(data.get("agent"), required=True, field_name="agent")
+    text = _validate_text(data.get("text", ""), field_name="text").strip()
+    session_id = _validate_session_id(data.get("session_id"), required=False)
+    if not text:
+        raise ValueError("text cannot be empty")
 
     target_session_id = session_id or game_instance.get_session_for_agent(agent)
     game_instance.set_current_context(agent, target_session_id)
@@ -171,6 +234,8 @@ async def handle_chat(data: dict) -> None:
 
     if game_instance.event_bus:
         await game_instance.event_bus.send_event(event)
+    else:
+        raise ValueError("Game not initialized")
 
 async def _on_event(event: Event) -> None:
     """
@@ -194,17 +259,71 @@ class CommandRequest(BaseModel):
     agent: str
     command: str
 
+    @field_validator("agent")
+    @classmethod
+    def _validate_agent(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("agent cannot be empty")
+        return normalized
+
+    @field_validator("command")
+    @classmethod
+    def _validate_command(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("command cannot be empty")
+        return normalized
+
 
 class SessionCreateRequest(BaseModel):
     """新建 session 请求"""
     name: str | None = None
     agent_id: str | None = None
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Session name cannot be empty")
+        return normalized
+
+    @field_validator("agent_id")
+    @classmethod
+    def _validate_agent_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("agent_id cannot be empty")
+        return normalized
+
 
 class SessionSelectRequest(BaseModel):
     """选择 session 请求"""
     session_id: str
     agent_id: str | None = None
+
+    @field_validator("session_id")
+    @classmethod
+    def _validate_session_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("session_id cannot be empty")
+        return normalized
+
+    @field_validator("agent_id")
+    @classmethod
+    def _validate_agent_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("agent_id cannot be empty")
+        return normalized
 
 @app.post("/api/command")
 async def send_command(cmd: CommandRequest):
@@ -217,11 +336,16 @@ async def send_command(cmd: CommandRequest):
     Returns:
         {"success": true}
     """
+    try:
+        agent = _validate_agent_id(cmd.agent, required=True, field_name="agent")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     event = Event(
         src="player:web",
-        dst=[f"agent:{cmd.agent}"],
+        dst=[f"agent:{agent}"],
         type=EventType.COMMAND,
-        payload={"command": cmd.command, "source": "web"},
+        payload={"command": cmd.command.strip(), "source": "web"},
         session_id=game_instance.session_id
     )
 
@@ -280,7 +404,12 @@ async def create_session(request: SessionCreateRequest):
     """
     新建 session 并切换为当前 session。
     """
-    session = await game_instance.create_session(request.name, agent_id=request.agent_id)
+    try:
+        agent_id = _validate_agent_id(request.agent_id, required=False, field_name="agent_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session = await game_instance.create_session(request.name, agent_id=agent_id)
     return {
         "success": True,
         "current_session_id": game_instance.session_id,
@@ -295,9 +424,15 @@ async def select_session(request: SessionSelectRequest):
     选择当前 session。
     """
     try:
+        validated_session_id = _validate_session_id(request.session_id, required=True)
+        validated_agent_id = _validate_agent_id(request.agent_id, required=False, field_name="agent_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
         session = await game_instance.select_session(
-            request.session_id,
-            agent_id=request.agent_id,
+            validated_session_id,
+            agent_id=validated_agent_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -319,11 +454,17 @@ async def get_current_tape(
     """
     查询当前 session 的 tape 事件。
     """
+    try:
+        validated_agent_id = _validate_agent_id(agent_id, required=False, field_name="agent_id")
+        validated_session_id = _validate_session_id(session_id, required=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     safe_limit = max(1, min(limit, 500))
     return await game_instance.get_current_tape(
         limit=safe_limit,
-        agent_id=agent_id,
-        session_id=session_id,
+        agent_id=validated_agent_id,
+        session_id=validated_session_id,
     )
 
 @app.get("/api/agents")
