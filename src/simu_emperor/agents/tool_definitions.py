@@ -153,4 +153,44 @@ AVAILABLE_FUNCTIONS = [
             "required": ["content"],
         },
     },
+    {
+        "name": "create_task_session",
+        "description": "创建一个任务会话（Task Session），用于需要等待其他 Agent 回复的复杂任务。parent_session 自动为当前 session，嵌套深度上限为 5 层。返回 task_session_id，需要在后续 finish/fail 时使用。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": "超时时间（秒），默认 300 秒",
+                    "default": 300,
+                },
+                "description": {"type": "string", "description": "任务描述，用于日志和调试"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "finish_task_session",
+        "description": "完成指定的任务会话，将状态设置为 FINISHED",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_session_id": {"type": "string", "description": "要完成的任务会话 ID"},
+                "result": {"type": "string", "description": "任务结果描述"},
+            },
+            "required": ["task_session_id", "result"],
+        },
+    },
+    {
+        "name": "fail_task_session",
+        "description": "标记指定的任务会话为失败",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_session_id": {"type": "string", "description": "要标记失败的任务会话 ID"},
+                "reason": {"type": "string", "description": "失败原因"},
+            },
+            "required": ["task_session_id", "reason"],
+        },
+    },
 ]
