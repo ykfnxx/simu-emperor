@@ -94,6 +94,15 @@ class TaskSessionTools:
         if session is None:
             raise ValueError(f"Task session not found: {task_session_id}")
 
+        if not session.is_task:
+            raise ValueError(f"Session {task_session_id} is not a task session")
+
+        if session.created_by != f"agent:{self.agent_id}":
+            raise ValueError(
+                f"Permission denied: task was created by {session.created_by}, "
+                f"not agent:{self.agent_id}"
+            )
+
         await self.session_manager.update_session(
             task_session_id,
             status="FINISHED",
@@ -135,6 +144,15 @@ class TaskSessionTools:
         session = await self.session_manager.get_session(task_session_id)
         if session is None:
             raise ValueError(f"Task session not found: {task_session_id}")
+
+        if not session.is_task:
+            raise ValueError(f"Session {task_session_id} is not a task session")
+
+        if session.created_by != f"agent:{self.agent_id}":
+            raise ValueError(
+                f"Permission denied: task was created by {session.created_by}, "
+                f"not agent:{self.agent_id}"
+            )
 
         await self.session_manager.update_session(
             task_session_id,

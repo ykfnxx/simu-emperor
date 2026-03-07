@@ -213,12 +213,45 @@ class Agent:
 
         # Task Session 类函数（V4）
         if self._task_session_tools:
+            import json
+
             task_handlers = {
-                "create_task_session": self._task_session_tools.create_task_session,
-                "finish_task_session": self._task_session_tools.finish_task_session,
-                "fail_task_session": self._task_session_tools.fail_task_session,
+                "create_task_session": self._wrap_create_task_session,
+                "finish_task_session": self._wrap_finish_task_session,
+                "fail_task_session": self._wrap_fail_task_session,
             }
             self._function_handlers.update(task_handlers)
+
+    async def _wrap_create_task_session(self, args: dict, event: Event) -> str:
+        """包装 create_task_session 以符合 Agent 调用约定"""
+        import json
+
+        result = await self._task_session_tools.create_task_session(
+            timeout_seconds=args.get("timeout_seconds", 300),
+            description=args.get("description", ""),
+            current_session_id=event.session_id,
+        )
+        return json.dumps(result, ensure_ascii=False)
+
+    async def _wrap_finish_task_session(self, args: dict, event: Event) -> str:
+        """包装 finish_task_session 以符合 Agent 调用约定"""
+        import json
+
+        result = await self._task_session_tools.finish_task_session(
+            task_session_id=args["task_session_id"],
+            result=args["result"],
+        )
+        return json.dumps(result, ensure_ascii=False)
+
+    async def _wrap_fail_task_session(self, args: dict, event: Event) -> str:
+        """包装 fail_task_session 以符合 Agent 调用约定"""
+        import json
+
+        result = await self._task_session_tools.fail_task_session(
+            task_session_id=args["task_session_id"],
+            reason=args["reason"],
+        )
+        return json.dumps(result, ensure_ascii=False)
 
     @staticmethod
     def _create_action_wrapper(handler_func: callable, success_message: str) -> callable:
