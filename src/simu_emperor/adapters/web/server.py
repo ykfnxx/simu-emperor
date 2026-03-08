@@ -325,6 +325,74 @@ class SessionSelectRequest(BaseModel):
             raise ValueError("agent_id cannot be empty")
         return normalized
 
+
+class GroupChatCreateRequest(BaseModel):
+    """创建群聊请求"""
+    name: str
+    agent_ids: list[str]
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("群聊名称不能为空")
+        return normalized
+
+    @field_validator("agent_ids")
+    @classmethod
+    def _validate_agent_ids(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("至少需要选择一个agent")
+        normalized = [agent.strip() for agent in value if agent.strip()]
+        if len(normalized) < 1:
+            raise ValueError("至少需要选择一个agent")
+        return normalized
+
+
+class GroupChatMessageRequest(BaseModel):
+    """群聊消息请求"""
+    group_id: str
+    message: str
+
+    @field_validator("group_id")
+    @classmethod
+    def _validate_group_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("group_id不能为空")
+        return normalized
+
+    @field_validator("message")
+    @classmethod
+    def _validate_message(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        return normalized
+
+
+class GroupChatAgentRequest(BaseModel):
+    """群聊agent操作请求"""
+    group_id: str
+    agent_id: str
+
+    @field_validator("group_id")
+    @classmethod
+    def _validate_group_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("group_id不能为空")
+        return normalized
+
+    @field_validator("agent_id")
+    @classmethod
+    def _validate_agent_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("agent_id不能为空")
+        return normalized
+
 @app.post("/api/command")
 async def send_command(cmd: CommandRequest):
     """
@@ -450,9 +518,16 @@ async def get_current_tape(
     limit: int = 100,
     agent_id: str | None = None,
     session_id: str | None = None,
+    include_sub_sessions: str | None = None,
 ):
     """
     查询当前 session 的 tape 事件。
+
+    Args:
+        limit: 事件数量限制
+        agent_id: agent ID
+        session_id: session ID
+        include_sub_sessions: 要包含的子session ID列表（逗号分隔）
     """
     try:
         validated_agent_id = _validate_agent_id(agent_id, required=False, field_name="agent_id")
@@ -461,11 +536,47 @@ async def get_current_tape(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     safe_limit = max(1, min(limit, 500))
+
+    # 解析子session列表
+    sub_sessions = None
+    if include_sub_sessions:
+        sub_sessions = [s.strip() for s in include_sub_sessions.split(",") if s.strip()]
+
+    if sub_sessions:
+        return await game_instance.get_tape_with_subs(
+            limit=safe_limit,
+            agent_id=validated_agent_id,
+            session_id=validated_session_id,
+            include_sub_sessions=sub_sessions,
+        )
+
     return await game_instance.get_current_tape(
         limit=safe_limit,
         agent_id=validated_agent_id,
         session_id=validated_session_id,
     )
+
+
+@app.get("/api/tape/subsessions")
+async def get_sub_sessions(
+    session_id: str,
+    agent_id: str | None = None,
+):
+    """
+    获取指定主会话的所有子session列表
+
+    Args:
+        session_id: 父会话ID
+        agent_id: 可选，筛选特定agent的子会话
+
+    Returns:
+        子会话列表
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    return await game_instance.get_sub_sessions(session_id, agent_id)
+
 
 @app.get("/api/agents")
 async def list_agents():
@@ -479,6 +590,123 @@ async def list_agents():
         raise HTTPException(status_code=503, detail="Game not initialized")
 
     return game_instance.get_available_agents()
+
+
+# ============================================================================
+# Group Chat API
+# ============================================================================
+
+@app.get("/api/groups")
+async def list_groups():
+    """
+    列出所有群聊
+
+    Returns:
+        群聊列表，每个群聊包含group_id, name, agent_ids等信息
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    return await game_instance.list_group_chats()
+
+
+@app.post("/api/groups")
+async def create_group(request: GroupChatCreateRequest):
+    """
+    创建群聊
+
+    Args:
+        request: 群聊创建请求（name, agent_ids）
+
+    Returns:
+        创建的群聊信息
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    # 验证所有agent都可用
+    available_agents = game_instance.get_available_agents()
+    for agent_id in request.agent_ids:
+        normalized = agent_id if not agent_id.startswith("agent:") else agent_id.replace("agent:", "")
+        if normalized not in available_agents:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent不可用: {agent_id}"
+            )
+
+    group = await game_instance.create_group_chat(request.name, request.agent_ids)
+    return group.to_dict()
+
+
+@app.post("/api/groups/message")
+async def send_group_message(request: GroupChatMessageRequest):
+    """
+    向群聊发送消息
+
+    Args:
+        request: 消息请求（group_id, message）
+
+    Returns:
+        {"success": true, "sent_agents": [...]}
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    sent_agents = await game_instance.send_to_group_chat(request.group_id, request.message)
+
+    if not sent_agents:
+        raise HTTPException(status_code=404, detail=f"群聊不存在: {request.group_id}")
+
+    return {
+        "success": True,
+        "sent_agents": sent_agents,
+        "count": len(sent_agents),
+    }
+
+
+@app.post("/api/groups/add-agent")
+async def add_group_agent(request: GroupChatAgentRequest):
+    """
+    向群聊添加agent
+
+    Args:
+        request: 添加请求（group_id, agent_id）
+
+    Returns:
+        {"success": true}
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    success = await game_instance.add_agent_to_group(request.group_id, request.agent_id)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="添加agent失败")
+
+    return {"success": True}
+
+
+@app.post("/api/groups/remove-agent")
+async def remove_group_agent(request: GroupChatAgentRequest):
+    """
+    从群聊移除agent
+
+    Args:
+        request: 移除请求（group_id, agent_id）
+
+    Returns:
+        {"success": true}
+    """
+    if not game_instance._running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    success = await game_instance.remove_agent_from_group(request.group_id, request.agent_id)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="移除agent失败")
+
+    return {"success": True}
+
 
 @app.get("/api/health")
 async def health_check():

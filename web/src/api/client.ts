@@ -16,6 +16,9 @@ import type {
   SessionCreateResponse,
   SessionSelectResponse,
   CurrentTapeResponse,
+  SubSession,
+  SessionStateData,
+  GroupChat,
 } from './types';
 
 export interface GameClientConfig {
@@ -233,11 +236,61 @@ export class GameClient {
     });
   }
 
-  async getCurrentTape(limit: number = 100, agentId?: string, sessionId?: string): Promise<CurrentTapeResponse> {
+  async getCurrentTape(
+    limit: number = 100,
+    agentId?: string,
+    sessionId?: string,
+    includeSubSessions?: string[]
+  ): Promise<CurrentTapeResponse> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (agentId) params.set('agent_id', agentId);
     if (sessionId) params.set('session_id', sessionId);
+    if (includeSubSessions && includeSubSessions.length > 0) {
+      params.set('include_sub_sessions', includeSubSessions.join(','));
+    }
     return this.request<CurrentTapeResponse>(`/tape/current?${params.toString()}`);
+  }
+
+  async getSubSessions(sessionId: string, agentId?: string): Promise<SubSession[]> {
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (agentId) params.set('agent_id', agentId);
+    return this.request<SubSession[]>(`/tape/subsessions?${params.toString()}`);
+  }
+
+  async getGroups(): Promise<GroupChat[]> {
+    return this.request<GroupChat[]>('/groups');
+  }
+
+  async createGroup(name: string, agentIds: string[]): Promise<GroupChat> {
+    return this.request<GroupChat>('/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, agent_ids: agentIds }),
+    });
+  }
+
+  async sendGroupMessage(groupId: string, message: string): Promise<{ success: boolean; sent_agents: string[]; count: number }> {
+    return this.request<{ success: boolean; sent_agents: string[]; count: number }>('/groups/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, message }),
+    });
+  }
+
+  async addGroupAgent(groupId: string, agentId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('/groups/add-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, agent_id: agentId }),
+    });
+  }
+
+  async removeGroupAgent(groupId: string, agentId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('/groups/remove-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, agent_id: agentId }),
+    });
   }
 }
 
