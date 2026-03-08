@@ -24,6 +24,7 @@ from simu_emperor.llm.base import LLMProvider
 from simu_emperor.llm.anthropic import AnthropicProvider
 from simu_emperor.llm.openai import OpenAIProvider
 from simu_emperor.llm.mock import MockProvider
+from simu_emperor.session.group_chat import GroupChat
 
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class WebGameInstance:
         self.agent_manager: AgentManager | None = None
         self.llm_provider: LLMProvider | None = None
         self.session_manager = None  # SessionManager for task sessions
+        self._group_chats: dict[str, GroupChat] = {}  # 群聊管理
         self._running: bool = False
 
         logger.info("WebGameInstance created")
@@ -532,8 +534,137 @@ class WebGameInstance:
             "total": total_events,
         }
 
+    def _is_main_session(self, session_id: str) -> bool:
+        """检查是否为主会话（非task会话）"""
+        return session_id.startswith("session:web:") or session_id.startswith("session:telegram:")
+
+    def _is_task_session(self, session_id: str) -> bool:
+        """检查是否为task子会话"""
+        return session_id.startswith("task:")
+
+    async def get_sub_sessions(
+        self, parent_session_id: str, agent_id: str | None = None
+    ) -> list[dict]:
+        """
+        获取指定主会话的所有子session（task sessions）
+
+        Args:
+            parent_session_id: 父会话ID
+            agent_id: 可选，筛选特定agent的子会话
+
+        Returns:
+            子会话列表，包含session_id, parent_id, event_count, created_at, depth等
+        """
+        if not self.session_manager:
+            return []
+
+        sub_sessions = []
+        manifest = (
+            await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        )
+        manifest_sessions = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
+
+        for session_id, session_data in manifest_sessions.items():
+            # 跳过非task会话
+            if not self._is_task_session(session_id):
+                continue
+
+            # 检查是否是指定父会话的子会话
+            parent_id = session_data.get("parent_id")
+            if parent_id != parent_session_id:
+                continue
+
+            # 如果指定了agent，检查该agent是否参与此session
+            if agent_id:
+                agent_data = session_data.get("agents", {}).get(agent_id)
+                if not agent_data:
+                    continue
+
+            # 计算嵌套深度
+            depth = 0
+            current_parent = parent_id
+            while current_parent:
+                parent_data = manifest_sessions.get(current_parent, {})
+                current_parent = parent_data.get("parent_id")
+                if current_parent:
+                    depth += 1
+                if depth > 10:  # 防止无限循环
+                    break
+
+            sub_sessions.append({
+                "session_id": session_id,
+                "parent_id": parent_id,
+                "created_at": session_data.get("created_at", ""),
+                "updated_at": session_data.get("updated_at", ""),
+                "event_count": int(self._to_number(session_data.get("event_count", 0))),
+                "depth": depth,
+                "status": session_data.get("status", "ACTIVE"),
+            })
+
+        # 按创建时间排序
+        sub_sessions.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+
+        return sub_sessions
+
+    async def get_tape_with_subs(
+        self,
+        limit: int = 100,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+        include_sub_sessions: list[str] | None = None,
+    ) -> dict:
+        """
+        获取tape内容，包含指定的子session
+
+        Args:
+            limit: 事件数量限制
+            agent_id: agent ID
+            session_id: 主session ID
+            include_sub_sessions: 要包含的子session ID列表
+
+        Returns:
+            tape响应，包含合并后的事件
+        """
+        normalized_agent = self._normalize_agent_id(agent_id) if agent_id else self.current_agent_id
+        target_session_id = session_id or self.session_id
+        events: list[dict] = []
+
+        # 读取主session的tape
+        tape_paths = self._iter_session_tape_paths(target_session_id, normalized_agent)
+        for tape_path in tape_paths:
+            current_agent_id = tape_path.parent.parent.parent.name
+            tape_events = await FileOperationsHelper.read_jsonl_file(tape_path)
+            for event in tape_events:
+                event["agent_id"] = current_agent_id
+                events.append(event)
+
+        # 读取指定的子session的tape
+        if include_sub_sessions:
+            for sub_session_id in include_sub_sessions:
+                sub_tape_paths = self._iter_session_tape_paths(sub_session_id, normalized_agent)
+                for tape_path in sub_tape_paths:
+                    current_agent_id = tape_path.parent.parent.parent.name
+                    tape_events = await FileOperationsHelper.read_jsonl_file(tape_path)
+                    for event in tape_events:
+                        event["agent_id"] = current_agent_id
+                        event["from_sub_session"] = sub_session_id  # 标记来源
+                        events.append(event)
+
+        events.sort(key=lambda item: item.get("timestamp", ""))
+        total_events = len(events)
+        if limit > 0:
+            events = events[-limit:]
+
+        return {
+            "agent_id": normalized_agent,
+            "session_id": target_session_id,
+            "events": events,
+            "total": total_events,
+            "included_sub_sessions": include_sub_sessions or [],
+        }
+
     async def list_agent_sessions(self) -> list[dict]:
-        """按 agent 列出会话。"""
+        """按 agent 列出会话。仅返回主会话，不返回task子会话。"""
         manifest = (
             await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
         )
@@ -552,6 +683,9 @@ class WebGameInstance:
             session_map: dict[str, dict] = {}
 
             for session_id, session_data in manifest_sessions.items():
+                # 过滤task子会话
+                if not self._is_main_session(session_id):
+                    continue
                 agent_data = session_data.get("agents", {}).get(agent_id)
                 if not agent_data:
                     continue
@@ -574,6 +708,9 @@ class WebGameInstance:
                     if not session_dir.is_dir():
                         continue
                     session_id = session_dir.name
+                    # 过滤task子会话
+                    if not self._is_main_session(session_id):
+                        continue
                     session_map.setdefault(
                         session_id,
                         {
@@ -592,18 +729,20 @@ class WebGameInstance:
 
             current_session = self._current_session_by_agent.get(agent_id)
             if current_session and current_session not in session_map:
-                session_map[current_session] = {
-                    "session_id": current_session,
-                    "title": self._session_titles.get(current_session, current_session),
-                    "created_at": None,
-                    "updated_at": None,
-                    "event_count": 0,
-                    "agents": [agent_id],
-                    "is_current": (
-                        current_session == self.get_session_for_agent(agent_id)
-                        and agent_id == self.current_agent_id
-                    ),
-                }
+                # 过滤task子会话
+                if self._is_main_session(current_session):
+                    session_map[current_session] = {
+                        "session_id": current_session,
+                        "title": self._session_titles.get(current_session, current_session),
+                        "created_at": None,
+                        "updated_at": None,
+                        "event_count": 0,
+                        "agents": [agent_id],
+                        "is_current": (
+                            current_session == self.get_session_for_agent(agent_id)
+                            and agent_id == self.current_agent_id
+                        ),
+                    }
 
             sessions = list(session_map.values())
             sessions.sort(
@@ -799,3 +938,220 @@ class WebGameInstance:
         turn = event.payload.get("turn")
         logger.info(f"🔄 Turn {turn} resolved")
         # 注意：实际的 WebSocket 发送由 server.py 中的事件监听器处理
+
+    async def broadcast_session_state(
+        self, session_id: str, agent_id: str, event_count: int
+    ) -> None:
+        """
+        广播session状态更新到所有WebSocket客户端
+
+        Args:
+            session_id: 会话ID
+            agent_id: Agent ID
+            event_count: 事件计数
+        """
+        if not self.event_bus:
+            return
+
+        # 创建内部状态更新事件
+        state_event = Event(
+            src="system:web",
+            dst=["*"],
+            type=EventType.CHAT,  # 使用CHAT类型作为载体
+            payload={
+                "__internal_type__": "session_state",
+                "session_id": session_id,
+                "agent_id": agent_id,
+                "event_count": event_count,
+                "last_update": datetime.now(timezone.utc).isoformat(),
+            },
+            session_id=session_id,
+        )
+
+        await self.event_bus.send_event(state_event)
+
+    # ========================================================================
+    # 群聊管理
+    # ========================================================================
+
+    async def create_group_chat(
+        self, name: str, agent_ids: list[str]
+    ) -> GroupChat:
+        """
+        创建群聊
+
+        Args:
+            name: 群聊名称
+            agent_ids: 成员agent列表
+
+        Returns:
+            创建的GroupChat对象
+        """
+        now = datetime.now(timezone.utc)
+        timestamp = now.strftime("%Y%m%d%H%M%S")
+        suffix = uuid.uuid4().hex[:6]
+        group_id = f"group:web:{timestamp}:{suffix}"
+
+        # 创建群聊关联的主会话
+        session_id = f"session:web:group:{timestamp}:{suffix}"
+        self._session_ids.add(session_id)
+        self._session_titles[session_id] = name
+
+        # 注册session到manifest
+        await self._ensure_session_registered(session_id, agent_ids=agent_ids)
+
+        group = GroupChat(
+            group_id=group_id,
+            name=name,
+            agent_ids=agent_ids,
+            created_by=self.player_id,
+            created_at=now,
+            session_id=session_id,
+            message_count=0,
+        )
+
+        self._group_chats[group_id] = group
+        logger.info(f"Created group chat: {group_id} with agents: {agent_ids}")
+
+        return group
+
+    async def list_group_chats(self) -> list[dict]:
+        """
+        列出所有群聊
+
+        Returns:
+            群聊列表，每个群聊包含group_id, name, agent_ids等信息
+        """
+        return [group.to_dict() for group in self._group_chats.values()]
+
+    async def get_group_chat(self, group_id: str) -> GroupChat | None:
+        """
+        获取指定群聊
+
+        Args:
+            group_id: 群聊ID
+
+        Returns:
+            GroupChat对象，如果不存在则返回None
+        """
+        return self._group_chats.get(group_id)
+
+    async def send_to_group_chat(
+        self, group_id: str, message: str
+    ) -> list[str]:
+        """
+        向群聊发送消息（广播给所有成员agent）
+
+        Args:
+            group_id: 群聊ID
+            message: 消息内容
+
+        Returns:
+            成功发送到的agent_id列表
+        """
+        group = self._group_chats.get(group_id)
+        if not group:
+            logger.warning(f"Group chat not found: {group_id}")
+            return []
+
+        if not self.event_bus:
+            logger.warning("EventBus not initialized")
+            return []
+
+        # 更新消息计数
+        group.message_count += 1
+
+        # 向群内所有agent发送消息
+        sent_agents = []
+        for agent_id in group.agent_ids:
+            # 验证agent存在
+            normalized_agent = self._normalize_agent_id(agent_id)
+            available_agents = self.get_available_agents()
+            if normalized_agent not in available_agents:
+                logger.warning(f"Agent not available: {normalized_agent}")
+                continue
+
+            event = Event(
+                src=self.player_id,
+                dst=[f"agent:{normalized_agent}"],
+                type=EventType.CHAT,
+                payload={
+                    "message": message,
+                    "source": "web",
+                    "group_id": group_id,
+                    "group_name": group.name,
+                },
+                session_id=group.session_id,
+            )
+
+            await self.event_bus.send_event(event)
+            sent_agents.append(normalized_agent)
+
+        logger.info(
+            f"Sent message to group {group_id}: {len(sent_agents)}/{len(group.agent_ids)} agents"
+        )
+
+        return sent_agents
+
+    async def add_agent_to_group(
+        self, group_id: str, agent_id: str
+    ) -> bool:
+        """
+        向群聊添加agent
+
+        Args:
+            group_id: 群聊ID
+            agent_id: 要添加的agent ID
+
+        Returns:
+            是否成功添加
+        """
+        group = self._group_chats.get(group_id)
+        if not group:
+            logger.warning(f"Group chat not found: {group_id}")
+            return False
+
+        normalized_agent = self._normalize_agent_id(agent_id)
+        if normalized_agent in group.agent_ids:
+            logger.warning(f"Agent already in group: {normalized_agent}")
+            return False
+
+        # 验证agent存在
+        available_agents = self.get_available_agents()
+        if normalized_agent not in available_agents:
+            logger.warning(f"Agent not available: {normalized_agent}")
+            return False
+
+        group.agent_ids.append(normalized_agent)
+        await self._ensure_session_registered(group.session_id, agent_ids=[normalized_agent])
+
+        logger.info(f"Added agent {normalized_agent} to group {group_id}")
+        return True
+
+    async def remove_agent_from_group(
+        self, group_id: str, agent_id: str
+    ) -> bool:
+        """
+        从群聊移除agent
+
+        Args:
+            group_id: 群聊ID
+            agent_id: 要移除的agent ID
+
+        Returns:
+            是否成功移除
+        """
+        group = self._group_chats.get(group_id)
+        if not group:
+            logger.warning(f"Group chat not found: {group_id}")
+            return False
+
+        normalized_agent = self._normalize_agent_id(agent_id)
+        if normalized_agent not in group.agent_ids:
+            logger.warning(f"Agent not in group: {normalized_agent}")
+            return False
+
+        group.agent_ids.remove(normalized_agent)
+
+        logger.info(f"Removed agent {normalized_agent} from group {group_id}")
+        return True

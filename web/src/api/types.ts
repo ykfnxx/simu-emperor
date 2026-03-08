@@ -2,7 +2,7 @@
  * WebSocket 消息类型定义
  */
 
-export type WSMessageKind = 'chat' | 'state' | 'event' | 'error';
+export type WSMessageKind = 'chat' | 'state' | 'event' | 'error' | 'session_state';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -13,7 +13,12 @@ export interface WSMessage {
   data: unknown;
 }
 
-export interface ChatData {
+export interface SessionStateData {
+  session_id: string;
+  agent_id: string;
+  event_count: number;
+  last_update: string;
+}
   agent: string;
   agentDisplayName: string;
   text: string;
@@ -189,4 +194,24 @@ export interface CurrentTapeResponse {
   session_id: string;
   events: TapeEvent[];
   total: number;
+  included_sub_sessions?: string[];
+}
+
+export interface SubSession {
+  session_id: string;
+  parent_id: string;
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+  depth: number;
+  status: string;
+}
+
+export interface GroupChat {
+  group_id: string;
+  name: string;
+  agent_ids: string[];
+  created_at: string;
+  session_id: string;
+  message_count: number;
 }

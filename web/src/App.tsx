@@ -23,8 +23,11 @@ import type {
   ChatData,
   CurrentTapeResponse,
   EmpireOverview,
+  GroupChat,
   SessionInfo,
+  SessionStateData,
   StateData,
+  SubSession,
   TapeEvent,
 } from './api/types';
 
@@ -66,6 +69,12 @@ function getSenderName(event: TapeEvent): string {
 
 function normalizeEventType(type: string): string {
   return type.toLowerCase();
+}
+
+function isMainSession(sessionId: string): boolean {
+  // 主会话以 session:web: 或 session:telegram: 开头
+  // 任务会话以 task: 开头，不在UI中显示
+  return sessionId.startsWith('session:web:') || sessionId.startsWith('session:telegram:');
 }
 
 type TapeEventStyle = {
@@ -186,7 +195,8 @@ function extractRespondToPlayerContent(payload: Record<string, unknown>): string
 
 function isAgentReplyEvent(event: TapeEvent): boolean {
   const type = normalizeEventType(event.type);
-  return type === 'response' || type === 'assistant_response';
+  // 对话框仅显示最终RESPONSE事件，不显示中间的ASSISTANT_RESPONSE
+  return type === 'response';
 }
 
 function isRespondToPlayerToolResult(event: TapeEvent): boolean {
@@ -327,6 +337,10 @@ function mergeTapeResponse(
 function buildGroupsFromFlatSessions(sessions: SessionInfo[]): AgentSessionGroup[] {
   const grouped = new Map<string, AgentSessionGroup>();
   for (const session of sessions) {
+    // 过滤task子会话
+    if (!isMainSession(session.session_id)) {
+      continue;
+    }
     for (const agentId of session.agents || []) {
       if (!grouped.has(agentId)) {
         grouped.set(agentId, {
@@ -385,14 +399,30 @@ export default function App() {
   const [agentTyping, setAgentTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
+  const [subSessions, setSubSessions] = useState<SubSession[]>([]);
+  const [selectedSubSessions, setSelectedSubSessions] = useState<Set<string>>(new Set());
+  const [showSubSessions, setShowSubSessions] = useState(false);
+  const [loadingSubSessions, setLoadingSubSessions] = useState(false);
+  // 群聊相关状态
+  const [groupChats, setGroupChats] = useState<GroupChat[]>([]);
+  const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedGroupAgents, setSelectedGroupAgents] = useState<Set<string>>(new Set());
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const currentAgentRef = useRef(currentAgentId);
   const currentSessionRef = useRef(currentSessionId);
   const tapeRef = useRef(tape);
 
   const refreshTape = useCallback(
-    async (agentId: string, sessionId: string) => {
+    async (agentId: string, sessionId: string, includeSubs?: string[]) => {
       try {
-        const tapeData = await client.current.getCurrentTape(120, agentId, sessionId);
+        const selectedSubs = includeSubs || Array.from(selectedSubSessions);
+        const tapeData = await client.current.getCurrentTape(
+          120,
+          agentId,
+          sessionId,
+          selectedSubs.length > 0 ? selectedSubs : undefined
+        );
         const merged = mergeTapeResponse(tapeRef.current, tapeData, sessionId);
         tapeRef.current = merged;
         setTape(merged);
@@ -418,8 +448,39 @@ export default function App() {
         throw err;
       }
     },
-    []
+    [selectedSubSessions]
   );
+
+  const loadSubSessions = useCallback(async (sessionId: string, agentId: string) => {
+    setLoadingSubSessions(true);
+    try {
+      const subs = await client.current.getSubSessions(sessionId, agentId);
+      setSubSessions(subs);
+    } catch (err) {
+      console.error('Failed to load sub-sessions:', err);
+      setSubSessions([]);
+    } finally {
+      setLoadingSubSessions(false);
+    }
+  }, []);
+
+  const toggleSubSession = (sessionId: string) => {
+    setSelectedSubSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      return next;
+    });
+  };
+
+  const handleApplySubSessions = async () => {
+    if (currentAgentRef.current && currentSessionRef.current) {
+      await refreshTape(currentAgentRef.current, currentSessionRef.current);
+    }
+  };
 
   const refreshData = useCallback(async () => {
     setRefreshing(true);
@@ -463,7 +524,11 @@ export default function App() {
       const resolvedSessionId = sessionsData.current_session_id || currentSessionRef.current;
 
       setOverview(overviewData);
-      setSessions(sessionsData.sessions);
+      // 过滤task子会话，仅显示主会话
+      const mainSessions = (sessionsData.sessions || []).filter((s: SessionInfo) =>
+        isMainSession(s.session_id)
+      );
+      setSessions(mainSessions);
       setAgentSessions(groupedSessions);
       setCurrentAgentId(resolvedAgentId);
       setCurrentSessionId(resolvedSessionId);
@@ -502,6 +567,19 @@ export default function App() {
     tapeRef.current = tape;
   }, [tape]);
 
+  // 加载群聊列表
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        const groups = await client.current.getGroups();
+        setGroupChats(groups);
+      } catch (err) {
+        console.error('Failed to load groups:', err);
+      }
+    };
+    loadGroups();
+  }, []);
+
   useEffect(() => {
     const offChat = client.current.on<ChatData>('chat', (data) => {
       if (!data || !data.text) return;
@@ -529,9 +607,30 @@ export default function App() {
       }));
     });
 
+    const offSessionState = client.current.on<SessionStateData>('session_state', (data) => {
+      if (!data) return;
+      // 更新对应session的事件计数
+      setAgentSessions((prev) =>
+        prev.map((group) => {
+          if (group.agent_id === data.agent_id) {
+            return {
+              ...group,
+              sessions: group.sessions.map((session) =>
+                session.session_id === data.session_id
+                  ? { ...session, event_count: data.event_count, updated_at: data.last_update }
+                  : session
+              ),
+            };
+          }
+          return group;
+        })
+      );
+    });
+
     return () => {
       offChat();
       offState();
+      offSessionState();
     };
   }, [refreshTape]);
 
@@ -605,6 +704,61 @@ export default function App() {
       ...prev,
       [agentId]: !prev[agentId],
     }));
+  };
+
+  // 群聊处理函数
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim() || selectedGroupAgents.size === 0) {
+      setError('请输入群聊名称并选择至少一个agent');
+      return;
+    }
+    setError(null);
+    try {
+      const group = await client.current.createGroup(newGroupName, Array.from(selectedGroupAgents));
+      setGroupChats((prev) => [...prev, group]);
+      setShowCreateGroupDialog(false);
+      setNewGroupName('');
+      setSelectedGroupAgents(new Set());
+      // 自动切换到新群聊
+      setCurrentGroupId(group.group_id);
+      setCurrentSessionId(group.session_id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '创建群聊失败';
+      setError(message);
+    }
+  };
+
+  const handleSelectGroup = (group: GroupChat) => {
+    setCurrentGroupId(group.group_id);
+    setCurrentSessionId(group.session_id);
+    // 使用群聊的第一个agent作为当前agent
+    const firstAgent = group.agent_ids[0];
+    if (firstAgent) {
+      setCurrentAgentId(firstAgent);
+    }
+  };
+
+  const handleSendToGroup = async () => {
+    if (!currentGroupId || !inputText.trim()) return;
+    const content = inputText.trim();
+    setSending(true);
+    setError(null);
+
+    try {
+      const result = await client.current.sendGroupMessage(currentGroupId, content);
+      setInputText('');
+      // 刷新tape显示
+      if (currentSessionId) {
+        setTimeout(() => {
+          void refreshTape(currentAgentId || '', currentSessionId);
+        }, 1000);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '发送群消息失败';
+      setError(message);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleSend = async () => {
@@ -724,11 +878,79 @@ export default function App() {
                   )}
                 </div>
               ))}
+
+              {/* 群聊分组 */}
+              {groupChats.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                  <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Toggle group expansion
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left hover:bg-slate-100"
+                    >
+                      <Users className="h-4 w-4 text-purple-500" />
+                      <p className="truncate text-sm font-semibold text-slate-700">群聊</p>
+                      <span className="rounded-md bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-600">
+                        {groupChats.length}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateGroupDialog(true)}
+                      className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
+                      title="创建群聊"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="ml-2 border-l border-slate-300 pl-2">
+                    <div className="space-y-1">
+                      {groupChats.map((group) => (
+                        <button
+                          key={group.group_id}
+                          type="button"
+                          onClick={() => handleSelectGroup(group)}
+                          className={`w-full rounded-lg border px-2 py-2 text-left text-sm ${
+                            currentGroupId === group.group_id
+                              ? 'border-purple-300 bg-purple-50'
+                              : 'border-slate-200 bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Users className="h-3.5 w-3.5 text-purple-400" />
+                            <p className="truncate font-medium">{group.name}</p>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {group.agent_ids.length} 成员 · {group.message_count} 消息
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 创建群聊按钮（如果没有群聊时显示） */}
+              {groupChats.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateGroupDialog(true)}
+                  className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-500 hover:bg-slate-100"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Users className="h-4 w-4" />
+                    <span>创建群聊</span>
+                  </div>
+                </button>
+              )}
             </div>
 
-            {agentSessions.length === 0 && (
+            {agentSessions.length === 0 && groupChats.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
-                暂无可用 agent 会话。
+                暂无可用 agent 会话或群聊。
               </div>
             )}
           </div>
@@ -892,6 +1114,75 @@ export default function App() {
               </div>
             </div>
 
+            {/* 子Session选择器 */}
+            <div className="mb-3 rounded-lg border border-slate-200 bg-white">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!showSubSessions && currentAgentId && currentSessionId) {
+                    loadSubSessions(currentSessionId, currentAgentId);
+                  }
+                  setShowSubSessions((prev) => !prev);
+                }}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50"
+              >
+                <span className="font-medium text-slate-700">子Session（可选）</span>
+                {selectedSubSessions.size > 0 && (
+                  <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                    已选 {selectedSubSessions.size}
+                  </span>
+                )}
+                {showSubSessions ? (
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-slate-500" />
+                )}
+              </button>
+
+              {showSubSessions && (
+                <div className="border-t border-slate-200 p-3">
+                  {loadingSubSessions ? (
+                    <div className="py-2 text-center text-sm text-slate-500">加载中...</div>
+                  ) : subSessions.length === 0 ? (
+                    <div className="py-2 text-center text-sm text-slate-500">暂无子Session</div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">选择要包含的子Session</span>
+                        <button
+                          type="button"
+                          onClick={handleApplySubSessions}
+                          disabled={selectedSubSessions.size === 0}
+                          className="rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          应用
+                        </button>
+                      </div>
+                      <div className="max-h-40 space-y-1 overflow-y-auto">
+                        {subSessions.map((sub) => (
+                          <label
+                            key={sub.session_id}
+                            className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-sm hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedSubSessions.has(sub.session_id)}
+                              onChange={() => toggleSubSession(sub.session_id)}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="flex-1 truncate text-slate-700">
+                              {sub.session_id}
+                            </span>
+                            <span className="text-xs text-slate-400">{sub.event_count} 事件</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               {tapeContextEvents.length === 0 && (
                 <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
@@ -917,6 +1208,83 @@ export default function App() {
           </div>
         </aside>
       </div>
+
+      {/* 创建群聊对话框 */}
+      {showCreateGroupDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold">创建群聊</h3>
+            <div className="mb-4">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                群聊名称
+              </label>
+              <input
+                type="text"
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                placeholder="输入群聊名称"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                选择成员
+              </label>
+              <div className="max-h-48 space-y-2 overflow-y-auto">
+                {agentSessions.map((group) => (
+                  <div key={group.agent_id} className="rounded-lg border border-slate-200 p-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedGroupAgents.has(group.agent_id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedGroupAgents((prev) => new Set([...prev, group.agent_id]));
+                          } else {
+                            setSelectedGroupAgents((prev) => {
+                              const next = new Set(prev);
+                              next.delete(group.agent_id);
+                              return next;
+                            });
+                          }
+                        }}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">{group.agent_name}</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              {selectedGroupAgents.size > 0 && (
+                <div className="mt-2 text-xs text-slate-500">
+                  已选择: {Array.from(selectedGroupAgents).join(', ')}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateGroupDialog(false);
+                  setNewGroupName('');
+                  setSelectedGroupAgents(new Set());
+                }}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateGroup}
+                disabled={!newGroupName.trim() || selectedGroupAgents.size === 0}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading && (
         <div className="pointer-events-none fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full bg-slate-800 px-4 py-2 text-xs text-white">

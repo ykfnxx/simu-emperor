@@ -42,10 +42,14 @@ class MessageConverter:
 
         WSMessage 格式:
         {
-            "kind": "chat" | "state" | "event" | "error",
+            "kind": "chat" | "state" | "event" | "error" | "session_state",
             "data": {...}
         }
         """
+        # 处理 session_state 事件（用于同步session状态更新）
+        if event.payload and event.payload.get("__internal_type__") == "session_state":
+            return self._convert_session_state(event)
+
         if event.type == EventType.RESPONSE:
             return self._convert_response(event)
         elif event.type == EventType.TURN_RESOLVED:
@@ -155,6 +159,19 @@ class MessageConverter:
                 "text": event.payload.get("message", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
+            }
+        }
+
+    def _convert_session_state(self, event: Event) -> dict[str, Any]:
+        """转换session状态更新事件"""
+        payload = event.payload
+        return {
+            "kind": "session_state",
+            "data": {
+                "session_id": payload.get("session_id", event.session_id),
+                "agent_id": payload.get("agent_id", ""),
+                "event_count": payload.get("event_count", 0),
+                "last_update": payload.get("last_update", datetime.now(timezone.utc).isoformat()),
             }
         }
 
