@@ -207,6 +207,7 @@ class Agent:
             ),
             "respond_to_player": (self._action_tools.respond_to_player, "✅ 响应已发送给玩家"),
             "send_ready": (self._action_tools.send_ready, "✅ Ready 信号已发送"),
+            "finish_loop": (self._action_tools.finish_loop, "✅ finish_loop 已执行"),
             "write_memory": (self._action_tools.write_memory, "✅ 记忆已写入"),
         }
 
@@ -813,6 +814,7 @@ class Agent:
         Returns:
             是否应该继续循环
         """
+        has_finish_loop = False
         has_respond_to_player = False
 
         for idx, tool_call in enumerate(tool_calls, 1):
@@ -822,6 +824,9 @@ class Agent:
             logger.info(
                 f"⚙️  [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
             )
+
+            if function_name == "finish_loop":
+                has_finish_loop = True
 
             if function_name == "respond_to_player":
                 has_respond_to_player = True
@@ -854,6 +859,13 @@ class Agent:
             logger.debug(
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )
+
+        # 检查退出条件（finish_loop 优先）
+        if has_finish_loop:
+            logger.info(
+                f"🔄 [Agent:{self.agent_id}:{session_id}] finish_loop called (priority check), ending loop"
+            )
+            return False
 
         # 如果已经有respond_to_player，说明第一轮LLM已经生成了最终响应，可以结束
         if has_respond_to_player:

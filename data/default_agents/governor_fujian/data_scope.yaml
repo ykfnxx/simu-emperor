@@ -1,0 +1,23 @@
+display_name: 福建巡抚
+
+skills:
+  query_data:
+    provinces: [fujian]
+    fields:
+      - population.*
+      - agriculture.*
+      - commerce.*
+      - trade.*
+      - military.*
+      - granary_stock
+      - local_treasury
+
+  write_report:
+    inherits: query_data
+
+  execute_command:
+    provinces: [fujian]
+    fields:
+      - agriculture.irrigation_level
+      - trade.trade_route_quality
+      - military.garrison_size

@@ -1,0 +1,24 @@
+display_name: 浙江巡抚
+
+skills:
+  query_data:
+    provinces: [zhejiang]
+    fields:
+      - population.*
+      - agriculture.*
+      - commerce.*
+      - trade.*
+      - military.garrison_size
+      - military.morale
+      - granary_stock
+      - local_treasury
+
+  write_report:
+    inherits: query_data
+
+  execute_command:
+    provinces: [zhejiang]
+    fields:
+      - agriculture.irrigation_level
+      - taxation.commercial_tax_rate
+      - trade.trade_route_quality

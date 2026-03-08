@@ -1,0 +1,24 @@
+display_name: 山东巡抚
+
+skills:
+  query_data:
+    provinces: [shandong]
+    fields:
+      - population.*
+      - agriculture.*
+      - commerce.*
+      - trade.*
+      - military.garrison_size
+      - military.morale
+      - granary_stock
+      - local_treasury
+
+  write_report:
+    inherits: query_data
+
+  execute_command:
+    provinces: [shandong]
+    fields:
+      - agriculture.irrigation_level
+      - taxation.commercial_tax_rate
+      - granary_stock
