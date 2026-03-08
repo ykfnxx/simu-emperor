@@ -41,6 +41,8 @@ class ManifestIndex:
         # Initialize session structure if not exists
         if session_id not in manifest["sessions"]:
             manifest["sessions"][session_id] = {"agents": {}}
+        elif "agents" not in manifest["sessions"][session_id]:
+            manifest["sessions"][session_id]["agents"] = {}
 
         # Add agent session entry
         manifest["sessions"][session_id]["agents"][agent_id] = {

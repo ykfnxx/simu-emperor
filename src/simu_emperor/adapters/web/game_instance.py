@@ -79,6 +79,7 @@ class WebGameInstance:
         self.calculator: TurnCoordinator | None = None
         self.agent_manager: AgentManager | None = None
         self.llm_provider: LLMProvider | None = None
+        self.session_manager = None  # SessionManager for task sessions
         self._running: bool = False
 
         logger.info("WebGameInstance created")
@@ -104,9 +105,7 @@ class WebGameInstance:
             return AnthropicProvider(api_key=config.api_key)
         elif config.provider == "openai":
             return OpenAIProvider(
-                api_key=config.api_key,
-                model=config.get_model(),
-                base_url=config.api_base
+                api_key=config.api_key, model=config.get_model(), base_url=config.api_base
             )
         else:  # mock
             return MockProvider()
@@ -156,6 +155,26 @@ class WebGameInstance:
 
         logger.info("EventBus initialized")
 
+        # 3.5. 初始化 SessionManager (for task sessions)
+        from simu_emperor.session.manager import SessionManager
+        from simu_emperor.memory.tape_writer import TapeWriter
+
+        tape_writer = TapeWriter(memory_dir=self.memory_dir)
+        self.session_manager = SessionManager(
+            memory_dir=self.memory_dir,
+            llm_provider=self.llm_provider,
+            manifest_index=self._manifest_index,
+            tape_writer=tape_writer,
+        )
+
+        if not await self.session_manager.get_session(self.session_id):
+            await self.session_manager.create_session(
+                session_id=self.session_id,
+                created_by="system:web",
+                status="ACTIVE",
+            )
+        logger.info(f"SessionManager initialized with main session: {self.session_id}")
+
         # 4. 初始化 AgentManager（在 Calculator 之前）
         agent_dir = self.settings.data_dir / "agent" / "web"
         agent_dir.mkdir(parents=True, exist_ok=True)
@@ -167,6 +186,7 @@ class WebGameInstance:
             agent_dir=str(agent_dir),
             repository=self.repository,
             session_id=self.session_id,
+            session_manager=self.session_manager,
         )
 
         # 初始化并启动默认 agents
@@ -186,11 +206,7 @@ class WebGameInstance:
         await self._ensure_session_registered(self.session_id, agent_ids=active_agents)
 
         # 5. 初始化 Calculator（传入 AgentManager）
-        self.calculator = TurnCoordinator(
-            self.event_bus,
-            self.repository,
-            self.agent_manager
-        )
+        self.calculator = TurnCoordinator(self.event_bus, self.repository, self.agent_manager)
         self.calculator.start()
         logger.info("Calculator started")
 
@@ -368,7 +384,9 @@ class WebGameInstance:
         if self.repository:
             turn = await self.repository.get_current_turn()
 
-        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        manifest = (
+            await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        )
         existing_agents = (
             manifest.get("sessions", {}).get(session_id, {}).get("agents", {})
             if isinstance(manifest, dict)
@@ -458,7 +476,12 @@ class WebGameInstance:
         normalized_agent = self._normalize_agent_id(agent_id) if agent_id else None
         if normalized_agent:
             tape_path = (
-                self.memory_dir / "agents" / normalized_agent / "sessions" / session_id / "tape.jsonl"
+                self.memory_dir
+                / "agents"
+                / normalized_agent
+                / "sessions"
+                / session_id
+                / "tape.jsonl"
             )
             return [tape_path] if tape_path.exists() else []
 
@@ -511,7 +534,9 @@ class WebGameInstance:
 
     async def list_agent_sessions(self) -> list[dict]:
         """按 agent 列出会话。"""
-        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        manifest = (
+            await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        )
         manifest_sessions = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
 
         agent_ids = set(self.get_available_agents())

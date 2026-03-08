@@ -25,6 +25,7 @@ from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event import Event as TapeEvent
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.base import LLMProvider
+from simu_emperor.session.manager import SessionManager
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class Agent:
         repository=None,
         session_id: str | None = None,
         skill_loader=None,
-        session_manager=None,
+        session_manager=SessionManager,
     ):
         """
         初始化 Agent
@@ -96,6 +97,7 @@ class Agent:
             agent_id=self.agent_id,
             event_bus=self.event_bus,
             data_dir=self.data_dir,
+            session_manager=self.session_manager,
         )
 
         # 初始化记忆系统组件（V3）
@@ -213,8 +215,6 @@ class Agent:
 
         # Task Session 类函数（V4）
         if self._task_session_tools:
-            import json
-
             task_handlers = {
                 "create_task_session": self._wrap_create_task_session,
                 "finish_task_session": self._wrap_finish_task_session,
@@ -234,22 +234,62 @@ class Agent:
         return json.dumps(result, ensure_ascii=False)
 
     async def _wrap_finish_task_session(self, args: dict, event: Event) -> str:
-        """包装 finish_task_session 以符合 Agent 调用约定"""
+        """包装 finish_task_session 以符合 Agent 调用约定
+
+        注意：此工具只能从任务会话（task session）内部调用。
+        从主会话（main session）调用将返回错误。
+        """
         import json
 
+        # 获取当前会话
+        session = await self.session_manager.get_session(event.session_id)
+        if not session:
+            return json.dumps(
+                {"success": False, "error": "Session not found"},
+                ensure_ascii=False,
+            )
+
+        # 只能从任务会话中调用
+        if not session.is_task:
+            return json.dumps(
+                {"success": False, "error": "finish_task_session can only be called from a task session, not from main session"},
+                ensure_ascii=False,
+            )
+
+        # 直接使用当前 session_id（因为它就是 task session）
         result = await self._task_session_tools.finish_task_session(
-            task_session_id=args["task_session_id"],
-            result=args["result"],
+            task_session_id=event.session_id,
+            result=args.get("result", ""),
         )
         return json.dumps(result, ensure_ascii=False)
 
     async def _wrap_fail_task_session(self, args: dict, event: Event) -> str:
-        """包装 fail_task_session 以符合 Agent 调用约定"""
+        """包装 fail_task_session 以符合 Agent 调用约定
+
+        注意：此工具只能从任务会话（task session）内部调用。
+        从主会话（main session）调用将返回错误。
+        """
         import json
 
+        # 获取当前会话
+        session = await self.session_manager.get_session(event.session_id)
+        if not session:
+            return json.dumps(
+                {"success": False, "error": "Session not found"},
+                ensure_ascii=False,
+            )
+
+        # 只能从任务会话中调用
+        if not session.is_task:
+            return json.dumps(
+                {"success": False, "error": "fail_task_session can only be called from a task session, not from main session"},
+                ensure_ascii=False,
+            )
+
+        # 直接使用当前 session_id（因为它就是 task session）
         result = await self._task_session_tools.fail_task_session(
-            task_session_id=args["task_session_id"],
-            reason=args["reason"],
+            task_session_id=event.session_id,
+            reason=args.get("reason", ""),
         )
         return json.dumps(result, ensure_ascii=False)
 
@@ -421,8 +461,8 @@ class Agent:
         Args:
             event: 事件对象
         """
-        # 1. 过滤事件
-        if not self._should_handle_event(event):
+        # 1. 过滤事件（基于目标地址和 agent 状态）
+        if not await self._should_process_event(event):
             return
 
         # 2. 记录日志和初始化记忆组件
@@ -433,11 +473,7 @@ class Agent:
             f"📨 [Agent:{self.agent_id}:{session_id}] Received {event.type} event (id={event_id}) from {event.src}"
         )
 
-        if event.type in (EventType.COMMAND, EventType.CHAT):
-            await self._ensure_memory_components(event.session_id)
-
-        # 获取当前turn的基准时间戳，确保事件顺序
-        turn_start_time = datetime.now(timezone.utc)
+        await self._ensure_memory_components(event.session_id)
 
         # 3. 准备 Tape 写入任务
         tape_write_tasks = await self._prepare_tape_for_event(event)
@@ -458,6 +494,37 @@ class Agent:
         """检查是否应该处理此事件"""
         return f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst
 
+    async def _should_process_event(self, event: Event) -> bool:
+        """检查 agent 是否应该处理此事件（基于状态和事件类型）
+
+        规则：
+        1. 目标地址必须匹配
+        2. 如果 agent 处于 WAITING_REPLY 状态，只处理特定事件：
+           - AGENT_MESSAGE (其他 agent 的回复)
+           - TASK_FINISHED / TASK_FAILED (任务完成通知)
+        3. 其他情况下正常处理所有事件
+        """
+        # 检查目标地址
+        if not (f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst):
+            return False
+
+        # 如果没有 session_manager，无法检查状态，默认处理
+        if not self.session_manager:
+            return True
+
+        # 获取当前 agent 在此 session 中的状态
+        agent_state = await self.session_manager.get_agent_state(event.session_id, self.agent_id)
+
+        # 如果状态是 WAITING_REPLY，只处理特定事件
+        if agent_state == "WAITING_REPLY":
+            return event.type in (
+                EventType.AGENT_MESSAGE,  # 其他 agent 的回复
+                EventType.TASK_FINISHED,  # 任务完成
+                EventType.TASK_FAILED,    # 任务失败
+            )
+
+        return True
+
     async def _prepare_tape_for_event(self, event: Event) -> list:
         """
         准备 Tape 写入任务
@@ -474,14 +541,9 @@ class Agent:
 
         # 记录需要处理的事件类型到 tape
         # 这些事件都是 agent 的"输入"，需要记录到当前 agent 的 tape
-        if event.type in (
-            EventType.COMMAND,
-            EventType.CHAT,
-            EventType.AGENT_MESSAGE,
-        ):
-            # 直接记录原始事件，不做二次封装
-            # agent_id 参数指定写入当前 agent 的 tape（而不是从 event.src 提取）
-            tape_write_tasks.append(self._tape_writer.write_event(event, agent_id=self.agent_id))
+        # 直接记录原始事件，不做二次封装
+        # agent_id 参数指定写入当前 agent 的 tape（而不是从 event.src 提取）
+        tape_write_tasks.append(self._tape_writer.write_event(event, agent_id=self.agent_id))
 
         return tape_write_tasks
 
@@ -498,41 +560,80 @@ class Agent:
         Returns:
             Messages 列表
         """
-        logger.info(f"🔧 [Agent:{self.agent_id}:{session_id}] Starting context build...")
+        logger.info(f"🔧 [Agent:{self.agent_id}:{session_id}] Building context...")
 
-        # 使用 ContextManager 从 tape 构建完整 Context
-        system_prompt = self._get_system_prompt_for_event(event.type)
+        # 1. 获取根事件类型（用于确定使用哪个 system prompt）
+        root_event_type = await self._get_root_event_type(event, session_id)
 
-        # 从 ContextManager 获取历史消息
+        # 2. 获取系统提示（基于根事件类型）
+        system_prompt = self._get_system_prompt_for_event(root_event_type)
+
+        # 3. 获取历史消息（从 ContextManager）
+        history_messages = []
         if self._context_manager:
-            context_messages = self._context_manager.get_context_messages()
-
-            # 构建完整消息列表
-            messages = [{"role": "system", "content": system_prompt}]
-            messages.extend(context_messages)
-
-            # 添加当前事件
-            user_prompt = self._build_user_prompt(event)
-            messages.append({"role": "user", "content": user_prompt})
-
+            history_messages = self._context_manager.get_context_messages()
             logger.info(
-                f"🔧 [Agent:{self.agent_id}:{session_id}] Using ContextManager (loaded from tape)"
+                f"📚 [Agent:{self.agent_id}:{session_id}] Loaded {len(history_messages)} history messages"
             )
-        else:
-            # 回退到单事件模式
-            logger.warning(
-                f"⚠️  [Agent:{self.agent_id}:{session_id}] No ContextManager, using single event mode"
-            )
-            user_prompt = self._build_user_prompt(event)
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
+
+        # 4. 将当前事件转换为 message
+        current_message = self.event_to_messages(event)
+
+        # 5. 组装完整消息列表
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history_messages)
+        messages.append(current_message)
 
         logger.info(
             f"📝 [Agent:{self.agent_id}:{session_id}] Context built with {len(messages)} messages"
         )
         return messages
+
+    async def _check_and_restore_agent_state(self, event: Event, session_id: str) -> bool:
+        """检查并恢复 agent 状态
+
+        检查是否有尚待完成的异步任务：
+        - 如果收到 AGENT_MESSAGE 事件，调用 decrement_async_replies 减少计数
+        - 如果计数归零，自动恢复为 ACTIVE 状态
+        - 如果还有待完成的任务，返回 False
+
+        Args:
+            event: 当前事件
+            session_id: 会话 ID
+
+        Returns:
+            是否应该继续处理事件
+        """
+        if not self.session_manager:
+            return True
+
+        session = await self.session_manager.get_session(session_id)
+        if not session:
+            return True
+
+        # 如果收到 AGENT_MESSAGE，说明收到了回复，减少异步回复计数
+        if event.type == EventType.AGENT_MESSAGE and session.pending_async_replies > 0:
+            all_received, remaining = await self.session_manager.decrement_async_replies(
+                session_id, self.agent_id, count=1
+            )
+            if all_received:
+                logger.info(
+                    f"✅ [Agent:{self.agent_id}:{session_id}] All async replies received, state restored to ACTIVE"
+                )
+            else:
+                logger.info(
+                    f"⏳ [Agent:{self.agent_id}:{session_id}] Reply received, {remaining} pending async replies remaining"
+                )
+                return False
+
+        # 如果还有待完成的异步任务，不处理此事件
+        if session.pending_async_replies > 0:
+            logger.info(
+                f"⏳ [Agent:{self.agent_id}:{session_id}] Has {session.pending_async_replies} pending async replies, skipping processing"
+            )
+            return False
+
+        return True
 
     async def _process_event_with_llm(
         self, event: Event, session_id: str, tape_write_tasks: list
@@ -545,6 +646,10 @@ class Agent:
             session_id: 会话 ID
             tape_write_tasks: Tape 写入任务列表
         """
+        # 检查是否有尚待完成的异步任务，如果有则跳过处理
+        if not await self._check_and_restore_agent_state(event, session_id):
+            return
+
         # Capture turn start time to ensure event ordering
         turn_start_time = datetime.now(timezone.utc).isoformat()
 
@@ -596,8 +701,8 @@ class Agent:
                 await self._handle_no_tool_calls(event, session_id, response_text, tape_write_tasks)
                 break
 
-            # 有 tool calls，添加 assistant 消息
-            messages.append(self._build_assistant_message(response_text, tool_calls))
+            # 有 tool calls，添加 assistant 消息（使用已构建的 event）
+            messages.append(self.event_to_messages(assistant_response_event))
 
             # 执行 tool calls
             should_continue = await self._process_tool_calls(
@@ -634,6 +739,17 @@ class Agent:
             LLM 响应结果
         """
         start_time = datetime.now(timezone.utc)
+
+        # Debug: 打印 messages 结构
+        logger.debug(f"🔍 [Agent:{self.agent_id}:{session_id}] Messages being sent to LLM:")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content_preview = str(msg.get("content", ""))[:100]
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                logger.debug(f"  [{i}] role={role}, tool_calls={tool_calls}")
+            else:
+                logger.debug(f"  [{i}] role={role}, content={content_preview}")
 
         # 调用 LLM（传递完整的messages历史）
         result = await self.llm_provider.call_with_functions(
@@ -715,37 +831,10 @@ class Agent:
                 timestamp=tool_result_timestamp,
             )
 
-            if function_name == "respond_to_player":
-                has_respond_to_player = True
-
-            result_str = await self._call_function_with_result(function_name, function_args, event)
-
-            base_dt = datetime.fromisoformat(turn_start_time.replace("Z", "+00:00"))
-            tool_result_dt = base_dt + timedelta(microseconds=idx)
-            tool_result_timestamp = tool_result_dt.isoformat()
-
-            tool_result_event = TapeEvent(
-                src=f"agent:{self.agent_id}",
-                dst=event.dst,
-                type=EventType.TOOL_RESULT,
-                payload={
-                    "tool_call_id": tool_call["id"],
-                    "tool": function_name,
-                    "result": result_str,
-                },
-                session_id=event.session_id,
-                timestamp=tool_result_timestamp,
-            )
-
             tape_write_tasks.append(self._tape_writer.write_event(tool_result_event))
 
-            # 记录 tool call 结果（使用OpenAI格式，与 tape 中存储的格式一致）
-            tool_result_message = {
-                "role": "tool",
-                "tool_call_id": tool_call["id"],
-                "content": result_str,
-            }
-            messages.append(tool_result_message)
+            # 记录 tool call 结果（使用已构建的 event）
+            messages.append(self.event_to_messages(tool_result_event))
             logger.debug(
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )
@@ -788,33 +877,6 @@ class Agent:
             except Exception as tape_error:
                 logger.warning(f"Failed to complete tape write tasks: {tape_error}")
 
-    def _build_assistant_message(self, response_text: str, tool_calls: list) -> dict:
-        """
-        构建 assistant 消息（包含 tool_calls）
-
-        Args:
-            response_text: LLM 响应文本
-            tool_calls: 工具调用列表
-
-        Returns:
-            Assistant 消息
-        """
-        return {
-            "role": "assistant",
-            "content": response_text or None,
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["function"]["name"],
-                        "arguments": tc["function"]["arguments"],
-                    },
-                }
-                for tc in tool_calls
-            ],
-        }
-
     async def _handle_no_tool_calls(
         self, event: Event, session_id: str, response_text: str, tape_write_tasks: list
     ) -> None:
@@ -847,6 +909,39 @@ class Agent:
         )
         self._log_event("SEND", event, f"RESPONSE to {event.src}: {final_response[:50]}...")
         await self._send_response(final_response, event)
+
+    async def _get_root_event_type(self, event: Event, session_id: str) -> str:
+        """
+        获取会话的根事件类型（用于确定使用哪个 system prompt）
+
+        策略：
+        1. 如果当前事件就是根事件（root_event_id == event_id），直接返回其类型
+        2. 否则，从 tape 读取第一个事件作为根事件
+
+        Args:
+            event: 当前事件
+            session_id: 会话 ID
+
+        Returns:
+            根事件类型
+        """
+        # 1. 如果当前事件就是根事件，直接返回其类型
+        if event.root_event_id == event.event_id or not event.root_event_id:
+            return event.type
+
+        # 2. 从 tape 读取第一个事件（根事件）
+        try:
+            from simu_emperor.common import FileOperationsHelper
+
+            tape_path = self._tape_writer._get_tape_path(session_id, self.agent_id)
+            events = await FileOperationsHelper.read_jsonl_file(tape_path)
+            if events and len(events) > 0:
+                return events[0].get("type", event.type)
+        except Exception as e:
+            logger.warning(f"Failed to read root event type from tape: {e}")
+
+        # 3. 降级：返回当前事件类型
+        return event.type
 
     def _get_system_prompt_for_event(self, event_type: str) -> str:
         """
@@ -885,6 +980,97 @@ class Agent:
             task_part = self._get_hardcoded_instruction(event_type)
 
         return "\n".join(filter(None, [soul_part, scope_part, task_part])).strip()
+
+    def event_to_messages(self, event: Event) -> dict:
+        """
+        将单个事件转换为一条 message（不组装上下文）
+
+        Args:
+            event: 事件对象
+
+        Returns:
+            单条 message，格式：{"role": "user" | "assistant" | "tool", "content": "..."}
+        """
+        # 1. Agent 响应类 → assistant
+        if event.type == EventType.RESPONSE:
+            return {"role": "assistant", "content": event.payload.get("narrative", "")}
+
+        if event.type == EventType.AGENT_RESPONSE:
+            return {"role": "assistant", "content": event.payload.get("response", "")}
+
+        # 2. ASSISTANT_RESPONSE → assistant (带 tool_calls)
+        if event.type == EventType.ASSISTANT_RESPONSE:
+            msg = {"role": "assistant", "content": event.payload.get("response", "")}
+            tool_calls = event.payload.get("tool_calls")
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            return msg
+
+        # 3. TOOL_RESULT → tool
+        if event.type == EventType.TOOL_RESULT:
+            return {
+                "role": "tool",
+                "tool_call_id": event.payload.get("tool_call_id"),
+                "content": event.payload.get("result", "")
+            }
+
+        # 4. 其他事件 → user (内联构建内容)
+        parts = [
+            "# 收到的事件",
+            f"- 来源: {event.src}",
+            f"- 类型: {event.type}",
+            f"- 时间: {event.timestamp}",
+        ]
+
+        # COMMAND
+        if event.type == EventType.COMMAND and event.payload:
+            command = event.payload.get("command", "")
+            if command:
+                parts.extend(["\n# 皇帝的命令：", f"```\n{command}\n```", "\n**重要**：你需要**执行**这个命令！"])
+
+        # CHAT
+        elif event.type == EventType.CHAT and event.payload:
+            message = event.payload.get("message", "")
+            if message:
+                parts.extend(["\n# 皇帝的消息：", f"```\n{message}\n```"])
+
+        # AGENT_MESSAGE
+        elif event.type == EventType.AGENT_MESSAGE and event.payload:
+            message = event.payload.get("message", "")
+            source = event.src.replace("agent:", "")
+            if message:
+                parts.extend([f"\n# 来自 {source} 的消息：", f"```\n{message}\n```"])
+
+        # TASK_FINISHED
+        elif event.type == EventType.TASK_FINISHED and event.payload:
+            result = event.payload.get("result", "")
+            if result:
+                parts.extend(["\n# 任务已完成", f"```\n{result}\n```"])
+
+        # TASK_FAILED
+        elif event.type == EventType.TASK_FAILED and event.payload:
+            reason = event.payload.get("reason", "")
+            if reason:
+                parts.extend(["\n# 任务失败", f"```\n{reason}\n```"])
+
+        # TASK_TIMEOUT
+        elif event.type == EventType.TASK_TIMEOUT and event.payload:
+            task_session_id = event.payload.get("task_session_id", "")
+            if task_session_id:
+                parts.extend(["\n# 任务超时", f"任务会话 {task_session_id} 已超时"])
+
+        # TURN_RESOLVED
+        elif event.type == EventType.TURN_RESOLVED and event.payload:
+            turn = event.payload.get("turn", 0)
+            parts.append(f"\n# 回合 {turn} 结算完成")
+
+        # 其他 payload
+        if event.payload and event.type not in (EventType.COMMAND, EventType.CHAT):
+            display_payload = {k: v for k, v in event.payload.items() if not k.startswith("_")}
+            if display_payload:
+                parts.extend(["\n# 其他信息：", f"```json\n{json.dumps(display_payload, ensure_ascii=False)}\n```"])
+
+        return {"role": "user", "content": "\n".join(parts)}
 
     def _inject_skill_variables(self, content: str) -> str:
         """
@@ -934,63 +1120,6 @@ class Agent:
             任务指令
         """
         return get_system_prompt(event_type)
-
-    def _build_user_prompt(self, event: Event) -> str:
-        """
-        构建 user prompt
-
-        Args:
-            event: 事件对象
-
-        Returns:
-            User prompt
-        """
-        parts = [
-            "# 收到的事件",
-            f"- 来源: {event.src}",
-            f"- 类型: {event.type}",
-            f"- 时间: {event.timestamp}",
-        ]
-
-        # 对于 COMMAND 事件，明确显示命令内容
-        command = None
-        if event.type == EventType.COMMAND and event.payload:
-            command = event.payload.get("command", "")
-            if command:
-                parts.append("\n# 皇帝的命令：")
-                parts.append("``")
-                parts.append(command)
-                parts.append("```")
-                parts.append("\n**重要**：你需要**执行**这个命令，不仅仅是查询数据！")
-
-        # 对于 CHAT 事件，显示消息内容
-        if event.type == EventType.CHAT and event.payload:
-            message = event.payload.get("message", "")
-            if message:
-                parts.append("\n# 皇帝的消息：")
-                parts.append("``")
-                parts.append(message)
-                parts.append("```")
-
-        # Handle AGENT_MESSAGE events
-        elif event.type == EventType.AGENT_MESSAGE and event.payload:
-            message = event.payload.get("message", "")
-            source_agent = event.src.replace("agent:", "")
-            if message:
-                parts.append(f"\n# 来自 {source_agent} 的消息：")
-                parts.append("```")
-                parts.append(message)
-                parts.append("```")
-
-        if event.payload:
-            # 显示其他 payload 信息（但隐藏内部字段）
-            display_payload = {k: v for k, v in event.payload.items() if not k.startswith("_")}
-            if display_payload and command:  # 只在有命令时显示其他信息
-                parts.append("\n# 其他信息：")
-                payload_json = json.dumps(display_payload, ensure_ascii=False, indent=2)
-                parts.append(f"```json\n{payload_json}\n```")
-
-        return "\n".join(parts)
 
     async def _call_function_with_result(
         self, function_name: str, arguments: dict, original_event: Event

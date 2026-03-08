@@ -110,7 +110,7 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "send_message_to_agent",
-        "description": "发送消息给其他 Agent（如通知其他官员）",
+        "description": "向其他官员发送消息，仅限于task中确认需要协调其他官员时使用（如需要其他官员执行某个操作）。不能主会话中直接调用此函数，应该在任务会话中调用以确保流程清晰。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -119,13 +119,29 @@ AVAILABLE_FUNCTIONS = [
                     "description": "目标 Agent ID（如 'governor_zhili', 'minister_of_revenue'）",
                 },
                 "message": {"type": "string", "description": "消息内容"},
+                "await_reply": {
+                    "type": "boolean",
+                    "description": "是否等待对方回复。默认false（不等待），发送后继续处理。如果设为true，会暂停当前会话等待回复。",
+                    "default": False,
+                },
             },
             "required": ["target_agent", "message"],
         },
     },
     {
         "name": "respond_to_player",
-        "description": "响应玩家（仅当事件来自玩家时使用）",
+        "description": """响应玩家（仅当事件来自玩家时使用）
+
+⚠️ 极其重要的使用规则：
+1. 必须是单次响应中最后一轮 agent loop 的唯一调用
+2. 不能与任何其他工具同时调用（如 send_game_event、query_xxx、send_message_to_agent 等）
+3. 如果需要执行其他操作，先在上一轮调用其他工具，然后在下一轮单独调用此工具
+4. 违反此规则会导致其他工具被忽略，命令可能无法正确执行
+
+正确模式：
+- 第1轮：send_game_event(...) / query_xxx(...) / send_message_to_agent(...)
+- 第2轮：respond_to_player(...) ← 最后一轮，唯一调用
+""",
         "parameters": {
             "type": "object",
             "properties": {
@@ -165,32 +181,35 @@ AVAILABLE_FUNCTIONS = [
                     "default": 300,
                 },
                 "description": {"type": "string", "description": "任务描述，用于日志和调试"},
+                "goal": {"type": "string", "description": "任务目标：清晰描述任务要达成什么结果"},
+                "constraints": {
+                    "type": "string",
+                    "description": "成功约束：描述任务成功的判断标准或限制条件",
+                },
             },
             "required": [],
         },
     },
     {
         "name": "finish_task_session",
-        "description": "完成指定的任务会话，将状态设置为 FINISHED",
+        "description": "完成当前任务会话，将状态设置为 FINISHED（会自动识别当前会话，无需提供 task_session_id）",
         "parameters": {
             "type": "object",
             "properties": {
-                "task_session_id": {"type": "string", "description": "要完成的任务会话 ID"},
                 "result": {"type": "string", "description": "任务结果描述"},
             },
-            "required": ["task_session_id", "result"],
+            "required": ["result"],
         },
     },
     {
         "name": "fail_task_session",
-        "description": "标记指定的任务会话为失败",
+        "description": "标记当前任务会话为失败（会自动识别当前会话，无需提供 task_session_id）",
         "parameters": {
             "type": "object",
             "properties": {
-                "task_session_id": {"type": "string", "description": "要标记失败的任务会话 ID"},
                 "reason": {"type": "string", "description": "失败原因"},
             },
-            "required": ["task_session_id", "reason"],
+            "required": ["reason"],
         },
     },
 ]

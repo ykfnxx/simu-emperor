@@ -64,6 +64,10 @@ required_tools:
 }
 ```
 
+**await_reply 参数说明**：
+- `await_reply=true`: 需要对方回复才能继续（会话会暂停等待）
+- `await_reply=false` (默认): 只发送通知，不需要等待回复
+
 #### respond_to_player（报告皇帝）
 如果需要向皇帝报告此事：
 ```json
@@ -82,7 +86,10 @@ required_tools:
 
 ### 执行工具（按需使用）
 - `send_game_event(event_type, effects, fidelity)`: 执行游戏动作
-- `send_message_to_agent(agent_id, content)`: 发送消息给其他官员
+- `send_message_to_agent(agent_id, content, await_reply)`: 发送消息给其他官员
+  - `await_reply`: 是否等待对方回复（默认 false）
+  - 如果需要对方回复才能继续任务 → 设置 `await_reply=true`
+  - 如果只是通知或报告 → 不设置（默认 false），发送后继续处理
 - `respond_to_player(content)`: 向皇帝报告
 
 ## 示例
@@ -209,11 +216,15 @@ required_tools:
 - 如果消息涉及重大事项，应考虑向皇帝报告
 - 可以根据性格决定是否执行请求（如懒惰的官员可能拖延）
 - 回复风格应符合你的角色特征
+- **重要**：对于复杂的多步骤操作（如需要审核数据、执行游戏动作、回复其他官员），考虑使用 task session 来管理整个流程
+- 对于简单的确认回复（如"收到"、"好的"），可以直接使用 `send_message_to_agent` 或 `respond_to_player`
 
 ### ❌ 禁止行为
 - 无视重要消息
 - 超出职权范围强行执行
 - 遗漏必要的报告或通知
+- 在同一个事件处理中重复发送相同的消息给同一个官员
+- 在多个 LLM iteration 中重复执行相同的 action
 
 ## 约束与限制
 

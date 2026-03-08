@@ -35,9 +35,9 @@ class TestStructuredRetriever:
             tape_searcher=tape_searcher,
         )
 
-        # Mock context manager
-        mock_context_mgr = AsyncMock()
-        mock_context_mgr.get_messages = AsyncMock(
+        # Mock context manager - get_context_messages is a regular method, not async
+        mock_context_mgr = MagicMock()
+        mock_context_mgr.get_context_messages = MagicMock(
             return_value=[{"role": "user", "content": "现在的国库情况？"}]
         )
 

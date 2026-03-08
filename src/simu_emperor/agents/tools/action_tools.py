@@ -10,6 +10,7 @@ from pathlib import Path
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
+from simu_emperor.session.manager import SessionManager
 
 
 logger = logging.getLogger(__name__)
@@ -34,18 +35,12 @@ class ActionTools:
         agent_id: str,
         event_bus: EventBus,
         data_dir: Path,
+        session_manager=None,
     ):
-        """
-        Initialize ActionTools
-
-        Args:
-            agent_id: Agent unique identifier
-            event_bus: EventBus for sending events
-            data_dir: Data directory path
-        """
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.data_dir = data_dir
+        self.session_manager = session_manager
 
     async def send_game_event(self, args: dict, event: Event) -> None:
         """Send game events to Calculator"""
@@ -74,29 +69,70 @@ class ActionTools:
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ [Agent:{self.agent_id}] Sent {event_type_str} event to system:calculator")
 
-    async def send_message_to_agent(self, args: dict, event: Event) -> None:
-        """Send messages to other agents"""
-        target_agent = args.get("target_agent")
-        message = args.get("message")
+    async def send_message_to_agent(self, args: dict, event: Event) -> str:
+        target_agent = args.get("target_agent", "")
+        message = args.get("message", "")
+        await_reply = args.get("await_reply", False)  # New parameter: default False
 
-        logger.info(
-            f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
-        )
+        if not target_agent:
+            return "❌ 目标官员不能为空"
+
+        if not message:
+            return "❌ 消息内容不能为空"
+
+        # Validate session type (only for task sessions)
+        if self.session_manager:
+            session = await self.session_manager.get_session(event.session_id)
+            if not session:
+                return "❌ 会话不存在"
+
+            # If await_reply=true, only allow in task sessions
+            if await_reply and not session.is_task:
+                return ("❌ await_reply=true 只能在任务会话中使用。\n"
+                        "在主会话中发送消息不会等待回复。\n"
+                        "如果需要等待其他官员的回复，请先使用 create_task_session 创建任务会话。")
 
         if not target_agent.startswith("agent:"):
             target_agent = f"agent:{target_agent}"
 
+        logger.info(
+            f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
+            f" (await_reply={await_reply})"
+        )
+
+        # Design principle: AGENT_MESSAGE means "send to which agent in which session"
+        # Both agents share the same task session - no session switching needed
         new_event = Event(
             src=f"agent:{self.agent_id}",
             dst=[target_agent],
             type=EventType.AGENT_MESSAGE,
-            payload={"message": message},
-            session_id=event.session_id,
+            payload={
+                "message": message,
+                "original_caller": f"agent:{self.agent_id}",
+                "await_reply": await_reply,
+            },
+            session_id=event.session_id,  # Share the same session
             parent_event_id=event.event_id,
             root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent AGENT_MESSAGE to {target_agent}")
+
+        # If await_reply=true, increment pending_async_replies counter
+        if await_reply and self.session_manager:
+            await self.session_manager.increment_async_replies(
+                event.session_id,
+                self.agent_id,
+                count=1,
+            )
+            # Also track the message ID for correlation
+            session = await self.session_manager.get_session(event.session_id)
+            if session:
+                session.pending_message_ids.append(new_event.event_id)
+                await self.session_manager.save_manifest()
+            return "消息已发送，等待回复..."
+        else:
+            return "✅ 消息已发送"
 
     async def respond_to_player(self, args: dict, event: Event) -> None:
         """Send responses to player"""

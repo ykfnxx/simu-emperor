@@ -44,6 +44,17 @@ class Session:
     # 等待管理（Main Session 专用）
     waiting_for_tasks: list[str] = field(default_factory=list)  # 正在等待的 task 列表
 
+    # 异步响应计数（Task Session 专用）
+    pending_async_replies: int = 0  # 正在等待的异步响应数量
+    pending_message_ids: list[str] = field(default_factory=list)  # 发出的消息ID列表
+
+    # Per-agent 状态管理（每个 agent 在 session 中的独立状态）
+    agent_states: dict[str, str] = field(default_factory=dict)
+    # 格式: {"agent:revenue_minister": "ACTIVE", "agent:governor_zhili": "WAITING_REPLY"}
+    # 状态值: ACTIVE, WAITING_REPLY, FINISHED, FAILED
+    # 注意: Session.status 用于 session 级别的状态（如 FINISHED/FAILED）
+    #       agent_states 用于每个 agent 的独立状态（如 WAITING_REPLY/ACTIVE）
+
     # 时间戳
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
@@ -66,6 +77,9 @@ class Session:
             else None,
             "root_event_id": self.root_event_id,
             "waiting_for_tasks": self.waiting_for_tasks,
+            "pending_async_replies": self.pending_async_replies,
+            "pending_message_ids": self.pending_message_ids,
+            "agent_states": self.agent_states,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -89,6 +103,9 @@ class Session:
             timeout_notified_at=parse_datetime(data.get("timeout_notified_at")),
             root_event_id=data.get("root_event_id"),
             waiting_for_tasks=data.get("waiting_for_tasks", []),
+            pending_async_replies=data.get("pending_async_replies", 0),
+            pending_message_ids=data.get("pending_message_ids", []),
+            agent_states=data.get("agent_states", {}),
             created_at=parse_datetime(data.get("created_at")) or utcnow(),
             updated_at=parse_datetime(data.get("updated_at")) or utcnow(),
         )
