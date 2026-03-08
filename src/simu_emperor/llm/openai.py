@@ -252,6 +252,10 @@ class OpenAIProvider(LLMProvider):
             # 只有当 tools 非空时才添加到参数中
             if tools:
                 api_params["tools"] = tools
+                # Debug: 打印 tools 结构
+                logger.debug(f"Tools being sent to GLM API:")
+                for i, tool in enumerate(tools):
+                    logger.debug(f"  Tool {i}: type={tool.get('type')}, name={tool.get('function', {}).get('name')}")
 
             response = await self.client.chat.completions.create(**api_params)
 

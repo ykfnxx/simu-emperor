@@ -180,3 +180,119 @@ class TestTaskSessionToolsPermission:
                 task_session_id="task:nonexistent",
                 result="Invalid",
             )
+
+    @pytest.mark.asyncio
+    async def test_finish_already_finished_task_fails(
+        self, session_manager, task_tools_agent_a
+    ):
+        """Test that finishing an already finished task raises an error."""
+        parent = await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        task = await session_manager.create_session(
+            parent_id="session:main",
+            created_by="agent:agent_a",
+            timeout_seconds=300,
+        )
+
+        # First finish should succeed
+        await task_tools_agent_a.finish_task_session(
+            task_session_id=task.session_id,
+            result="Task completed",
+        )
+
+        # Second finish should fail
+        with pytest.raises(ValueError, match="already finished"):
+            await task_tools_agent_a.finish_task_session(
+                task_session_id=task.session_id,
+                result="Duplicate finish",
+            )
+
+    @pytest.mark.asyncio
+    async def test_finish_already_failed_task_fails(
+        self, session_manager, task_tools_agent_a
+    ):
+        """Test that finishing an already failed task raises an error."""
+        parent = await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        task = await session_manager.create_session(
+            parent_id="session:main",
+            created_by="agent:agent_a",
+            timeout_seconds=300,
+        )
+
+        # First fail the task
+        await task_tools_agent_a.fail_task_session(
+            task_session_id=task.session_id,
+            reason="Task failed",
+        )
+
+        # Trying to finish should fail
+        with pytest.raises(ValueError, match="already failed"):
+            await task_tools_agent_a.finish_task_session(
+                task_session_id=task.session_id,
+                result="Should not work",
+            )
+
+    @pytest.mark.asyncio
+    async def test_fail_already_finished_task_fails(
+        self, session_manager, task_tools_agent_a
+    ):
+        """Test that failing an already finished task raises an error."""
+        parent = await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        task = await session_manager.create_session(
+            parent_id="session:main",
+            created_by="agent:agent_a",
+            timeout_seconds=300,
+        )
+
+        # First finish the task
+        await task_tools_agent_a.finish_task_session(
+            task_session_id=task.session_id,
+            result="Task completed",
+        )
+
+        # Trying to fail should fail
+        with pytest.raises(ValueError, match="already finished"):
+            await task_tools_agent_a.fail_task_session(
+                task_session_id=task.session_id,
+                reason="Should not work",
+            )
+
+    @pytest.mark.asyncio
+    async def test_fail_already_failed_task_fails(
+        self, session_manager, task_tools_agent_a
+    ):
+        """Test that failing an already failed task raises an error."""
+        parent = await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        task = await session_manager.create_session(
+            parent_id="session:main",
+            created_by="agent:agent_a",
+            timeout_seconds=300,
+        )
+
+        # First fail should succeed
+        await task_tools_agent_a.fail_task_session(
+            task_session_id=task.session_id,
+            reason="Task failed",
+        )
+
+        # Second fail should also fail
+        with pytest.raises(ValueError, match="already failed"):
+            await task_tools_agent_a.fail_task_session(
+                task_session_id=task.session_id,
+                reason="Duplicate fail",
+            )

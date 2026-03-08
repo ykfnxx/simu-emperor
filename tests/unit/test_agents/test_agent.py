@@ -91,6 +91,7 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, mo
     # 使用 monkeypatch.setattr 直接修改 settings.memory.memory_dir
     # 注意：必须在 Agent 实例化之前 patch，因为 Agent.__init__ 会读取 settings
     from simu_emperor.config import settings
+
     monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
 
     agent = Agent(
@@ -120,8 +121,8 @@ class TestAgent:
         """测试启动"""
         agent.start()
 
-        # 现在只订阅2次：agent:xxx 和 * (broadcast only)
-        assert mock_event_bus.subscribe.call_count == 2
+        # 订阅3次：agent:xxx, * (broadcast only), TASK_CREATED
+        assert mock_event_bus.subscribe.call_count == 3
 
     def test_stop(self, agent, mock_event_bus):
         """测试停止"""
@@ -344,28 +345,29 @@ class TestAgent:
         calls = agent.event_bus.send_event.call_args_list
         assert len(calls) == 2  # send_message_to_agent + respond_to_player
 
-    def test_get_system_prompt_for_event(self, agent):
+    @pytest.mark.asyncio
+    async def test_get_system_prompt_for_event(self, agent):
         """测试不同事件类型的 system prompt"""
         agent.start()
 
         # COMMAND 事件
-        prompt_cmd = agent._get_system_prompt_for_event(EventType.COMMAND)
+        prompt_cmd = await agent._get_system_prompt_for_event(EventType.COMMAND)
         assert "执行皇帝的命令" in prompt_cmd
         assert "send_game_event" in prompt_cmd
         assert "执行动作" in prompt_cmd
 
         # CHAT 事件
-        prompt_chat = agent._get_system_prompt_for_event(EventType.CHAT)
+        prompt_chat = await agent._get_system_prompt_for_event(EventType.CHAT)
         assert "皇帝想和你聊天" in prompt_chat
         assert "respond_to_player" in prompt_chat
 
         # END_TURN 事件
-        prompt_end = agent._get_system_prompt_for_event(EventType.END_TURN)
+        prompt_end = await agent._get_system_prompt_for_event(EventType.END_TURN)
         assert "回合即将结束" in prompt_end
         assert "send_ready" in prompt_end
 
         # TURN_RESOLVED 事件
-        prompt_resolved = agent._get_system_prompt_for_event(EventType.TURN_RESOLVED)
+        prompt_resolved = await agent._get_system_prompt_for_event(EventType.TURN_RESOLVED)
         assert "回合结算完成" in prompt_resolved
         assert "write_memory" in prompt_resolved
 
@@ -509,47 +511,30 @@ class TestAgent:
         assert agent.event_bus == mock_event_bus
         assert agent.llm_provider == mock_llm
 
-    def test_system_prompt_uses_dynamic_skill(
+    @pytest.mark.asyncio
+    async def test_system_prompt_uses_hardcoded_content(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
-        """测试使用动态 Skill 内容"""
-        from simu_emperor.agents.skills.models import Skill, SkillMetadata
-
-        # 创建 mock SkillLoader
-        mock_skill_loader = Mock()
-        mock_skill = Skill(
-            metadata=SkillMetadata(
-                name="execute_command",
-                description="Test skill",
-            ),
-            content="# Dynamic Skill Content\n这是动态加载的 Skill 内容。\n\n当前 Agent: {{agent_id}}",
-        )
-        mock_skill_loader.load.return_value = mock_skill
-        mock_skill_loader.registry.get_skill_for_event.return_value = "execute_command"
-
-        # 创建 Agent 并注入 SkillLoader
+        """测试使用硬编码的 System Prompt 内容"""
+        # 创建 Agent（不传入 SkillLoader，因为已不再使用）
         agent = Agent(
             agent_id="test_agent",
             event_bus=mock_event_bus,
             llm_provider=mock_llm,
             data_dir=temp_data_dir,
             repository=mock_repository,
-            skill_loader=mock_skill_loader,
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = await agent._get_system_prompt_for_event("command")
 
-        # 验证使用了动态 Skill 内容
-        assert "Dynamic Skill Content" in prompt
-        assert "这是动态加载的 Skill 内容" in prompt
-        # 验证变量被注入
-        assert "test_agent" in prompt
-        # 验证调用了 SkillLoader
-        mock_skill_loader.load.assert_called_once_with("execute_command")
-        mock_skill_loader.registry.get_skill_for_event.assert_called_once_with("command")
+        # 验证使用了硬编码指令
+        assert "执行皇帝的命令" in prompt
+        assert "send_game_event" in prompt
+        assert "执行动作" in prompt
 
-    def test_system_prompt_fallback_to_hardcoded(
+    @pytest.mark.asyncio
+    async def test_system_prompt_fallback_to_hardcoded(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
         """测试回退到硬编码指令"""
@@ -564,13 +549,14 @@ class TestAgent:
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = await agent._get_system_prompt_for_event("command")
 
         # 验证使用了硬编码指令
         assert "执行皇帝的命令" in prompt
         assert "send_game_event" in prompt
 
-    def test_system_prompt_fallback_when_skill_not_found(
+    @pytest.mark.asyncio
+    async def test_system_prompt_fallback_when_skill_not_found(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
         """测试 Skill 加载失败时回退到硬编码"""
@@ -590,51 +576,133 @@ class TestAgent:
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = await agent._get_system_prompt_for_event("command")
 
         # 验证回退到硬编码指令
         assert "执行皇帝的命令" in prompt
         assert "send_game_event" in prompt
 
-    def test_system_prompt_injects_variables(
+    @pytest.mark.asyncio
+    async def test_system_prompt_task_session_uses_task_created_prompt(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
-        """测试变量注入"""
-        from simu_emperor.agents.skills.models import Skill, SkillMetadata
-
-        # 创建 mock SkillLoader
-        mock_skill_loader = Mock()
-        mock_skill = Skill(
-            metadata=SkillMetadata(
-                name="execute_command",
-                description="Test skill",
-            ),
-            content="# Task\nAgent ID: {{agent_id}}\nTurn: {{turn}}\nTimestamp: {{timestamp}}",
-        )
-        mock_skill_loader.load.return_value = mock_skill
-        mock_skill_loader.registry.get_skill_for_event.return_value = "execute_command"
-
-        # 创建 mock repository 返回 turn=5
-        mock_repository.load_game_state.return_value = Mock(turn=5)
-
-        # 创建 Agent 并注入 SkillLoader
+        """测试 task session 使用 TASK_CREATED 的 system prompt"""
+        # 创建 Agent（不传入 SkillLoader）
         agent = Agent(
-            agent_id="revenue_minister",
+            agent_id="test_agent",
             event_bus=mock_event_bus,
             llm_provider=mock_llm,
             data_dir=temp_data_dir,
             repository=mock_repository,
-            skill_loader=mock_skill_loader,
         )
 
-        # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        # Task session 应该使用 TASK_CREATED 的 prompt
+        task_session_id = "task:test_agent:parent_session:123"
+        prompt = await agent._get_system_prompt_for_event("agent_message", task_session_id)
 
-        # 验证变量被正确注入
-        assert "revenue_minister" in prompt
-        assert "5" in prompt
-        # 验证 timestamp 存在（ISO 格式）
-        import re
+        # 验证 task session 使用了 TASK_CREATED 的提示
+        assert "Task Session" in prompt
+        assert "单一目标" in prompt
+        assert "finish_task_session" in prompt
+        assert "创建者职责" in prompt
+        assert "参与者职责" in prompt
 
-        timestamp_pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-        assert re.search(timestamp_pattern, prompt) is not None
+    @pytest.mark.asyncio
+    async def test_send_message_to_agent_with_await_reply_true(self, agent):
+        """测试 send_message_to_agent 返回正确的等待消息（await_reply=true）"""
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.COMMAND,
+            payload={"command": "test"},
+            session_id="test_session",
+        )
+
+        # 调用 send_message_to_agent with await_reply=true
+        result = await agent._action_tools.send_message_to_agent(
+            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": True},
+            event,
+        )
+
+        # 应该返回等待消息（不包含 ⏳，改为基于函数名称和参数检测）
+        assert "等待回复" in result
+
+        # 验证发送的事件使用的是当前 session（没有切换）
+        assert agent.event_bus.send_event.called
+        sent_event = agent.event_bus.send_event.call_args[0][0]
+        assert sent_event.session_id == "test_session"
+        # 验证没有 reply_to_session 字段
+        assert "reply_to_session" not in sent_event.payload
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_agent_with_await_reply_false(self, agent):
+        """测试 send_message_to_agent 返回成功消息（await_reply=false）"""
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.COMMAND,
+            payload={"command": "test"},
+            session_id="test_session",
+        )
+
+        # 调用 send_message_to_agent with await_reply=false (default)
+        result = await agent._action_tools.send_message_to_agent(
+            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": False},
+            event,
+        )
+
+        # 应该返回成功消息（包含 ✅）
+        assert "✅" in result
+        assert "⏳" not in result
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_agent_shares_task_session(self, agent, tmp_path, monkeypatch):
+        """测试两个 agent 共享 task session"""
+        # 创建临时 memory 目录
+        memory_dir = tmp_path / "memory_for_task_test"
+        memory_dir.mkdir(exist_ok=True)
+
+        # Patch settings to use temporary memory directory
+        from simu_emperor.config import settings
+        monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
+
+        # 创建 mock SessionManager
+        mock_session_manager = Mock()
+        mock_session = Mock()
+        mock_session.parent_id = "parent_session"
+        mock_session.is_task = True
+        mock_session.status = "ACTIVE"
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+
+        # 创建 Agent with session_manager
+        agent_with_sm = Agent(
+            agent_id="test_agent_with_session",
+            event_bus=agent.event_bus,
+            llm_provider=agent.llm_provider,
+            data_dir=agent.data_dir,
+            repository=agent.repository,
+            session_manager=mock_session_manager,
+        )
+
+        task_session_id = "task:test_agent:parent_session:123"
+        event = Event(
+            src="player",
+            dst=["agent:test_agent_with_session"],
+            type=EventType.AGENT_MESSAGE,
+            payload={"message": "test"},
+            session_id=task_session_id,
+        )
+
+        # 调用 send_message_to_agent
+        result = await agent_with_sm._action_tools.send_message_to_agent(
+            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": True},
+            event,
+        )
+
+        # 验证发送的事件使用的是 task session（共享原则）
+        assert agent_with_sm.event_bus.send_event.called
+        sent_event = agent_with_sm.event_bus.send_event.call_args[0][0]
+
+        # 关键验证：应该使用 task session，而不是 parent session
+        assert sent_event.session_id == task_session_id
+        assert sent_event.session_id != "parent_session"

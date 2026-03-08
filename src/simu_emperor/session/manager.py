@@ -64,7 +64,9 @@ class SessionManager:
             session_id = self._generate_session_id(created_by)
 
         if status is None:
-            status = "WAITING_REPLY" if parent_id else "ACTIVE"
+            # All sessions (including task sessions) default to ACTIVE status
+            # WAITING_REPLY status is only set when async tool calls are made
+            status = "ACTIVE"
 
         session = Session(
             session_id=session_id,
@@ -86,6 +88,51 @@ class SessionManager:
 
     async def get_session(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
+
+    async def set_agent_state(self, session_id: str, agent_id: str, status: str) -> None:
+        """设置某个 agent 在 session 中的状态
+
+        Args:
+            session_id: Session ID
+            agent_id: Agent ID (格式: "agent:xxx" 或 "xxx")
+            status: 状态 (ACTIVE/WAITING_REPLY/FINISHED/FAILED)
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        # 规范化 agent_id 格式
+        normalized_id = agent_id if agent_id.startswith("agent:") else f"agent:{agent_id}"
+
+        session.agent_states[normalized_id] = status
+        session.updated_at = datetime.now(timezone.utc)
+        await self.save_manifest()
+
+    async def get_agent_state(self, session_id: str, agent_id: str) -> str | None:
+        """获取某个 agent 在 session 中的状态
+
+        如果 agent 未在 session 中注册，自动初始化为 ACTIVE 状态（惰性初始化）。
+
+        Args:
+            session_id: Session ID
+            agent_id: Agent ID (格式: "agent:xxx" 或 "xxx")
+
+        Returns:
+            Agent 状态 (ACTIVE/WAITING_REPLY/FINISHED/FAILED)，如果 session 不存在则返回 None
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            return None
+
+        # 规范化 agent_id 格式
+        normalized_id = agent_id if agent_id.startswith("agent:") else f"agent:{agent_id}"
+
+        # 惰性初始化：首次访问时自动设置为 ACTIVE
+        if normalized_id not in session.agent_states:
+            session.agent_states[normalized_id] = "ACTIVE"
+            await self.save_manifest()
+
+        return session.agent_states[normalized_id]
 
     async def update_session(self, session_id: str, **updates) -> None:
         session = self._sessions.get(session_id)
@@ -132,6 +179,58 @@ class SessionManager:
 
     def get_waiting_sessions(self) -> list[Session]:
         return [s for s in self._sessions.values() if s.status == "WAITING_REPLY"]
+
+    async def increment_async_replies(
+        self, session_id: str, agent_id: str, count: int = 1
+    ) -> None:
+        """增加异步响应计数，并设置调用者 agent 的状态为 WAITING_REPLY
+
+        Args:
+            session_id: Session ID
+            agent_id: 发起异步调用的 agent ID
+            count: 增加的计数
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        session.pending_async_replies += count
+        session.updated_at = datetime.now(timezone.utc)
+
+        # 设置调用者 agent 的状态为 WAITING_REPLY
+        await self.set_agent_state(session_id, agent_id, "WAITING_REPLY")
+
+        await self.save_manifest()
+
+    async def decrement_async_replies(
+        self, session_id: str, agent_id: str, count: int = 1
+    ) -> tuple[bool, int]:
+        """减少异步响应计数，当计数归零时恢复 agent 状态为 ACTIVE
+
+        Args:
+            session_id: Session ID
+            agent_id: 发起异步调用的 agent ID
+            count: 减少的计数
+
+        Returns:
+            (是否收到所有回复, 当前剩余计数)
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        session.pending_async_replies = max(0, session.pending_async_replies - count)
+        session.updated_at = datetime.now(timezone.utc)
+
+        all_replies_received = session.pending_async_replies == 0
+
+        if all_replies_received:
+            # 恢复 agent 状态为 ACTIVE
+            await self.set_agent_state(session_id, agent_id, "ACTIVE")
+
+        await self.save_manifest()
+
+        return (all_replies_received, session.pending_async_replies)
 
     async def get_context_manager(
         self, session_id: str, agent_id: str, include_ancestors: bool = False
@@ -183,6 +282,10 @@ class SessionManager:
                 "last_updated": utcnow().isoformat(),
                 "sessions": {},
             }
+
+        # Ensure "sessions" key exists (for compatibility with V3 manifests)
+        if "sessions" not in manifest:
+            manifest["sessions"] = {}
 
         manifest["last_updated"] = utcnow().isoformat()
 

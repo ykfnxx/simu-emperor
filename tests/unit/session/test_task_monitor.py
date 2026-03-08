@@ -69,25 +69,27 @@ class TestTaskMonitor:
             session_id="session:main",
             created_by="player",
         )
-        
+
         past_time = datetime.now(timezone.utc) - timedelta(seconds=10)
         task = await session_manager.create_session(
             parent_id="session:main",
             created_by="agent:test",
             timeout_seconds=-10,
         )
-        
+
+        # Task sessions start as ACTIVE, set to WAITING_REPLY for timeout monitoring
         await session_manager.update_session(
             task.session_id,
             timeout_at=past_time,
+            status="WAITING_REPLY",
         )
-        
+
         await task_monitor._check_timeouts()
-        
+
         task_monitor.event_bus.send_event.assert_called_once()
         call_args = task_monitor.event_bus.send_event.call_args
         event = call_args[0][0]
-        
+
         assert event.type == "task_timeout"
         assert event.session_id == task.session_id
         assert "agent:test" in event.dst
@@ -109,21 +111,23 @@ class TestTaskMonitor:
             session_id="session:main",
             created_by="player",
         )
-        
+
         past_time = datetime.now(timezone.utc) - timedelta(seconds=10)
         task = await session_manager.create_session(
             parent_id="session:main",
             created_by="agent:test",
             timeout_seconds=-10,
         )
-        
+
+        # Task sessions start as ACTIVE, set to WAITING_REPLY for timeout monitoring
         await session_manager.update_session(
             task.session_id,
             timeout_at=past_time,
+            status="WAITING_REPLY",
         )
-        
+
         await task_monitor._check_timeouts()
         assert task_monitor.event_bus.send_event.call_count == 1
-        
+
         await task_monitor._check_timeouts()
         assert task_monitor.event_bus.send_event.call_count == 1

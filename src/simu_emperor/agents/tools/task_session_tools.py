@@ -29,7 +29,9 @@ class TaskSessionTools:
         self,
         timeout_seconds: int = 300,
         description: str = "",
-        current_session_id: str = None,
+        current_session_id: str | None = None,
+        goal: str = "",
+        constraints: str = "",
     ) -> dict:
         current_session = await self.session_manager.get_session(current_session_id)
         if current_session is None:
@@ -43,7 +45,7 @@ class TaskSessionTools:
         suffix = uuid.uuid4().hex[:8]
         task_session_id = f"task:{self.agent_id}:{timestamp}:{suffix}"
 
-        session = await self.session_manager.create_session(
+        _ = await self.session_manager.create_session(
             session_id=task_session_id,
             parent_id=current_session_id,
             created_by=f"agent:{self.agent_id}",
@@ -58,6 +60,8 @@ class TaskSessionTools:
                 "task_session_id": task_session_id,
                 "parent_session_id": current_session_id,
                 "description": description,
+                "goal": goal,
+                "constraints": constraints,
             },
             session_id=task_session_id,
         )
@@ -73,8 +77,13 @@ class TaskSessionTools:
             new_waiting_list = parent_session.waiting_for_tasks + [task_session_id]
             await self.session_manager.update_session(
                 current_session_id,
-                status="WAITING_REPLY",
                 waiting_for_tasks=new_waiting_list,
+            )
+            # 只让创建者 agent 进入 WAITING_REPLY 状态（per-agent 状态管理）
+            await self.session_manager.set_agent_state(
+                current_session_id,
+                self.agent_id,
+                "WAITING_REPLY",
             )
 
         return {
@@ -97,17 +106,29 @@ class TaskSessionTools:
         if not session.is_task:
             raise ValueError(f"Session {task_session_id} is not a task session")
 
+        if session.status == "FINISHED":
+            raise ValueError(f"❌ 任务已完成，不能调用 finish_task_session。任务状态：FINISHED")
+        if session.status == "FAILED":
+            raise ValueError(f"❌ 任务已失败，不能调用 finish_task_session。任务状态：FAILED")
+
         if session.created_by != f"agent:{self.agent_id}":
-            raise ValueError(
-                f"Permission denied: task was created by {session.created_by}, "
-                f"not agent:{self.agent_id}"
+            error_msg = (
+                "❌ 权限错误：只有任务创建者可以结束任务。\n"
+                f"任务由 {session.created_by} 创建，而你是 agent:{self.agent_id}。\n"
+                "⚠️ 作为任务参与者，你应该：\n"
+                "1. 只使用 send_message_to_agent 回复消息\n"
+                "2. 不要调用 finish_task_session\n"
+                "3. 不要调用 respond_to_player\n"
+                "4. 等待任务创建者自然结束任务"
             )
+            raise ValueError(error_msg)
 
         await self.session_manager.update_session(
             task_session_id,
             status="FINISHED",
         )
 
+        # Send TASK_FINISHED event to parent session so the agent can resume
         await self.event_bus.send_event(
             Event(
                 src=f"agent:{self.agent_id}",
@@ -118,10 +139,13 @@ class TaskSessionTools:
                     "parent_session_id": session.parent_id,
                     "result": result,
                 },
-                session_id=task_session_id,
+                session_id=session.parent_id,  # Send to parent session, not task session
             )
         )
 
+        # Update waiting list and agent state AFTER sending the event
+        # This ensures the event is sent before the agent state is updated,
+        # allowing the agent to process TASK_FINISHED while still WAITING_REPLY
         if session.parent_id:
             is_empty, _ = await self.session_manager.remove_from_waiting_list(
                 session.parent_id,
@@ -129,9 +153,11 @@ class TaskSessionTools:
             )
 
             if is_empty:
-                await self.session_manager.update_session(
+                # 恢复创建者 agent 的状态为 ACTIVE（per-agent 状态管理）
+                await self.session_manager.set_agent_state(
                     session.parent_id,
-                    status="ACTIVE",
+                    self.agent_id,
+                    "ACTIVE",
                 )
 
         return {"success": True, "status": "FINISHED"}
@@ -148,17 +174,29 @@ class TaskSessionTools:
         if not session.is_task:
             raise ValueError(f"Session {task_session_id} is not a task session")
 
+        if session.status == "FINISHED":
+            raise ValueError(f"❌ 任务已完成，不能调用 fail_task_session。任务状态：FINISHED")
+        if session.status == "FAILED":
+            raise ValueError(f"❌ 任务已失败，不能调用 fail_task_session。任务状态：FAILED")
+
         if session.created_by != f"agent:{self.agent_id}":
-            raise ValueError(
-                f"Permission denied: task was created by {session.created_by}, "
-                f"not agent:{self.agent_id}"
+            error_msg = (
+                "❌ 权限错误：只有任务创建者可以结束任务。\n"
+                f"任务由 {session.created_by} 创建，而你是 agent:{self.agent_id}。\n"
+                "⚠️ 作为任务参与者，你应该：\n"
+                "1. 只使用 send_message_to_agent 回复消息\n"
+                "2. 不要调用 finish_task_session\n"
+                "3. 不要调用 respond_to_player\n"
+                "4. 等待任务创建者自然结束任务"
             )
+            raise ValueError(error_msg)
 
         await self.session_manager.update_session(
             task_session_id,
             status="FAILED",
         )
 
+        # Send TASK_FAILED event to parent session so the agent can resume
         await self.event_bus.send_event(
             Event(
                 src=f"agent:{self.agent_id}",
@@ -169,10 +207,13 @@ class TaskSessionTools:
                     "parent_session_id": session.parent_id,
                     "reason": reason,
                 },
-                session_id=task_session_id,
+                session_id=session.parent_id,  # Send to parent session, not task session
             )
         )
 
+        # Update waiting list and agent state AFTER sending the event
+        # This ensures the event is sent before the agent state is updated,
+        # allowing the agent to process TASK_FAILED while still WAITING_REPLY
         if session.parent_id:
             is_empty, _ = await self.session_manager.remove_from_waiting_list(
                 session.parent_id,
@@ -180,9 +221,11 @@ class TaskSessionTools:
             )
 
             if is_empty:
-                await self.session_manager.update_session(
+                # 恢复创建者 agent 的状态为 ACTIVE（per-agent 状态管理）
+                await self.session_manager.set_agent_state(
                     session.parent_id,
-                    status="ACTIVE",
+                    self.agent_id,
+                    "ACTIVE",
                 )
 
         return {"success": True, "status": "FAILED"}

@@ -66,7 +66,8 @@ class TestSessionManager:
         )
 
         assert task.parent_id == "session:main"
-        assert task.status == "WAITING_REPLY"
+        # Task sessions start as ACTIVE, only become WAITING_REPLY when async calls are made
+        assert task.status == "ACTIVE"
         assert task.created_by == "agent:test"
         assert task.timeout_at is not None
         assert task.is_task is True
@@ -196,6 +197,10 @@ class TestSessionManager:
             created_by="agent:test2",
         )
 
+        # Task sessions start as ACTIVE, set to WAITING_REPLY to test the query
+        await session_manager.update_session(task1.session_id, status="WAITING_REPLY")
+        await session_manager.update_session(task2.session_id, status="WAITING_REPLY")
+
         waiting = session_manager.get_waiting_sessions()
         assert len(waiting) == 2
         assert all(s.status == "WAITING_REPLY" for s in waiting)
@@ -253,6 +258,94 @@ class TestSessionManager:
         assert is_empty is False
         assert task2.session_id in new_list
         assert task1.session_id not in new_list
+
+    @pytest.mark.asyncio
+    async def test_set_agent_state(self, session_manager):
+        """Test setting per-agent state."""
+        await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        await session_manager.set_agent_state("session:main", "agent:test1", "WAITING_REPLY")
+
+        session = await session_manager.get_session("session:main")
+        assert session.agent_states == {"agent:test1": "WAITING_REPLY"}
+
+    @pytest.mark.asyncio
+    async def test_get_agent_state_lazy_initialization(self, session_manager):
+        """Test that get_agent_state lazy-initializes agents to ACTIVE."""
+        await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        # First access should lazy-initialize to ACTIVE
+        state = await session_manager.get_agent_state("session:main", "agent:test1")
+        assert state == "ACTIVE"
+
+        session = await session_manager.get_session("session:main")
+        assert session.agent_states == {"agent:test1": "ACTIVE"}
+
+    @pytest.mark.asyncio
+    async def test_get_agent_state_existing(self, session_manager):
+        """Test getting existing agent state."""
+        await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        # Set a specific state
+        await session_manager.set_agent_state("session:main", "agent:test1", "WAITING_REPLY")
+
+        # Get the state
+        state = await session_manager.get_agent_state("session:main", "agent:test1")
+        assert state == "WAITING_REPLY"
+
+    @pytest.mark.asyncio
+    async def test_get_agent_state_session_not_found(self, session_manager):
+        """Test getting agent state from non-existent session."""
+        state = await session_manager.get_agent_state("nonexistent", "agent:test1")
+        assert state is None
+
+    @pytest.mark.asyncio
+    async def test_per_agent_state_independence(self, session_manager):
+        """Test that each agent has independent state in a session."""
+        await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        # Agent1 is waiting for reply
+        await session_manager.set_agent_state("session:main", "agent:test1", "WAITING_REPLY")
+
+        # Agent2 is still active (lazy initialization)
+        state2 = await session_manager.get_agent_state("session:main", "agent:test2")
+        assert state2 == "ACTIVE"
+
+        session = await session_manager.get_session("session:main")
+        assert session.agent_states == {
+            "agent:test1": "WAITING_REPLY",
+            "agent:test2": "ACTIVE",
+        }
+
+    @pytest.mark.asyncio
+    async def test_agent_id_normalization(self, session_manager):
+        """Test that agent IDs are normalized to 'agent:' prefix."""
+        await session_manager.create_session(
+            session_id="session:main",
+            created_by="player",
+        )
+
+        # Set without 'agent:' prefix
+        await session_manager.set_agent_state("session:main", "test1", "WAITING_REPLY")
+
+        session = await session_manager.get_session("session:main")
+        assert "agent:test1" in session.agent_states
+
+        # Get without 'agent:' prefix should also work
+        state = await session_manager.get_agent_state("session:main", "test1")
+        assert state == "WAITING_REPLY"
 
 
 class TestSession:

@@ -665,3 +665,37 @@ class TestContextManager:
             assert has_matching_assistant, (
                 f"Found orphaned tool message with tool_call_id: {tool_call_id}"
             )
+
+    @pytest.mark.asyncio
+    async def test_response_event_to_messages(self, tmp_path):
+        """测试 RESPONSE 事件被正确转换为消息"""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="governor_zhili",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # 添加来自其他 agent 的 RESPONSE 事件
+        context_mgr.add_event(
+            {
+                "event_type": EventType.RESPONSE,
+                "src": "agent:minister_of_revenue",
+                "content": {"narrative": "已收到您的命令。"},
+            },
+            tokens=20,
+        )
+
+        messages = context_mgr.get_context_messages()
+
+        # 验证 RESPONSE 事件被转换为 user 消息
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+        assert "来自 minister_of_revenue 的回复" in messages[0]["content"]
+        assert "已收到您的命令。" in messages[0]["content"]

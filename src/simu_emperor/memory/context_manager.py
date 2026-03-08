@@ -87,6 +87,145 @@ class ContextManager:
         self.events: list[dict] = []  # 当前窗口内的事件（从tape加载）
         self.summary: str = ""  # 历史摘要
 
+    @staticmethod
+    def event_to_messages(event: dict) -> list[dict]:
+        """
+        将事件转换为messages格式
+
+        SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
+
+        Args:
+            event: 事件字典
+
+        Returns:
+            消息列表
+        """
+        from simu_emperor.event_bus.event_types import EventType
+
+        event_type = event.get("event_type", event.get("type", "UNKNOWN"))
+        payload = event.get("payload", event.get("content", {}))
+
+        if event_type == EventType.USER_QUERY:
+            query = payload.get("query") if isinstance(payload, dict) else payload
+            return [{"role": "user", "content": str(query)}]
+        elif event_type == EventType.COMMAND:
+            command = payload.get("command", "") if isinstance(payload, dict) else ""
+            if command:
+                parts = [
+                    "# 收到的事件",
+                    f"- 来源: {event.get('src', 'unknown')}",
+                    f"- 类型: {event_type}",
+                    f"- 时间: {event.get('timestamp', '')}",
+                    "\n# 皇帝的命令：",
+                    "```",
+                    command,
+                    "```",
+                    "\n**重要**：你需要**执行**这个命令，不仅仅是查询数据！",
+                ]
+                return [{"role": "user", "content": "\n".join(parts)}]
+            else:
+                return []
+        elif event_type == EventType.CHAT:
+            message = payload.get("message", "") if isinstance(payload, dict) else ""
+            if message:
+                parts = [
+                    "# 收到的事件",
+                    f"- 来源: {event.get('src', 'unknown')}",
+                    f"- 类型: {event_type}",
+                    f"- 时间: {event.get('timestamp', '')}",
+                    "\n# 皇帝的消息：",
+                    "```",
+                    message,
+                    "```",
+                ]
+                return [{"role": "user", "content": "\n".join(parts)}]
+            else:
+                return []
+        elif event_type == EventType.AGENT_MESSAGE:
+            message = payload.get("message", "") if isinstance(payload, dict) else str(payload)
+            source_agent = event.get("src", "unknown").replace("agent:", "")
+
+            if message:
+                formatted_content = f"# 来自 {source_agent} 的消息：\n```\n{message}\n```"
+                return [{"role": "user", "content": formatted_content}]
+            else:
+                return []
+        elif event_type == EventType.RESPONSE:
+            # Agent receives response from another agent
+            narrative = payload.get("narrative", "") if isinstance(payload, dict) else ""
+            source_agent = event.get("src", "unknown").replace("agent:", "")
+
+            if narrative:
+                formatted_content = f"# 来自 {source_agent} 的回复：\n```\n{narrative}\n```"
+                return [{"role": "user", "content": formatted_content}]
+            else:
+                return []
+        elif event_type == EventType.AGENT_RESPONSE:
+            response = payload.get("response") if isinstance(payload, dict) else payload
+            return [{"role": "assistant", "content": str(response)}]
+        elif event_type == EventType.TASK_CREATED:
+            goal = payload.get("goal", "")
+            constraints = payload.get("constraints", "")
+            description = payload.get("description", "")
+            task_session_id = payload.get("task_session_id", "")
+            parent_session = payload.get("parent_session_id", "")
+
+            if goal or description:
+                parts = ["\n# 📋 任务会话已创建"]
+                parts.append(f"\n**当前任务会话 ID**: `{task_session_id}`")
+                if parent_session:
+                    parts.append(f"- 父会话: {parent_session}")
+                if description:
+                    parts.append(f"- 任务描述: {description}")
+                if goal:
+                    parts.append(f"\n## 任务目标")
+                    parts.append(goal)
+                if constraints:
+                    parts.append(f"\n## 成功约束")
+                    parts.append(constraints)
+                parts.append(f"\n**你需要根据以上目标和约束执行任务**")
+                parts.append(
+                    f"\n**任务完成后，使用以下 ID 调用 finish_task_session 或 fail_task_session**:"
+                )
+                parts.append(f"- task_session_id: `{task_session_id}`")
+
+                return [{"role": "user", "content": "\n".join(parts)}]
+            else:
+                return []
+
+        elif event_type == EventType.ASSISTANT_RESPONSE:
+            response = payload.get("response") if isinstance(payload, dict) else payload
+            tool_calls = payload.get("tool_calls") if isinstance(payload, dict) else None
+
+            msg = {"role": "assistant", "content": str(response) or None}
+
+            if tool_calls:
+                msg["tool_calls"] = [
+                    {
+                        "id": tc.get("id") or "",
+                        "type": tc.get("type") or "function",
+                        "function": {
+                            "name": tc.get("function", {}).get("name") or "",
+                            "arguments": tc.get("function", {}).get("arguments") or "{}",
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+
+            return [msg]
+        elif event_type == EventType.TOOL_RESULT:
+            tool_call_id = payload.get("tool_call_id", "") if isinstance(payload, dict) else ""
+            result = payload.get("result") if isinstance(payload, dict) else payload
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": str(tool_call_id),
+                    "content": str(result),
+                }
+            ]
+        else:
+            return [{"role": "system", "content": f"[{event_type}] {str(payload)}"}]
+
     def _query_llm_context_window(self) -> int:
         """查询LLM API获取context window大小"""
         try:
@@ -237,7 +376,7 @@ class ContextManager:
 
         # 4. 转换事件为消息，并验证 tool 消息配对
         for event in self.events:
-            converted = self._event_to_messages(event)
+            converted = self.event_to_messages(event)
             for msg in converted:
                 # 追踪 assistant 消息中的 tool_calls
                 if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -265,63 +404,6 @@ class ContextManager:
         event_tokens = sum(e.get("_tokens", e.get("tokens", 0)) for e in self.events)
         summary_tokens = count_tokens(self.summary) if self.summary else 0
         return event_tokens + summary_tokens
-
-    def _event_to_messages(self, event: dict) -> list[dict]:
-        """
-        将事件转换为messages格式
-
-        SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
-        """
-        from simu_emperor.event_bus.event_types import EventType
-
-        event_type = event.get("event_type", event.get("type", "UNKNOWN"))
-        content = event.get("content", {})
-
-        if event_type == EventType.USER_QUERY:
-            query = content.get("query") if isinstance(content, dict) else content
-            return [{"role": "user", "content": str(query)}]
-        elif event_type == EventType.AGENT_RESPONSE:
-            # 最终响应
-            response = content.get("response") if isinstance(content, dict) else content
-            return [{"role": "assistant", "content": str(response)}]
-        elif event_type == EventType.ASSISTANT_RESPONSE:
-            # 中间响应（LLM 思考过程）
-            response = content.get("response") if isinstance(content, dict) else content
-            tool_calls = content.get("tool_calls") if isinstance(content, dict) else None
-
-            # 构建与运行时一致的消息格式
-            msg = {"role": "assistant", "content": str(response) or None}
-
-            # 如果有 tool_calls，添加到消息中
-            if tool_calls:
-                msg["tool_calls"] = [
-                    {
-                        "id": tc.get("id", ""),
-                        "type": tc.get("type", "function"),
-                        "function": {
-                            "name": tc.get("function", {}).get("name", ""),
-                            "arguments": tc.get("function", {}).get("arguments", "{}"),
-                        },
-                    }
-                    for tc in tool_calls
-                ]
-
-            return [msg]
-        elif event_type == EventType.TOOL_RESULT:
-            # 工具结果必须添加到context（LLM需要看到工具调用的结果）
-            # 使用 OpenAI tool role 格式，与运行时格式一致
-            tool_call_id = content.get("tool_call_id", "") if isinstance(content, dict) else ""
-            result = content.get("result") if isinstance(content, dict) else content
-            return [
-                {
-                    "role": "tool",
-                    "tool_call_id": str(tool_call_id),
-                    "content": str(result),
-                }
-            ]
-        else:
-            # 其他事件类型
-            return [{"role": "system", "content": f"[{event_type}] {str(content)}"}]
 
     def _is_anchor_event(self, event: dict) -> bool:
         """

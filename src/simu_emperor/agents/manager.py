@@ -34,6 +34,7 @@ class AgentManager:
         agent_dir: Path | str = Path("data/agent"),
         repository=None,
         session_id: str | None = None,
+        session_manager=None,
     ):
         """
         初始化 AgentManager
@@ -45,6 +46,7 @@ class AgentManager:
             agent_dir: Agent 工作目录
             repository: GameRepository（用于数据查询）
             session_id: 会话标识符
+            session_manager: SessionManager（用于 task sessions）
         """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
@@ -52,8 +54,8 @@ class AgentManager:
         self.agent_dir = Path(agent_dir)
         self.repository = repository
         self.session_id = session_id
+        self.session_manager = session_manager
 
-        # 活跃的 Agent 实例
         self._active_agents: dict[str, Any] = {}
 
         logger.info("AgentManager initialized")
@@ -123,6 +125,7 @@ class AgentManager:
             data_dir=agent_path,
             repository=self.repository,
             session_id=self.session_id,
+            session_manager=self.session_manager,
         )
 
         # 启动 Agent
