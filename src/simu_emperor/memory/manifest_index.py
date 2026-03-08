@@ -206,9 +206,9 @@ class ManifestIndex:
             if event_type == EventType.USER_QUERY:
                 query = payload.get("query", "") if isinstance(payload, dict) else payload
                 summary_parts.append(f"用户查询: {query}")
-            elif event_type == EventType.AGENT_RESPONSE:
-                response = payload.get("response", "") if isinstance(payload, dict) else payload
-                summary_parts.append(f"Agent响应: {response}")
+            elif event_type == EventType.RESPONSE:
+                narrative = payload.get("narrative", "") if isinstance(payload, dict) else payload
+                summary_parts.append(f"Agent响应: {narrative}")
             elif event_type == "GAME_EVENT":
                 game_payload = payload if isinstance(payload, dict) else {}
                 summary_parts.append(f"游戏事件: {game_payload.get('event_type', 'unknown')}")

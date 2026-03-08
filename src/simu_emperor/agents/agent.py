@@ -252,7 +252,10 @@ class Agent:
         # 只能从任务会话中调用
         if not session.is_task:
             return json.dumps(
-                {"success": False, "error": "finish_task_session can only be called from a task session, not from main session"},
+                {
+                    "success": False,
+                    "error": "finish_task_session can only be called from a task session, not from main session",
+                },
                 ensure_ascii=False,
             )
 
@@ -282,7 +285,10 @@ class Agent:
         # 只能从任务会话中调用
         if not session.is_task:
             return json.dumps(
-                {"success": False, "error": "fail_task_session can only be called from a task session, not from main session"},
+                {
+                    "success": False,
+                    "error": "fail_task_session can only be called from a task session, not from main session",
+                },
                 ensure_ascii=False,
             )
 
@@ -299,15 +305,23 @@ class Agent:
         为动作处理函数创建包装器，使其返回标准化的成功消息
 
         Args:
-            handler_func: 原始动作处理函数（无返回值）
-            success_message: 执行成功后返回的消息
+            handler_func: 原始动作处理函数（可返回 str 表示自定义消息）
+            success_message: 执行成功后返回的消息（当 handler 不返回自定义消息时使用）
 
         Returns:
-            包装后的异步函数（返回成功消息）
+            包装后的异步函数（返回成功消息或 handler 的自定义消息）
+
+        Note:
+            如果 handler 返回非空字符串，则使用该返回值（支持错误消息）
+            否则使用默认的 success_message
         """
 
         async def wrapper(args: dict, event: Event) -> str:
-            await handler_func(args, event)
+            result = await handler_func(args, event)
+            # If handler returns a non-empty string, use it (supports custom messages like errors)
+            # Otherwise, use the default success message
+            if isinstance(result, str) and result.strip():
+                return result
             return success_message
 
         return wrapper
@@ -505,7 +519,9 @@ class Agent:
         3. 其他情况下正常处理所有事件
         """
         # 检查目标地址
-        if not (f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst):
+        if not (
+            f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst
+        ):
             return False
 
         # 如果没有 session_manager，无法检查状态，默认处理
@@ -520,7 +536,7 @@ class Agent:
             return event.type in (
                 EventType.AGENT_MESSAGE,  # 其他 agent 的回复
                 EventType.TASK_FINISHED,  # 任务完成
-                EventType.TASK_FAILED,    # 任务失败
+                EventType.TASK_FAILED,  # 任务失败
             )
 
         return True
@@ -842,7 +858,7 @@ class Agent:
         # 如果已经有respond_to_player，说明第一轮LLM已经生成了最终响应，可以结束
         if has_respond_to_player:
             logger.info(
-                f"✅ [Agent:{self.agent_id}:{session_id}] Already responded to player, ending loop"
+                f"✅ [Agent:{self.agent_id}:{session_id}] respond_to_player called, ending loop"
             )
             return False
 
@@ -894,15 +910,15 @@ class Agent:
         # 发送最终响应（即使为空也要响应）
         final_response = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
 
-        # TapeWriter: 构造并写入 AGENT_RESPONSE Event
-        agent_response_event = TapeEvent(
+        # TapeWriter: 构造并写入 RESPONSE Event (统一使用 RESPONSE 类型)
+        response_event = TapeEvent(
             src=f"agent:{self.agent_id}",
             dst=event.dst,
-            type=EventType.AGENT_RESPONSE,
-            payload={"response": final_response},
+            type=EventType.RESPONSE,
+            payload={"narrative": final_response},
             session_id=event.session_id,
         )
-        tape_write_tasks.append(self._tape_writer.write_event(agent_response_event))
+        tape_write_tasks.append(self._tape_writer.write_event(response_event))
 
         logger.info(
             f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_response[:50]}..."
@@ -991,12 +1007,9 @@ class Agent:
         Returns:
             单条 message，格式：{"role": "user" | "assistant" | "tool", "content": "..."}
         """
-        # 1. Agent 响应类 → assistant
+        # 1. Agent 响应类 → assistant (RESPONSE 统一处理，不再区分 AGENT_RESPONSE)
         if event.type == EventType.RESPONSE:
             return {"role": "assistant", "content": event.payload.get("narrative", "")}
-
-        if event.type == EventType.AGENT_RESPONSE:
-            return {"role": "assistant", "content": event.payload.get("response", "")}
 
         # 2. ASSISTANT_RESPONSE → assistant (带 tool_calls)
         if event.type == EventType.ASSISTANT_RESPONSE:
@@ -1011,7 +1024,7 @@ class Agent:
             return {
                 "role": "tool",
                 "tool_call_id": event.payload.get("tool_call_id"),
-                "content": event.payload.get("result", "")
+                "content": event.payload.get("result", ""),
             }
 
         # 4. 其他事件 → user (内联构建内容)
@@ -1026,7 +1039,13 @@ class Agent:
         if event.type == EventType.COMMAND and event.payload:
             command = event.payload.get("command", "")
             if command:
-                parts.extend(["\n# 皇帝的命令：", f"```\n{command}\n```", "\n**重要**：你需要**执行**这个命令！"])
+                parts.extend(
+                    [
+                        "\n# 皇帝的命令：",
+                        f"```\n{command}\n```",
+                        "\n**重要**：你需要**执行**这个命令！",
+                    ]
+                )
 
         # CHAT
         elif event.type == EventType.CHAT and event.payload:
@@ -1068,7 +1087,12 @@ class Agent:
         if event.payload and event.type not in (EventType.COMMAND, EventType.CHAT):
             display_payload = {k: v for k, v in event.payload.items() if not k.startswith("_")}
             if display_payload:
-                parts.extend(["\n# 其他信息：", f"```json\n{json.dumps(display_payload, ensure_ascii=False)}\n```"])
+                parts.extend(
+                    [
+                        "\n# 其他信息：",
+                        f"```json\n{json.dumps(display_payload, ensure_ascii=False)}\n```",
+                    ]
+                )
 
         return {"role": "user", "content": "\n".join(parts)}
 

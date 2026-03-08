@@ -10,7 +10,6 @@ from pathlib import Path
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
-from simu_emperor.session.manager import SessionManager
 
 
 logger = logging.getLogger(__name__)
@@ -88,12 +87,18 @@ class ActionTools:
 
             # If await_reply=true, only allow in task sessions
             if await_reply and not session.is_task:
-                return ("❌ await_reply=true 只能在任务会话中使用。\n"
-                        "在主会话中发送消息不会等待回复。\n"
-                        "如果需要等待其他官员的回复，请先使用 create_task_session 创建任务会话。")
+                return (
+                    "❌ await_reply=true 只能在任务会话中使用。\n"
+                    "在主会话中发送消息不会等待回复。\n"
+                    "如果需要等待其他官员的回复，请先使用 create_task_session 创建任务会话。"
+                )
 
         if not target_agent.startswith("agent:"):
             target_agent = f"agent:{target_agent}"
+
+        # Prevent sending messages to oneself
+        if target_agent == f"agent:{self.agent_id}":
+            return "❌ 不能向自己发送消息"
 
         logger.info(
             f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
@@ -134,15 +139,39 @@ class ActionTools:
         else:
             return "✅ 消息已发送"
 
-    async def respond_to_player(self, args: dict, event: Event) -> None:
-        """Send responses to player"""
+    async def respond_to_player(self, args: dict, event: Event) -> str:
+        """Send responses to player
+
+        Always sends to the original player who created the main session,
+        even when called from a nested task session.
+        """
         content = args.get("content", "")
 
-        logger.info(f"💬 [Agent:{self.agent_id}] Responding to {event.src}: {content[:50]}...")
+        # Get the player source from session (traverse to main session if needed)
+        player_src = "player"  # Default fallback
+
+        if self.session_manager:
+            session = await self.session_manager.get_session(event.session_id)
+            if session:
+                # Traverse to main session (parent_id is None) to get original player
+                current_session = session
+                while current_session.parent_id:
+                    parent = await self.session_manager.get_session(
+                        current_session.parent_id
+                    )
+                    if not parent:
+                        break
+                    current_session = parent
+                # Use main session's creator as the destination
+                player_src = current_session.created_by or "player"
+
+        logger.info(
+            f"💬 [Agent:{self.agent_id}] Responding to {player_src}: {content[:50]}..."
+        )
 
         new_event = Event(
             src=f"agent:{self.agent_id}",
-            dst=[event.src],
+            dst=[player_src],  # Always send to the original player
             type=EventType.RESPONSE,
             payload={"narrative": content},
             session_id=event.session_id,
@@ -150,7 +179,9 @@ class ActionTools:
             root_event_id=event.root_event_id,
         )
         await self.event_bus.send_event(new_event)
-        logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {event.src}")
+        logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {player_src}")
+
+        return "✅ 响应已发送"
 
     async def send_ready(self, args: dict, event: Event) -> None:
         """Send ready signal to Calculator"""
