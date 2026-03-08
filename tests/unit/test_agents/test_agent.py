@@ -706,3 +706,27 @@ class TestAgent:
         # 关键验证：应该使用 task session，而不是 parent session
         assert sent_event.session_id == task_session_id
         assert sent_event.session_id != "parent_session"
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_agent_rejects_self_message(self, agent):
+        """测试 send_message_to_agent 拒绝向自己发送消息"""
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type=EventType.COMMAND,
+            payload={"command": "test"},
+            session_id="test_session",
+        )
+
+        # 调用 send_message_to_agent 尝试向自己发送消息
+        result = await agent._action_tools.send_message_to_agent(
+            {"target_agent": "test_agent", "message": "这是一条消息"},
+            event,
+        )
+
+        # 应该返回错误消息
+        assert "❌" in result
+        assert "不能向自己发送消息" in result
+
+        # 验证没有发送任何事件
+        assert not agent.event_bus.send_event.called

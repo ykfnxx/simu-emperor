@@ -110,7 +110,7 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "send_message_to_agent",
-        "description": "向其他官员发送消息，仅限于task中确认需要协调其他官员时使用（如需要其他官员执行某个操作）。不能主会话中直接调用此函数，应该在任务会话中调用以确保流程清晰。",
+        "description": "向其他官员发送消息（不能向自己发送），仅限于task中确认需要协调其他官员时使用（如需要其他官员执行某个操作）。不能主会话中直接调用此函数，应该在任务会话中调用以确保流程清晰。",
         "parameters": {
             "type": "object",
             "properties": {

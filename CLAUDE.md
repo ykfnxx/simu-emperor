@@ -297,7 +297,7 @@ Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (wri
 USER_QUERY      # Player commands/queries (from COMMAND/QUERY events)
 TOOL_CALL       # Function invocations
 TOOL_RESULT     # Function results
-AGENT_RESPONSE  # Final agent responses (from RESPONSE events)
+RESPONSE        # Final agent responses (sent to player and written to tape)
 GAME_EVENT      # Game state changes (allocate_funds, adjust_tax, etc.)
 ```
 

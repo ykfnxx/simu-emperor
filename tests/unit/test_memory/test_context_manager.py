@@ -54,7 +54,7 @@ class TestContextManager:
             {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=50
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "A1"}}, tokens=50
         )
         context_mgr.add_event(
             {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=20
@@ -82,7 +82,7 @@ class TestContextManager:
             {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "好的，我将拨款。"}},
+            {"event_type": EventType.RESPONSE, "src": "agent:revenue_minister", "content": {"narrative": "好的，我将拨款。"}},
             tokens=20,
         )
 
@@ -118,7 +118,7 @@ class TestContextManager:
         assert not need_slide  # 30 < 95
 
         need_slide = context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=30
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "A1"}}, tokens=30
         )
         assert not need_slide  # 60 < 95
 
@@ -129,7 +129,7 @@ class TestContextManager:
 
         # 再添加一个事件，超过阈值
         need_slide = context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A2"}}, tokens=30
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "A2"}}, tokens=30
         )
         assert need_slide  # 120 > 95
 
@@ -191,10 +191,10 @@ class TestContextManager:
         # 创建测试事件
         user_query = {"type": EventType.USER_QUERY, "payload": {"query": "test"}}
         tool_call = {"type": "tool_result", "payload": {"tool": "query_data", "result": "ok"}}
-        agent_response = {"type": EventType.AGENT_RESPONSE, "payload": {"response": "ok"}}
+        agent_response = {"type": EventType.RESPONSE, "payload": {"narrative": "ok"}}
         assistant_response = {
             "type": EventType.ASSISTANT_RESPONSE,
-            "payload": {"response": "thinking"},
+            "payload": {"narrative": "thinking"},
         }
         game_event = {"type": "GAME_EVENT", "payload": {"action": "allocate_funds"}}
 
@@ -234,11 +234,11 @@ class TestContextManager:
         )
         # 事件2: ASSISTANT_RESPONSE (锚点)
         context_mgr.add_event(
-            {"type": EventType.ASSISTANT_RESPONSE, "payload": {"response": "thinking"}}, tokens=10
+            {"type": EventType.ASSISTANT_RESPONSE, "payload": {"narrative": "thinking"}}, tokens=10
         )
         # 事件3: AGENT_RESPONSE (锚点)
         context_mgr.add_event(
-            {"type": EventType.AGENT_RESPONSE, "payload": {"response": "final"}}, tokens=10
+            {"type": EventType.RESPONSE, "payload": {"narrative": "final"}}, tokens=10
         )
 
         # 执行滑动窗口
@@ -250,7 +250,7 @@ class TestContextManager:
         assert len(context_mgr.events) >= 3  # 至少保留最近3个
 
         # 验证最近的事件被保留
-        assert any(e.get("type") == "agent_response" for e in context_mgr.events)
+        assert any(e.get("type") == "response" for e in context_mgr.events)
         assert any(e.get("type") == "assistant_response" for e in context_mgr.events)
 
     @pytest.mark.asyncio
@@ -637,7 +637,7 @@ class TestContextManager:
             tokens=10,
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "final response"}},
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "final response"}},
             tokens=10,
         )
 

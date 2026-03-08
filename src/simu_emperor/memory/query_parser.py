@@ -69,7 +69,7 @@ class QueryParser:
 
                 return ParseResult(structured=structured, parsed_by="llm", latency_ms=latency_ms)
 
-            except (json.JSONDecodeError, KeyError) as e:
+            except (json.JSONDecodeError, KeyError):
                 if attempt == 2:  # Last attempt
                     # Fallback to safe defaults
                     return ParseResult(

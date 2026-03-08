@@ -53,8 +53,8 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type=EventType.AGENT_RESPONSE,
-                payload={"response": "好的，已拨款50000两给直隶。", "tokens": 20},
+                type=EventType.RESPONSE,
+                payload={"narrative": "好的，已拨款50000两给直隶。", "tokens": 20},
                 session_id="session:cli:default",
             )
         )
@@ -187,8 +187,8 @@ class TestMemoryIntegration:
             Event(
                 src="agent:revenue_minister",
                 dst=[],
-                type=EventType.AGENT_RESPONSE,
-                payload={"response": "A1", "tokens": 15},
+                type=EventType.RESPONSE,
+                payload={"narrative": "A1", "tokens": 15},
                 session_id="session:cli:default",
             )
         )
@@ -230,13 +230,13 @@ class TestMemoryIntegration:
             {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=30
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A1"}}, tokens=30
+            {"event_type": EventType.RESPONSE, "content": {"response": "A1"}}, tokens=30
         )
         context_mgr.add_event(
             {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=30
         )
         context_mgr.add_event(
-            {"event_type": EventType.AGENT_RESPONSE, "content": {"response": "A2"}}, tokens=30
+            {"event_type": EventType.RESPONSE, "content": {"response": "A2"}}, tokens=30
         )
 
         # 触发滑动窗口（会从 tape 读取并生成总结）

@@ -38,8 +38,8 @@ class TestTapeSearcher:
             },
             {
                 "event_id": "evt_003",
-                "event_type": EventType.AGENT_RESPONSE,
-                "content": {"response": "已拨款"},
+                "event_type": EventType.RESPONSE,
+                "content": {"narrative": "已拨款"},
                 "tokens": 15,
                 "agent_id": "revenue_minister",
             },

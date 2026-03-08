@@ -87,8 +87,7 @@ class ContextManager:
         self.events: list[dict] = []  # 当前窗口内的事件（从tape加载）
         self.summary: str = ""  # 历史摘要
 
-    @staticmethod
-    def event_to_messages(event: dict) -> list[dict]:
+    def event_to_messages(self, event: dict) -> list[dict]:
         """
         将事件转换为messages格式
 
@@ -151,18 +150,21 @@ class ContextManager:
             else:
                 return []
         elif event_type == EventType.RESPONSE:
-            # Agent receives response from another agent
-            narrative = payload.get("narrative", "") if isinstance(payload, dict) else ""
-            source_agent = event.get("src", "unknown").replace("agent:", "")
+            # RESPONSE 事件需要区分来源：
+            # - 如果 src 是当前 agent，则是自己的响应 → "assistant"
+            # - 如果 src 是其他 agent，则是收到的消息 → "user"
+            narrative = payload.get("narrative") if isinstance(payload, dict) else payload
+            src = event.get("src", "")
 
-            if narrative:
+            # 检查是否是当前 agent 的响应
+            if src == f"agent:{self.agent_id}":
+                # 自己的响应 → assistant
+                return [{"role": "assistant", "content": str(narrative)}]
+            else:
+                # 其他 agent 的响应 → user (格式化为来自其他 agent 的消息)
+                source_agent = src.replace("agent:", "")
                 formatted_content = f"# 来自 {source_agent} 的回复：\n```\n{narrative}\n```"
                 return [{"role": "user", "content": formatted_content}]
-            else:
-                return []
-        elif event_type == EventType.AGENT_RESPONSE:
-            response = payload.get("response") if isinstance(payload, dict) else payload
-            return [{"role": "assistant", "content": str(response)}]
         elif event_type == EventType.TASK_CREATED:
             goal = payload.get("goal", "")
             constraints = payload.get("constraints", "")
@@ -178,14 +180,14 @@ class ContextManager:
                 if description:
                     parts.append(f"- 任务描述: {description}")
                 if goal:
-                    parts.append(f"\n## 任务目标")
+                    parts.append("\n## 任务目标")
                     parts.append(goal)
                 if constraints:
-                    parts.append(f"\n## 成功约束")
+                    parts.append("\n## 成功约束")
                     parts.append(constraints)
-                parts.append(f"\n**你需要根据以上目标和约束执行任务**")
+                parts.append("\n**你需要根据以上目标和约束执行任务**")
                 parts.append(
-                    f"\n**任务完成后，使用以下 ID 调用 finish_task_session 或 fail_task_session**:"
+                    "\n**任务完成后，使用以下 ID 调用 finish_task_session 或 fail_task_session**:"
                 )
                 parts.append(f"- task_session_id: `{task_session_id}`")
 
@@ -411,7 +413,7 @@ class ContextManager:
 
         锚点事件包括：
         - 用户查询 (USER_QUERY)
-        - Agent 响应 (AGENT_RESPONSE, ASSISTANT_RESPONSE)
+        - Agent 响应 (RESPONSE, ASSISTANT_RESPONSE)
         - 关键游戏状态变化 (GAME_EVENT: allocate_funds, adjust_tax, etc.)
 
         Args:
@@ -423,7 +425,7 @@ class ContextManager:
         event_type = event.get("type", "")
 
         # 用户和 Agent 消息总是锚点
-        if event_type in ("user_query", "agent_response", "assistant_response"):
+        if event_type in ("user_query", "response", "assistant_response"):
             return True
 
         # 关键游戏状态变化是锚点

@@ -85,7 +85,7 @@ function getTapeEventStyle(type: string): TapeEventStyle {
     };
   }
 
-  if (normalized === 'response' || normalized === 'agent_response' || normalized === 'assistant_response') {
+  if (normalized === 'response' || normalized === 'assistant_response') {
     return {
       cardClass: 'border-emerald-200 bg-emerald-50/50',
       badgeClass: 'bg-emerald-100 text-emerald-700',
@@ -186,7 +186,7 @@ function extractRespondToPlayerContent(payload: Record<string, unknown>): string
 
 function isAgentReplyEvent(event: TapeEvent): boolean {
   const type = normalizeEventType(event.type);
-  return type === 'response' || type === 'agent_response' || type === 'assistant_response';
+  return type === 'response' || type === 'assistant_response';
 }
 
 function isRespondToPlayerToolResult(event: TapeEvent): boolean {
@@ -259,7 +259,7 @@ function isEquivalentType(left: string, right: string): boolean {
   const r = normalizeEventType(right);
   if (l === r) return true;
 
-  const replyTypes = new Set(['response', 'agent_response', 'assistant_response']);
+  const replyTypes = new Set(['response', 'assistant_response']);
   return replyTypes.has(l) && replyTypes.has(r);
 }
 
