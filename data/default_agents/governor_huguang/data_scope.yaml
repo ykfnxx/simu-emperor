@@ -1,0 +1,24 @@
+display_name: 湖广总督
+
+skills:
+  query_data:
+    provinces: [huguang]
+    fields:
+      - population.*
+      - agriculture.*
+      - commerce.*
+      - trade.*
+      - military.garrison_size
+      - military.morale
+      - granary_stock
+      - local_treasury
+
+  write_report:
+    inherits: query_data
+
+  execute_command:
+    provinces: [huguang]
+    fields:
+      - agriculture.irrigation_level
+      - taxation.land_tax_rate
+      - granary_stock

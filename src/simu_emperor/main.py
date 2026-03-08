@@ -208,7 +208,18 @@ async def main() -> None:
     )
 
     # 初始化并启动默认 agents
-    default_agents = ["governor_zhili", "minister_of_revenue"]
+    default_agents = [
+        "governor_zhili",
+        "minister_of_revenue",
+        "governor_jiangnan",
+        "governor_huguang",
+        "governor_sichuan",
+        "governor_shaanxi",
+        "governor_shandong",
+        "governor_zhejiang",
+        "governor_jiangxi",
+        "governor_fujian",
+    ]
     for agent_id in default_agents:
         if agent_manager.initialize_agent(agent_id):
             agent_manager.add_agent(agent_id)

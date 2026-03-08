@@ -15,7 +15,10 @@ AVAILABLE_FUNCTIONS = [
                 "province_id": {
                     "type": "string",
                     "description": "省份 ID（如 'zhili', 'shanxi'）",
-                    "enum": ["zhili", "shanxi", "jiangsu", "zhejiang", "fujian", "guangdong"],
+                    "enum": [
+                        "zhili", "shanxi", "jiangsu", "zhejiang", "fujian", "guangdong",
+                        "huguang", "sichuan", "shaanxi", "shandong", "jiangxi",
+                    ],
                 },
                 "field_path": {
                     "type": "string",
@@ -148,6 +151,35 @@ AVAILABLE_FUNCTIONS = [
                 "content": {"type": "string", "description": "响应内容（扮演风格，生动有趣）"}
             },
             "required": ["content"],
+        },
+    },
+    {
+        "name": "finish_loop",
+        "description": """结束当前 agent loop（仅当 session 有超过 2 个成员时生效）
+
+⚠️ 使用规则：
+1. 当你判断无需继续处理时，可调用此工具退出
+2. 只有 session 成员数 > 2 时才会生效
+3. 当成员数 ≤ 2 时，此工具不生效（防止只有一方在等待）
+
+适用场景：
+- 多人协商已达成结论，无需继续
+- 你已收到足够的回复，可以结束讨论
+- 其他 agent 都已表达意见，无需再等待
+
+❌ 不适用场景：
+- 1对1对话（请正常使用 respond_to_player）
+- 只有 2 人的 session（此工具不生效）
+""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "退出循环的原因",
+                },
+            },
+            "required": ["reason"],
         },
     },
     {

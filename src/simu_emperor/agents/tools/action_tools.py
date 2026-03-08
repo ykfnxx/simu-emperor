@@ -26,6 +26,7 @@ class ActionTools:
     - send_message_to_agent: Send messages to other agents
     - respond_to_player: Send responses to player
     - send_ready: Send ready signal to Calculator
+    - finish_loop: End agent loop (when session has > 2 members)
     - write_memory: Write memory summaries to files
     """
 
@@ -196,6 +197,30 @@ class ActionTools:
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ Agent {self.agent_id} sent READY to system:calculator")
+
+    async def finish_loop(self, args: dict, event: Event) -> str:
+        """结束 agent loop（仅在成员 > 2 时生效）"""
+        if not self.session_manager:
+            return "⚠️ SessionManager 未初始化，finish_loop 不可用"
+
+        session = await self.session_manager.get_session(event.session_id)
+        if not session:
+            return "❌ Session not found"
+
+        member_count = len(session.agent_states)
+
+        if member_count <= 2:
+            return (
+                f"⚠️ Session 成员数为 {member_count}，finish_loop 不生效。\n"
+                f"原因：防止只有一方在等待。\n"
+                f"请使用其他方式继续对话或使用 respond_to_player 结束。"
+            )
+
+        reason = args.get("reason", "")
+        logger.info(
+            f"🔄 [Agent:{self.agent_id}] finish_loop called in session with {member_count} members. Reason: {reason}"
+        )
+        return f"✅ finish_loop 已执行，agent loop 将退出。原因：{reason}"
 
     async def write_memory(self, args: dict, event: Event) -> None:
         """Write memory summaries to files"""
