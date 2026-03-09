@@ -42,6 +42,7 @@ class EventType:
     TURN_RESOLVED = "turn_resolved"  # Calculator → * (回合结算完成)
     END_TURN = "end_turn"  # 玩家 → * (结束回合)
     SESSION_STATE = "session_state"  # 系统 → 客户端 (session状态同步)
+    TICK_COMPLETED = "tick_completed"  # TickCoordinator → * (tick 完成，V4 新增)
 
     # Task Session 生命周期事件
     TASK_CREATED = "task_created"  # Agent 创建 Task Session
@@ -69,6 +70,7 @@ class EventType:
             cls.TURN_RESOLVED,
             cls.END_TURN,
             cls.SESSION_STATE,
+            cls.TICK_COMPLETED,
             cls.TASK_CREATED,
             cls.TASK_FINISHED,
             cls.TASK_FAILED,
@@ -104,4 +106,4 @@ class EventType:
     @classmethod
     def system_events(cls) -> list[str]:
         """系统事件类型"""
-        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT, cls.SESSION_STATE]
+        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT, cls.SESSION_STATE, cls.TICK_COMPLETED]
