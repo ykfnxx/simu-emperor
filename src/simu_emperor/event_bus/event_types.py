@@ -49,12 +49,6 @@ class EventType:
     TASK_FAILED = "task_failed"  # Agent 标记 Task 失败
     TASK_TIMEOUT = "task_timeout"  # TaskMonitor 检测到超时
 
-    # Task Session 事件 (V4)
-    TASK_CREATED = "task_created"  # Agent 创建 Task Session
-    TASK_FINISHED = "task_finished"  # Agent 完成 Task
-    TASK_FAILED = "task_failed"  # Agent 标记 Task 失败
-    TASK_TIMEOUT = "task_timeout"  # TaskMonitor 检测到超时
-
     @classmethod
     def all(cls) -> list[str]:
         """获取所有事件类型"""

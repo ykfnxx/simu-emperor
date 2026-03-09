@@ -36,11 +36,13 @@ class ActionTools:
         event_bus: EventBus,
         data_dir: Path,
         session_manager=None,
+        tape_writer=None,
     ):
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.data_dir = data_dir
         self.session_manager = session_manager
+        self._tape_writer = tape_writer
 
     async def send_game_event(self, args: dict, event: Event) -> None:
         """Send game events to Calculator"""
@@ -181,6 +183,11 @@ class ActionTools:
         )
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {player_src}")
+
+        # Write RESPONSE event to tape (for record-keeping)
+        # This ensures the response is preserved in the agent's memory tape
+        if self._tape_writer:
+            await self._tape_writer.write_event(new_event)
 
         return "✅ 响应已发送"
 

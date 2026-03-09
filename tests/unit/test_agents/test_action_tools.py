@@ -323,3 +323,80 @@ class TestRespondToPlayer:
         sent_event = mock_event_bus.send_event.call_args[0][0]
         # Should traverse all the way up to main session's creator
         assert sent_event.dst == ["player"]
+
+
+class TestRespondToPlayerTapeWriting:
+    """Test that respond_to_player writes RESPONSE events to tape"""
+
+    @pytest.mark.asyncio
+    async def test_respond_to_player_writes_to_tape(
+        self, mock_event_bus, tmp_path
+    ):
+        """Test that respond_to_player writes RESPONSE event to tape"""
+        # Create mock tape_writer
+        mock_tape_writer = AsyncMock()
+        mock_tape_writer.write_event = AsyncMock()
+
+        # Create ActionTools with tape_writer
+        action_tools = ActionTools(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            data_dir=tmp_path,
+            session_manager=None,
+            tape_writer=mock_tape_writer,
+        )
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type="chat",
+            payload={"message": "test"},
+            session_id="test_session",
+        )
+
+        result = await action_tools.respond_to_player(
+            {"content": "Test response to player"},
+            event,
+        )
+
+        # Verify response was sent
+        assert result == "✅ 响应已发送"
+        assert mock_event_bus.send_event.called
+
+        # Verify tape_writer.write_event was called with the RESPONSE event
+        assert mock_tape_writer.write_event.called
+        sent_event = mock_tape_writer.write_event.call_args[0][0]
+        assert sent_event.type == "response"
+        assert sent_event.payload["narrative"] == "Test response to player"
+        assert sent_event.src == "agent:test_agent"
+
+    @pytest.mark.asyncio
+    async def test_respond_to_player_without_tape_writer_still_works(
+        self, mock_event_bus, tmp_path
+    ):
+        """Test that respond_to_player works without tape_writer (backward compatibility)"""
+        # Create ActionTools without tape_writer
+        action_tools = ActionTools(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            data_dir=tmp_path,
+            session_manager=None,
+            tape_writer=None,  # No tape_writer
+        )
+
+        event = Event(
+            src="player",
+            dst=["agent:test_agent"],
+            type="chat",
+            payload={"message": "test"},
+            session_id="test_session",
+        )
+
+        # Should not raise an error
+        result = await action_tools.respond_to_player(
+            {"content": "Test response"},
+            event,
+        )
+
+        assert result == "✅ 响应已发送"
+        assert mock_event_bus.send_event.called

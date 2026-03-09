@@ -87,6 +87,18 @@ class Agent:
         self._load_soul()
         self._load_data_scope()
 
+        # 初始化记忆系统组件（V3）- 必须在工具类之前初始化
+        from simu_emperor.memory.tape_writer import TapeWriter
+        from simu_emperor.memory.manifest_index import ManifestIndex
+
+        # Use configured memory_dir
+        # Resolve to absolute path (relative to cwd when not absolute)
+        # This ensures all agents use the same centralized memory directory
+        self._memory_dir = Path(settings.memory.memory_dir).resolve()
+
+        self._tape_writer = TapeWriter(memory_dir=self._memory_dir)
+        self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
+
         # 初始化工具类
         self._query_tools = QueryTools(
             agent_id=self.agent_id,
@@ -98,19 +110,8 @@ class Agent:
             event_bus=self.event_bus,
             data_dir=self.data_dir,
             session_manager=self.session_manager,
+            tape_writer=self._tape_writer,
         )
-
-        # 初始化记忆系统组件（V3）
-        from simu_emperor.memory.tape_writer import TapeWriter
-        from simu_emperor.memory.manifest_index import ManifestIndex
-
-        # Use configured memory_dir
-        # Resolve to absolute path (relative to cwd when not absolute)
-        # This ensures all agents use the same centralized memory directory
-        self._memory_dir = Path(settings.memory.memory_dir).resolve()
-
-        self._tape_writer = TapeWriter(memory_dir=self._memory_dir)
-        self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
 
         # ContextManager - 用于当前session的上下文管理
         self._context_manager = None  # 延迟初始化，需要session_id
