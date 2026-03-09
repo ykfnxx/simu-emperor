@@ -229,7 +229,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[],
+            effects=[
+                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
+            ],
             source="test",
             remaining_ticks=5
         )
@@ -240,16 +242,18 @@ class TestIncidentManagement:
 
     def test_add_incident_with_zero_ticks_raises(self, engine):
         """Test adding incident with zero ticks raises ValueError."""
-        incident = Incident(
-            incident_id="inc_001",
-            title="测试",
-            description="测试事件",
-            effects=[],
-            source="test",
-            remaining_ticks=0
-        )
+        # Validation happens at Incident creation time (__post_init__)
         with pytest.raises(ValueError, match="remaining_ticks must be > 0"):
-            engine.add_incident(incident)
+            Incident(
+                incident_id="inc_001",
+                title="测试",
+                description="测试事件",
+                effects=[
+                    Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
+                ],
+                source="test",
+                remaining_ticks=0
+            )
 
     def test_remove_incident(self, engine):
         """Test removing an incident."""
@@ -257,7 +261,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[],
+            effects=[
+                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
+            ],
             source="test",
             remaining_ticks=5
         )
@@ -273,7 +279,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[],
+            effects=[
+                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
+            ],
             source="test",
             remaining_ticks=2
         )
@@ -295,7 +303,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[],
+            effects=[
+                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
+            ],
             source="test",
             remaining_ticks=5
         )

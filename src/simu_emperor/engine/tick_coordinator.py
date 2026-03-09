@@ -3,13 +3,26 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 
 from simu_emperor.event_bus.core import EventBus
+from simu_emperor.event_bus.event import Event
 from simu_emperor.engine.engine import Engine
 
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_session_id() -> str:
+    """生成新的会话标识符.
+
+    格式: tick:{timestamp}:{uuid_suffix}
+    例如: tick:20260310120000:a1b2c3d4
+    """
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    suffix = uuid.uuid4().hex[:8]
+    return f"tick:{timestamp}:{suffix}"
 
 
 class TickCoordinator:
@@ -20,10 +33,7 @@ class TickCoordinator:
     """
 
     def __init__(
-        self,
-        event_bus: EventBus,
-        engine: Engine,
-        tick_interval_seconds: int = 5
+        self, event_bus: EventBus, engine: Engine, tick_interval_seconds: int = 5
     ):
         """初始化 TickCoordinator
 
@@ -31,12 +41,25 @@ class TickCoordinator:
             event_bus: EventBus 实例，用于发布 tick_completed 事件
             engine: Engine 实例，用于执行 tick 计算
             tick_interval_seconds: 每个 tick 间隔秒数（默认 5 秒）
+
+        Note:
+            TickCoordinator 会自动生成唯一的 session_id，用于事件隔离。
+            可通过 get_session_id() 方法获取。
         """
         self.event_bus = event_bus
         self.engine = engine
+        self.session_id = _generate_session_id()
         self.tick_interval = tick_interval_seconds
         self._running = False
         self._task: asyncio.Task | None = None
+
+    def get_session_id(self) -> str:
+        """获取当前会话标识符.
+
+        Returns:
+            唯一的会话 ID，格式为 tick:{timestamp}:{uuid_suffix}
+        """
+        return self.session_id
 
     async def start(self) -> None:
         """启动定时 tick
@@ -72,15 +95,14 @@ class TickCoordinator:
                 # TODO: 调用 persistence 保存新状态
 
                 # 发布 tick_completed 事件
-                await self.event_bus.publish(
+                event = Event(
                     src="system:tick_coordinator",
                     dst=["*"],
                     type="tick_completed",
-                    payload={
-                        "tick": new_state.turn,
-                        "timestamp": datetime.now().isoformat()
-                    }
+                    payload={"tick": new_state.turn, "timestamp": datetime.now().isoformat()},
+                    session_id=self.session_id,
                 )
+                await self.event_bus.send_event(event)
 
                 logger.info(f"Tick {new_state.turn} completed")
 
