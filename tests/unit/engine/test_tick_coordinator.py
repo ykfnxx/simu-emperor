@@ -20,7 +20,7 @@ def sample_nation():
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         )
     }
     return NationData(
@@ -28,7 +28,7 @@ def sample_nation():
         base_tax_rate=Decimal("0.10"),
         tribute_rate=Decimal("0.8"),
         imperial_treasury=Decimal("100000"),
-        provinces=provinces
+        provinces=provinces,
     )
 
 
@@ -42,7 +42,7 @@ def engine(sample_nation):
 def mock_event_bus():
     """Create a mock EventBus for testing."""
     event_bus = MagicMock()
-    event_bus.publish = AsyncMock()
+    event_bus.send_event = AsyncMock()
     return event_bus
 
 
@@ -54,10 +54,11 @@ class TestTickCoordinatorInit:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=5
+            tick_interval_seconds=5,
         )
         assert coordinator.event_bus is mock_event_bus
         assert coordinator.engine is engine
+        assert coordinator.session_id.startswith("tick:")
         assert coordinator.tick_interval == 5
         assert coordinator._running is False
         assert coordinator._task is None
@@ -66,9 +67,16 @@ class TestTickCoordinatorInit:
         """Test TickCoordinator default interval is 5 seconds."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
-            engine=engine
+            engine=engine,
         )
         assert coordinator.tick_interval == 5
+
+    def test_session_id_is_unique(self, mock_event_bus, engine):
+        """Test each TickCoordinator gets a unique session_id."""
+        coord1 = TickCoordinator(event_bus=mock_event_bus, engine=engine)
+        coord2 = TickCoordinator(event_bus=mock_event_bus, engine=engine)
+        assert coord1.session_id != coord2.session_id
+        assert coord1.get_session_id() == coord1.session_id
 
 
 class TestTickCoordinatorStartStop:
@@ -80,7 +88,7 @@ class TestTickCoordinatorStartStop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=1
+            tick_interval_seconds=1,
         )
         await coordinator.start()
         assert coordinator._running is True
@@ -92,7 +100,7 @@ class TestTickCoordinatorStartStop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=1
+            tick_interval_seconds=1,
         )
         await coordinator.start()
         first_task = coordinator._task
@@ -107,7 +115,7 @@ class TestTickCoordinatorStartStop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=1
+            tick_interval_seconds=1,
         )
         await coordinator.start()
         await coordinator.stop()
@@ -118,7 +126,7 @@ class TestTickCoordinatorStartStop:
         """Test stop without start doesn't raise."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
-            engine=engine
+            engine=engine,
         )
         await coordinator.stop()
         assert coordinator._running is False
@@ -133,7 +141,7 @@ class TestTickLoop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=0.1
+            tick_interval_seconds=0.1,
         )
         await coordinator.start()
 
@@ -142,14 +150,16 @@ class TestTickLoop:
 
         await coordinator.stop()
 
-        # Verify publish was called
-        assert mock_event_bus.publish.called
-        call_args = mock_event_bus.publish.call_args
-        assert call_args[1]["type"] == "tick_completed"
-        assert call_args[1]["src"] == "system:tick_coordinator"
-        assert call_args[1]["dst"] == ["*"]
-        assert "tick" in call_args[1]["payload"]
-        assert "timestamp" in call_args[1]["payload"]
+        # Verify send_event was called
+        assert mock_event_bus.send_event.called
+        call_args = mock_event_bus.send_event.call_args
+        event = call_args[0][0]  # Event object is first positional arg
+        assert event.type == "tick_completed"
+        assert event.src == "system:tick_coordinator"
+        assert event.dst == ["*"]
+        assert "tick" in event.payload
+        assert "timestamp" in event.payload
+        assert event.session_id == coordinator.session_id
 
     @pytest.mark.asyncio
     async def test_tick_loop_increments_turn(self, mock_event_bus, engine):
@@ -157,7 +167,7 @@ class TestTickLoop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=0.1
+            tick_interval_seconds=0.1,
         )
         initial_turn = engine.state.turn
         await coordinator.start()
@@ -187,7 +197,7 @@ class TestTickLoop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=0.1
+            tick_interval_seconds=0.1,
         )
         await coordinator.start()
 
@@ -211,15 +221,15 @@ class TestTickTiming:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
-            tick_interval_seconds=0.2
+            tick_interval_seconds=0.2,
         )
 
         publish_times = []
 
-        async def track_publish(*args, **kwargs):
+        async def track_publish(event):
             publish_times.append(time.monotonic())
 
-        mock_event_bus.publish = AsyncMock(side_effect=track_publish)
+        mock_event_bus.send_event = AsyncMock(side_effect=track_publish)
 
         await coordinator.start()
 

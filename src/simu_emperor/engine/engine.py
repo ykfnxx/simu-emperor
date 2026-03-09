@@ -12,7 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class Engine:
-    """游戏引擎核心 - 处理 tick 计算和 Incident 管理"""
+    """游戏引擎核心 - 处理 tick 计算和 Incident 管理
+
+    状态所有权说明（V4 设计）：
+    - Engine 拥有并独占修改 NationData 及其下属 ProvinceData
+    - 状态采用原地突变（in-place mutation）而非不可变更新
+    - 这与 V1/V2/V3 的不可变模式不同，是为了简化 V4 的 tick 频繁更新场景
+    - 调用方不应持有对 state 对象的引用并在外部修改
+    - 如需获取状态快照，请使用 copy.deepcopy(engine.get_state())
+    """
 
     def __init__(self, initial_state: NationData):
         self.state = initial_state
@@ -54,12 +62,8 @@ class Engine:
         population *= (1 + base_population_growth)
         """
         for province in self.state.provinces.values():
-            province.production_value *= (
-                Decimal("1") + province.base_production_growth
-            )
-            province.population *= (
-                Decimal("1") + province.base_population_growth
-            )
+            province.production_value *= Decimal("1") + province.base_production_growth
+            province.population *= Decimal("1") + province.base_population_growth
 
     def _apply_effects(self) -> None:
         """应用所有活跃 Effect（按 target_path 叠加）
@@ -68,7 +72,8 @@ class Engine:
         - 累加所有未生效 Incident 的 add（applied == False）
         - 累加所有 factor
         - target = max(0, (target + sum_add) * (1 + sum_factor))
-        - 标记相关 Incident.applied = True
+
+        注意：Incident.applied 标记在所有 target_path 处理完成后统一设置
         """
         # 按 target_path 分组 Effect
         effect_groups: dict[str, list[tuple[Incident, Effect]]] = {}
@@ -78,6 +83,10 @@ class Engine:
                 if effect.target_path not in effect_groups:
                     effect_groups[effect.target_path] = []
                 effect_groups[effect.target_path].append((incident, effect))
+
+        # 收集所有有 add 效果的 Incident ID（用于后续统一标记）
+        # 使用 incident_id 而不是 Incident 对象，因为 dataclass 默认不可哈希
+        incident_ids_with_add_effects: set[str] = set()
 
         # 对每个 target_path 应用 Effect
         for target_path, incident_effects in effect_groups.items():
@@ -95,6 +104,7 @@ class Engine:
                 for incident, effect in incident_effects:
                     if effect.add is not None and not incident.applied:
                         sum_add += effect.add
+                        incident_ids_with_add_effects.add(incident.incident_id)
                     if effect.factor is not None:
                         sum_factor += effect.factor
 
@@ -105,13 +115,14 @@ class Engine:
                 # 写回新值
                 self._set_path_value(target_path, new_value)
 
-                # 标记相关 Incident.applied = True
-                for incident, effect in incident_effects:
-                    if effect.add is not None:
-                        incident.applied = True
-
             except Exception as e:
                 logger.error(f"Error applying effects to {target_path}: {e}")
+
+        # 所有 target_path 处理完成后，统一标记 Incident.applied = True
+        # 这样确保一个 Incident 的所有 add 效果都被应用后才标记
+        for incident in self.active_incidents:
+            if incident.incident_id in incident_ids_with_add_effects:
+                incident.applied = True
 
     def _resolve_path(self, path: str) -> Optional[Decimal]:
         """解析路径并获取目标值
@@ -217,10 +228,7 @@ class Engine:
             incident.remaining_ticks -= 1
 
         # 移除已到期的 Incident
-        self.active_incidents = [
-            inc for inc in self.active_incidents
-            if inc.remaining_ticks > 0
-        ]
+        self.active_incidents = [inc for inc in self.active_incidents if inc.remaining_ticks > 0]
 
     def add_incident(self, incident: Incident) -> None:
         """添加新的 Incident
@@ -229,7 +237,9 @@ class Engine:
             incident: Incident to add
         """
         if incident.remaining_ticks <= 0:
-            raise ValueError(f"Incident remaining_ticks must be > 0, got {incident.remaining_ticks}")
+            raise ValueError(
+                f"Incident remaining_ticks must be > 0, got {incident.remaining_ticks}"
+            )
         self.active_incidents.append(incident)
 
     def remove_incident(self, incident_id: str) -> None:
@@ -239,8 +249,7 @@ class Engine:
             incident_id: ID of incident to remove
         """
         self.active_incidents = [
-            inc for inc in self.active_incidents
-            if inc.incident_id != incident_id
+            inc for inc in self.active_incidents if inc.incident_id != incident_id
         ]
 
     def get_active_incidents(self) -> List[Incident]:
