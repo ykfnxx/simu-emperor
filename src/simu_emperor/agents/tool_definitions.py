@@ -14,10 +14,17 @@ AVAILABLE_FUNCTIONS = [
             "properties": {
                 "province_id": {
                     "type": "string",
-                    "description": "省份 ID（如 'zhili', 'shanxi'）",
+                    "description": "省份 ID（如 'zhili', 'jiangsu'）",
                     "enum": [
-                        "zhili", "shanxi", "jiangsu", "zhejiang", "fujian", "guangdong",
-                        "huguang", "sichuan", "shaanxi", "shandong", "jiangxi",
+                        "zhili",
+                        "jiangsu",
+                        "zhejiang",
+                        "fujian",
+                        "huguang",
+                        "sichuan",
+                        "shaanxi",
+                        "shandong",
+                        "jiangxi",
                     ],
                 },
                 "field_path": {
