@@ -194,8 +194,19 @@ class WebGameInstance:
             session_manager=self.session_manager,
         )
 
-        # 初始化并启动默认 agents
-        default_agents = ["governor_zhili", "minister_of_revenue"]
+        # 初始化并启动默认 agents（所有 10 个 agent）
+        default_agents = [
+            "governor_zhili",
+            "governor_fujian",
+            "governor_huguang",
+            "governor_jiangnan",
+            "governor_jiangxi",
+            "governor_shaanxi",
+            "governor_shandong",
+            "governor_sichuan",
+            "governor_zhejiang",
+            "minister_of_revenue",
+        ]
         for agent_id in default_agents:
             if self.agent_manager.initialize_agent(agent_id):
                 self.agent_manager.add_agent(agent_id)
@@ -338,26 +349,12 @@ class WebGameInstance:
         return []
 
     def get_available_agents(self) -> list[str]:
-        """获取所有可用 agent（活跃 + 工作目录 + 模板目录 + memory 目录）。"""
-        available: set[str] = set(self.get_active_agents())
+        """获取所有可用 agent（仅返回已初始化并启动的活跃 agent）。
 
-        if self.agent_manager:
-            available.update(self.agent_manager.get_all_agents())
-
-        template_root = self.settings.data_dir / "default_agents"
-        if template_root.exists():
-            for agent_dir in template_root.iterdir():
-                if agent_dir.is_dir():
-                    available.add(agent_dir.name)
-
-        memory_agents = self.memory_dir / "agents"
-        if memory_agents.exists():
-            for agent_dir in memory_agents.iterdir():
-                if agent_dir.is_dir():
-                    available.add(agent_dir.name)
-
-        available.update(self._current_session_by_agent.keys())
-        return sorted(available)
+        注意：模板目录中未初始化的 agent 不被视为可用，
+        因为它们未订阅 EventBus，无法接收和处理事件。
+        """
+        return self.get_active_agents()
 
     def _normalize_agent_id(self, agent_id: str | None) -> str:
         if agent_id:

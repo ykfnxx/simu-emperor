@@ -162,20 +162,25 @@ class TestWebGameInstance:
         assert result["events"][0]["event_id"] == "evt_1"
         assert result["events"][0]["agent_id"] == "governor_zhili"
 
-    def test_get_available_agents_union_sources(self, settings):
-        """测试可用 agent 聚合（活跃 + 工作目录 + 模板 + memory + 会话映射）。"""
+    def test_get_available_agents_only_active(self, settings):
+        """测试可用 agent 仅返回已启动的活跃 agent。
+
+        未初始化的模板 agent 不应被视为可用，
+        因为它们未订阅 EventBus，无法接收和处理事件。
+        """
         instance = WebGameInstance(settings)
 
-        # 模板目录
+        # 模板目录（未初始化，不应出现在可用列表中）
         (settings.data_dir / "default_agents" / "governor_zhili").mkdir(parents=True, exist_ok=True)
         (settings.data_dir / "default_agents" / "minister_of_revenue").mkdir(parents=True, exist_ok=True)
-        # memory 目录
+        # memory 目录（未初始化，不应出现在可用列表中）
         (instance.memory_dir / "agents" / "archivist" / "sessions").mkdir(parents=True, exist_ok=True)
-        # 当前会话映射
+        # 当前会话映射（未初始化，不应出现在可用列表中）
         instance._current_session_by_agent["grand_secretary"] = "session:web:main"
 
         class MockAgentManager:
             def get_active_agents(self):
+                # 只有 governor_zhili 实际启动了
                 return ["governor_zhili"]
 
             def get_all_agents(self):
@@ -184,11 +189,5 @@ class TestWebGameInstance:
         instance.agent_manager = MockAgentManager()
 
         agents = instance.get_available_agents()
-        assert agents == sorted(
-            [
-                "archivist",
-                "governor_zhili",
-                "grand_secretary",
-                "minister_of_revenue",
-            ]
-        )
+        # 只返回活跃 agent，不包括未初始化的模板/memory/会话映射 agent
+        assert agents == ["governor_zhili"]
