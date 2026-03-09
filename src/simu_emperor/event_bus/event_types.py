@@ -41,6 +41,7 @@ class EventType:
     READY = "ready"  # Agent → Calculator (回合准备完成)
     TURN_RESOLVED = "turn_resolved"  # Calculator → * (回合结算完成)
     END_TURN = "end_turn"  # 玩家 → * (结束回合)
+    SESSION_STATE = "session_state"  # 系统 → 客户端 (session状态同步)
 
     # Task Session 生命周期事件
     TASK_CREATED = "task_created"  # Agent 创建 Task Session
@@ -73,6 +74,7 @@ class EventType:
             cls.READY,
             cls.TURN_RESOLVED,
             cls.END_TURN,
+            cls.SESSION_STATE,
             cls.TASK_CREATED,
             cls.TASK_FINISHED,
             cls.TASK_FAILED,
@@ -108,4 +110,4 @@ class EventType:
     @classmethod
     def system_events(cls) -> list[str]:
         """系统事件类型"""
-        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT]
+        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT, cls.SESSION_STATE]

@@ -19,6 +19,8 @@ export interface SessionStateData {
   event_count: number;
   last_update: string;
 }
+
+export interface ChatData {
   agent: string;
   agentDisplayName: string;
   text: string;
