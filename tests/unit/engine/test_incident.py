@@ -28,9 +28,7 @@ class TestEffect:
         """Test Effect with both add and factor raises ValueError."""
         with pytest.raises(ValueError, match="must have exactly one"):
             Effect(
-                target_path="provinces.zhili.stockpile",
-                add=Decimal("1000"),
-                factor=Decimal("0.1")
+                target_path="provinces.zhili.stockpile", add=Decimal("1000"), factor=Decimal("0.1")
             )
 
     def test_effect_neither_add_nor_factor_raises(self):
@@ -61,7 +59,7 @@ class TestIncident:
             description="建设大型水利设施",
             effects=[effect],
             source="agent:revenue_minister",
-            remaining_ticks=4
+            remaining_ticks=4,
         )
         assert incident.incident_id == "inc_001"
         assert incident.title == "水利建设"
@@ -83,7 +81,7 @@ class TestIncident:
             description="今年是大丰收",
             effects=effects,
             source="system",
-            remaining_ticks=1
+            remaining_ticks=1,
         )
         assert len(incident.effects) == 2
 
@@ -96,7 +94,7 @@ class TestIncident:
             description="国库拨款",
             effects=[effect],
             source="player",
-            remaining_ticks=1
+            remaining_ticks=1,
         )
         assert incident.applied is False
 
@@ -110,6 +108,6 @@ class TestIncident:
             effects=[effect],
             source="player",
             remaining_ticks=1,
-            applied=True
+            applied=True,
         )
         assert incident.applied is True

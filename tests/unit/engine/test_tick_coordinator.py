@@ -46,35 +46,46 @@ def mock_event_bus():
     return event_bus
 
 
+@pytest.fixture
+def mock_game_repo():
+    """Create a mock GameRepository for testing."""
+    repo = MagicMock()
+    repo.save_nation_data = AsyncMock()
+    return repo
+
+
 class TestTickCoordinatorInit:
     """Test TickCoordinator initialization."""
 
-    def test_init(self, mock_event_bus, engine):
+    def test_init(self, mock_event_bus, engine, mock_game_repo):
         """Test TickCoordinator initialization."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=5,
         )
         assert coordinator.event_bus is mock_event_bus
         assert coordinator.engine is engine
+        assert coordinator.game_repo is mock_game_repo
         assert coordinator.session_id.startswith("tick:")
         assert coordinator.tick_interval == 5
         assert coordinator._running is False
         assert coordinator._task is None
 
-    def test_init_default_interval(self, mock_event_bus, engine):
+    def test_init_default_interval(self, mock_event_bus, engine, mock_game_repo):
         """Test TickCoordinator default interval is 5 seconds."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
         )
         assert coordinator.tick_interval == 5
 
-    def test_session_id_is_unique(self, mock_event_bus, engine):
+    def test_session_id_is_unique(self, mock_event_bus, engine, mock_game_repo):
         """Test each TickCoordinator gets a unique session_id."""
-        coord1 = TickCoordinator(event_bus=mock_event_bus, engine=engine)
-        coord2 = TickCoordinator(event_bus=mock_event_bus, engine=engine)
+        coord1 = TickCoordinator(event_bus=mock_event_bus, engine=engine, game_repo=mock_game_repo)
+        coord2 = TickCoordinator(event_bus=mock_event_bus, engine=engine, game_repo=mock_game_repo)
         assert coord1.session_id != coord2.session_id
         assert coord1.get_session_id() == coord1.session_id
 
@@ -83,11 +94,12 @@ class TestTickCoordinatorStartStop:
     """Test TickCoordinator start and stop."""
 
     @pytest.mark.asyncio
-    async def test_start_sets_running_true(self, mock_event_bus, engine):
+    async def test_start_sets_running_true(self, mock_event_bus, engine, mock_game_repo):
         """Test start sets _running to True."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=1,
         )
         await coordinator.start()
@@ -95,11 +107,12 @@ class TestTickCoordinatorStartStop:
         await coordinator.stop()
 
     @pytest.mark.asyncio
-    async def test_start_idempotent(self, mock_event_bus, engine):
+    async def test_start_idempotent(self, mock_event_bus, engine, mock_game_repo):
         """Test calling start multiple times doesn't create multiple tasks."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=1,
         )
         await coordinator.start()
@@ -110,11 +123,12 @@ class TestTickCoordinatorStartStop:
         await coordinator.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_sets_running_false(self, mock_event_bus, engine):
+    async def test_stop_sets_running_false(self, mock_event_bus, engine, mock_game_repo):
         """Test stop sets _running to False."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=1,
         )
         await coordinator.start()
@@ -122,11 +136,10 @@ class TestTickCoordinatorStartStop:
         assert coordinator._running is False
 
     @pytest.mark.asyncio
-    async def test_stop_without_start(self, mock_event_bus, engine):
+    async def test_stop_without_start(self, mock_event_bus, engine, mock_game_repo):
         """Test stop without start doesn't raise."""
         coordinator = TickCoordinator(
-            event_bus=mock_event_bus,
-            engine=engine,
+            event_bus=mock_event_bus, engine=engine, game_repo=mock_game_repo
         )
         await coordinator.stop()
         assert coordinator._running is False
@@ -136,11 +149,12 @@ class TestTickLoop:
     """Test tick loop execution."""
 
     @pytest.mark.asyncio
-    async def test_tick_loop_publishes_event(self, mock_event_bus, engine):
+    async def test_tick_loop_publishes_event(self, mock_event_bus, engine, mock_game_repo):
         """Test tick loop publishes tick_completed event."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=0.1,
         )
         await coordinator.start()
@@ -161,12 +175,16 @@ class TestTickLoop:
         assert "timestamp" in event.payload
         assert event.session_id == coordinator.session_id
 
+        # Verify persistence was called
+        assert mock_game_repo.save_nation_data.called
+
     @pytest.mark.asyncio
-    async def test_tick_loop_increments_turn(self, mock_event_bus, engine):
+    async def test_tick_loop_increments_turn(self, mock_event_bus, engine, mock_game_repo):
         """Test tick loop increments engine turn counter."""
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=0.1,
         )
         initial_turn = engine.state.turn
@@ -180,7 +198,7 @@ class TestTickLoop:
         assert engine.state.turn > initial_turn
 
     @pytest.mark.asyncio
-    async def test_tick_loop_handles_errors(self, mock_event_bus, engine):
+    async def test_tick_loop_handles_errors(self, mock_event_bus, engine, mock_game_repo):
         """Test tick loop handles errors and continues."""
         # Make apply_tick raise an error once
         original_apply_tick = engine.apply_tick
@@ -197,6 +215,7 @@ class TestTickLoop:
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=0.1,
         )
         await coordinator.start()
@@ -214,13 +233,14 @@ class TestTickTiming:
     """Test tick timing behavior."""
 
     @pytest.mark.asyncio
-    async def test_tick_respects_interval(self, mock_event_bus, engine):
+    async def test_tick_respects_interval(self, mock_event_bus, engine, mock_game_repo):
         """Test tick loop respects the configured interval."""
         import time
 
         coordinator = TickCoordinator(
             event_bus=mock_event_bus,
             engine=engine,
+            game_repo=mock_game_repo,
             tick_interval_seconds=0.2,
         )
 
@@ -246,3 +266,54 @@ class TestTickTiming:
             interval = publish_times[i] - publish_times[i - 1]
             # Allow some tolerance
             assert 0.15 < interval < 0.3
+
+
+class TestPersistence:
+    """Test persistence integration."""
+
+    @pytest.mark.asyncio
+    async def test_state_persisted_after_tick(self, mock_event_bus, engine, mock_game_repo):
+        """Test game state is persisted after each tick."""
+        coordinator = TickCoordinator(
+            event_bus=mock_event_bus,
+            engine=engine,
+            game_repo=mock_game_repo,
+            tick_interval_seconds=0.1,
+        )
+
+        await coordinator.start()
+        await asyncio.sleep(0.15)
+        await coordinator.stop()
+
+        # Verify save_nation_data was called with NationData object
+        assert mock_game_repo.save_nation_data.called
+        call_args = mock_game_repo.save_nation_data.call_args
+        state = call_args[0][0]
+        assert hasattr(state, "turn")
+        assert hasattr(state, "provinces")
+        assert state.turn == engine.state.turn
+
+    @pytest.mark.asyncio
+    async def test_persistence_error_doesnt_stop_loop(self, mock_event_bus, engine, mock_game_repo):
+        """Test persistence errors don't stop the tick loop."""
+
+        # Make save_nation_data raise an error
+        async def failing_save(state):
+            raise RuntimeError("Persistence error")
+
+        mock_game_repo.save_nation_data = AsyncMock(side_effect=failing_save)
+
+        coordinator = TickCoordinator(
+            event_bus=mock_event_bus,
+            engine=engine,
+            game_repo=mock_game_repo,
+            tick_interval_seconds=0.1,
+        )
+
+        await coordinator.start()
+        await asyncio.sleep(0.25)
+        await coordinator.stop()
+
+        # Loop should have continued despite persistence errors
+        # Events should still be published
+        assert mock_event_bus.send_event.called

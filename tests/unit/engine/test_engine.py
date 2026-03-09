@@ -19,7 +19,7 @@ def sample_nation():
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         ),
         "shanxi": ProvinceData(
             province_id="shanxi",
@@ -27,15 +27,15 @@ def sample_nation():
             production_value=Decimal("80000"),
             population=Decimal("40000"),
             fixed_expenditure=Decimal("4000"),
-            stockpile=Decimal("15000")
-        )
+            stockpile=Decimal("15000"),
+        ),
     }
     return NationData(
         turn=0,
         base_tax_rate=Decimal("0.10"),
         tribute_rate=Decimal("0.8"),
         imperial_treasury=Decimal("100000"),
-        provinces=provinces
+        provinces=provinces,
     )
 
 
@@ -131,11 +131,9 @@ class TestEffects:
             incident_id="inc_001",
             title="丰收",
             description="今年大丰收",
-            effects=[
-                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.1"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.1"))],
             source="system",
-            remaining_ticks=2
+            remaining_ticks=2,
         )
         engine.add_incident(incident)
 
@@ -152,11 +150,9 @@ class TestEffects:
             incident_id="inc_002",
             title="拨款",
             description="国库拨款",
-            effects=[
-                Effect(target_path="provinces.zhili.stockpile", add=Decimal("5000"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.stockpile", add=Decimal("5000"))],
             source="player",
-            remaining_ticks=2
+            remaining_ticks=2,
         )
         engine.add_incident(incident)
 
@@ -176,11 +172,9 @@ class TestEffects:
             incident_id="inc_003",
             title="拨款",
             description="国库拨款",
-            effects=[
-                Effect(target_path="provinces.zhili.stockpile", add=Decimal("5000"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.stockpile", add=Decimal("5000"))],
             source="player",
-            remaining_ticks=3
+            remaining_ticks=3,
         )
         engine.add_incident(incident)
 
@@ -208,7 +202,7 @@ class TestEffects:
                 Effect(target_path="provinces.zhili.production_value", factor=Decimal("-0.2"))
             ],
             source="system",
-            remaining_ticks=1
+            remaining_ticks=1,
         )
         engine.add_incident(incident)
 
@@ -229,11 +223,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[
-                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))],
             source="test",
-            remaining_ticks=5
+            remaining_ticks=5,
         )
         engine.add_incident(incident)
 
@@ -252,7 +244,7 @@ class TestIncidentManagement:
                     Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
                 ],
                 source="test",
-                remaining_ticks=0
+                remaining_ticks=0,
             )
 
     def test_remove_incident(self, engine):
@@ -261,11 +253,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[
-                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))],
             source="test",
-            remaining_ticks=5
+            remaining_ticks=5,
         )
         engine.add_incident(incident)
         assert len(engine.get_active_incidents()) == 1
@@ -279,11 +269,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[
-                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))],
             source="test",
-            remaining_ticks=2
+            remaining_ticks=2,
         )
         engine.add_incident(incident)
 
@@ -303,11 +291,9 @@ class TestIncidentManagement:
             incident_id="inc_001",
             title="测试",
             description="测试事件",
-            effects=[
-                Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))
-            ],
+            effects=[Effect(target_path="provinces.zhili.production_value", factor=Decimal("0.0"))],
             source="test",
-            remaining_ticks=5
+            remaining_ticks=5,
         )
         engine.add_incident(incident)
 

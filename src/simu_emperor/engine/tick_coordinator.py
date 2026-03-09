@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.engine.engine import Engine
+from simu_emperor.persistence.repositories import GameRepository
 
 
 logger = logging.getLogger(__name__)
@@ -29,17 +30,22 @@ class TickCoordinator:
     """Tick 计时器协调器 - 负责定时触发 tick
 
     维护 tick 计时器，收集活跃的 Incident 和 Effect，
-    调用 Engine 计算每个 tick。
+    调用 Engine 计算每个 tick，并将状态持久化。
     """
 
     def __init__(
-        self, event_bus: EventBus, engine: Engine, tick_interval_seconds: int = 5
+        self,
+        event_bus: EventBus,
+        engine: Engine,
+        game_repo: GameRepository,
+        tick_interval_seconds: int = 5,
     ):
         """初始化 TickCoordinator
 
         Args:
             event_bus: EventBus 实例，用于发布 tick_completed 事件
             engine: Engine 实例，用于执行 tick 计算
+            game_repo: GameRepository 实例，用于持久化游戏状态
             tick_interval_seconds: 每个 tick 间隔秒数（默认 5 秒）
 
         Note:
@@ -48,6 +54,7 @@ class TickCoordinator:
         """
         self.event_bus = event_bus
         self.engine = engine
+        self.game_repo = game_repo
         self.session_id = _generate_session_id()
         self.tick_interval = tick_interval_seconds
         self._running = False
@@ -84,15 +91,15 @@ class TickCoordinator:
         logger.info("TickCoordinator stopped")
 
     async def _tick_loop(self) -> None:
-        """主循环：执行 tick → 计算剩余间隔 → 等待 → 循环"""
+        """主循环：执行 tick → 持久化 → 发布事件 → 等待 → 循环"""
         while self._running:
             start_time = time.monotonic()
             try:
                 # 执行 tick 计算
                 new_state = self.engine.apply_tick()
 
-                # 持久化（通过 repository）
-                # TODO: 调用 persistence 保存新状态
+                # 持久化新状态
+                await self._persist_state(new_state)
 
                 # 发布 tick_completed 事件
                 event = Event(
@@ -104,7 +111,7 @@ class TickCoordinator:
                 )
                 await self.event_bus.send_event(event)
 
-                logger.info(f"Tick {new_state.turn} completed")
+                logger.info(f"Tick {new_state.turn} completed and persisted")
 
                 # 计算剩余等待时间，保证固定间隔
                 elapsed = time.monotonic() - start_time
@@ -121,3 +128,15 @@ class TickCoordinator:
                 # 记录错误但继续运行
                 logger.error(f"Tick error: {e}")
                 await asyncio.sleep(self.tick_interval)
+
+    async def _persist_state(self, state) -> None:
+        """持久化游戏状态.
+
+        Args:
+            state: NationData 对象
+        """
+        try:
+            await self.game_repo.save_nation_data(state)
+        except Exception as e:
+            logger.error(f"Failed to persist state: {e}")
+            # 持久化失败不应中断 tick 循环

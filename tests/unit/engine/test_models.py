@@ -1,6 +1,5 @@
 """Tests for ProvinceData and NationData models (V4)."""
 
-
 from decimal import Decimal
 
 from simu_emperor.engine.models.base_data import ProvinceData, NationData
@@ -17,7 +16,7 @@ class TestProvinceData:
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         )
         assert province.province_id == "zhili"
         assert province.name == "直隶"
@@ -34,7 +33,7 @@ class TestProvinceData:
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         )
         assert province.base_production_growth == Decimal("0.01")
         assert province.base_population_growth == Decimal("0.005")
@@ -49,7 +48,7 @@ class TestProvinceData:
             fixed_expenditure=Decimal("5000"),
             stockpile=Decimal("20000"),
             base_production_growth=Decimal("0.02"),
-            base_population_growth=Decimal("0.01")
+            base_population_growth=Decimal("0.01"),
         )
         assert province.base_production_growth == Decimal("0.02")
         assert province.base_population_growth == Decimal("0.01")
@@ -62,7 +61,7 @@ class TestProvinceData:
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         )
         assert province.tax_modifier == Decimal("0.0")
 
@@ -75,7 +74,7 @@ class TestProvinceData:
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
             stockpile=Decimal("20000"),
-            tax_modifier=Decimal("0.05")
+            tax_modifier=Decimal("0.05"),
         )
         assert province.tax_modifier == Decimal("0.05")
 
@@ -85,9 +84,7 @@ class TestNationData:
 
     def test_nation_creation(self):
         """Test NationData creation."""
-        nation = NationData(
-            turn=0
-        )
+        nation = NationData(turn=0)
         assert nation.turn == 0
         assert nation.base_tax_rate == Decimal("0.10")
         assert nation.tribute_rate == Decimal("0.8")
@@ -103,7 +100,7 @@ class TestNationData:
             production_value=Decimal("100000"),
             population=Decimal("50000"),
             fixed_expenditure=Decimal("5000"),
-            stockpile=Decimal("20000")
+            stockpile=Decimal("20000"),
         )
         province2 = ProvinceData(
             province_id="shanxi",
@@ -111,12 +108,9 @@ class TestNationData:
             production_value=Decimal("80000"),
             population=Decimal("40000"),
             fixed_expenditure=Decimal("4000"),
-            stockpile=Decimal("15000")
+            stockpile=Decimal("15000"),
         )
-        nation = NationData(
-            turn=0,
-            provinces={"zhili": province1, "shanxi": province2}
-        )
+        nation = NationData(turn=0, provinces={"zhili": province1, "shanxi": province2})
         assert len(nation.provinces) == 2
         assert "zhili" in nation.provinces
         assert "shanxi" in nation.provinces
@@ -124,24 +118,15 @@ class TestNationData:
 
     def test_nation_custom_tax_rate(self):
         """Test NationData with custom tax rate."""
-        nation = NationData(
-            turn=0,
-            base_tax_rate=Decimal("0.15")
-        )
+        nation = NationData(turn=0, base_tax_rate=Decimal("0.15"))
         assert nation.base_tax_rate == Decimal("0.15")
 
     def test_nation_custom_tribute_rate(self):
         """Test NationData with custom tribute rate."""
-        nation = NationData(
-            turn=0,
-            tribute_rate=Decimal("0.7")
-        )
+        nation = NationData(turn=0, tribute_rate=Decimal("0.7"))
         assert nation.tribute_rate == Decimal("0.7")
 
     def test_nation_custom_imperial_treasury(self):
         """Test NationData with custom imperial treasury."""
-        nation = NationData(
-            turn=0,
-            imperial_treasury=Decimal("1000000")
-        )
+        nation = NationData(turn=0, imperial_treasury=Decimal("1000000"))
         assert nation.imperial_treasury == Decimal("1000000")
