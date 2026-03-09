@@ -25,9 +25,9 @@ uv run simu-emperor
 
 ## Architecture
 
-**V3: Event-Driven Multi-Agent Architecture with Memory System**
+**V4: Tick-Based Real-Time Multi-Agent Architecture**
 
-Turn-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules.
+Tick-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules. The game advances automatically via periodic ticks (1 tick = 1 week).
 
 ### Core Principles
 
@@ -35,8 +35,9 @@ Turn-based emperor simulation game. The player is the emperor; AI agents play of
 |-----------|-------------|
 | **Event-Driven** | All interactions via EventBus (src/dst routing) |
 | **Fully Async** | asyncio-based, fire-and-forget by default |
+| **Tick-Based Timing** | Automatic tick progression (configurable interval, default 5s) |
 | **Shared Data Reads** | Modules read directly from persistence (per permissions) |
-| **Unified Writes** | Only Calculator can modify game state |
+| **Unified Writes** | Only Engine can modify game state |
 | **Passive Agents** | Agents only respond to events, never initiate |
 
 ### Directory Structure
@@ -50,13 +51,15 @@ src/simu_emperor/
 ├── event_bus/                        # Module: Event routing infrastructure
 │   ├── core.py                       # EventBus implementation
 │   ├── event.py                      # Event dataclass (src/dst/type/payload)
-│   ├── event_types.py                # EventType constants
+│   ├── event_types.py                # EventType constants (includes TICK_COMPLETED)
 │   └── logger.py                     # EventLogger (JSONL format)
 │
-├── core/                             # Module: Calculator (game state manager)
-│   ├── calculator.py                 # Calculator class (turn coordination)
-│   ├── turn_coordinator.py           # Turn resolution logic
-│   └── event_handlers.py             # Event handlers for game actions
+├── engine/                           # Module: Game engine (V4 refactored)
+│   ├── models/                       # Pydantic data models (simplified)
+│   │   ├── base_data.py              # ProvinceData (4 fields), NationData
+│   │   └── incident.py               # Incident, Effect (time-limited game events)
+│   ├── engine.py                     # Core Engine class (apply_tick, Incident management)
+│   └── tick_coordinator.py           # Tick timer coordinator (async loop)
 │
 ├── agents/                           # Module: AI officials
 │   ├── agent.py                      # Agent base class
@@ -73,13 +76,13 @@ src/simu_emperor/
 │   ├── tools/                        # Sub-module: Tool handlers for function calling
 │   │   ├── query_tools.py            # Query handlers (return data to LLM)
 │   │   ├── action_tools.py           # Action handlers (execute side effects)
-│   │   └── memory_tools.py           # Memory handlers (V3: retrieve_memory)
+│   │   └── memory_tools.py           # Memory handlers (retrieve_memory)
 │   ├── context_builder.py            # LLM context assembly (data_scope parsing)
 │   ├── memory_manager.py             # V2 Memory: short-term (3 turns) + long-term
 │   ├── file_manager.py               # File I/O for agent files
 │   └── response_parser.py            # Parse LLM structured output
 │
-├── memory/                           # Module: V3 Memory System (NEW)
+├── memory/                           # Module: Memory System
 │   ├── models.py                     # Memory data models
 │   │   ├── StructuredQuery           # Parsed query (intent, entities, scope, depth)
 │   │   ├── ParseResult               # Query parsing result
@@ -109,19 +112,16 @@ src/simu_emperor/
 │   ├── openai.py                     # OpenAI GPT implementation
 │   └── mock.py                       # Mock provider (testing)
 │
-├── interfaces/                       # Module: Interface definitions
-│   ├── events.py                     # Event-related interfaces
-│   ├── repositories.py               # Repository interfaces
-│   └── llm.py                        # LLM interfaces
+├── adapters/                         # Module: External adapters
+│   └── web/                          # Web adapter
+│       ├── game_instance.py          # Game instance management
+│       └── ...
 │
-└── engine/                           # Module: Economic formulas (reused from V1)
-    ├── models/                       # Pydantic data models
-    │   ├── base_data.py              # ProvinceBaseData, NationalBaseData
-    │   ├── metrics.py                # ProvinceTurnMetrics, NationalTurnMetrics
-    │   ├── events.py                 # EventEffect (target path + add/multiply)
-    │   └── state.py                  # GameState, TurnRecord
-    ├── formulas.py                   # 13 pure economic functions
-    └── calculator.py                 # resolve_turn() engine
+├── common/                           # Module: Common utilities
+│   └── ...
+│
+└── session/                          # Module: Session management
+    └── ...
 
 data/
 ├── skills/                           # Universal skill templates (all agents share, v2.0 format)
@@ -209,7 +209,7 @@ tests/
 ```
 CLI
   ↓
-EventBus ← (subscribe) ← Calculator
+EventBus ← (subscribe) ← Engine
   ↓                      ↓
 Agent  ───────────────→ Repository
   ↓                      ↓
@@ -226,7 +226,9 @@ LLM                   SQLite + filesystem
 
 **EventBus** (`event_bus/`) — Event routing infrastructure. Routes events by src/dst matching, supports broadcast via `"*"`, fully async via `asyncio.create_task()`. Events logged to JSONL format. No business logic.
 
-**Calculator** (`core/`) — Game state manager. Special EventBus subscriber that coordinates turn resolution (waits for all `ready` events), executes economic formulas (reused from V1 engine), modifies database exclusively. Publishes `turn_resolved` events.
+**Engine** (`engine/engine.py`) — Game state manager (V4). Applies fixed growth rates and Effects, calculates tax/treasury, manages Incident lifecycle. Methods: `apply_tick()`, `add_incident()`, `remove_incident()`, `get_state()`, `get_active_incidents()`.
+
+**TickCoordinator** (`engine/tick_coordinator.py`) — Timer coordinator (V4). Maintains tick timer, calls `Engine.apply_tick()` at configurable interval (default 5s), publishes `tick_completed` events via EventBus. Methods: `start()`, `stop()`, `_tick_loop()`.
 
 **Agents** (`agents/`) — File-driven AI officials. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist).
 
@@ -383,7 +385,7 @@ await self._tape_writer.write_event(
 
 **CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
 
-**Persistence** (`persistence/`) — Data access layer. Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, event_log. Shared by all modules for reads, exclusive writes by Calculator.
+**Persistence** (`persistence/`) — Data access layer. Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, event_log. Shared by all modules for reads, exclusive writes by Engine.
 
 **LLM** (`llm/`) — LLM provider abstraction. Supports Anthropic Claude, OpenAI GPT, and Mock (testing). Single interface: `async call(prompt, system_prompt, temperature, max_tokens) -> str`.
 
@@ -407,7 +409,7 @@ All events use this JSON structure:
 **ID Naming:**
 - Player: `"player"`
 - Agent: `"agent:{agent_id}"` (e.g., `"agent:revenue_minister"`)
-- Calculator: `"system:calculator"`
+- TickCoordinator: `"system:tick_coordinator"`
 - Broadcast: `"*"`
 
 **Event Types:**
@@ -416,33 +418,33 @@ All events use this JSON structure:
 - `chat` — Player → Agent (enter conversation)
 - `response` — Agent → Player (narrative response)
 - `agent_message` — Agent → Agent (inter-agent communication)
-- `adjust_tax` / `build_irrigation` / `recruit_troops` — Agent → Calculator (game actions)
-- `ready` — Agent → Calculator (turn preparation complete)
-- `turn_resolved` — Calculator → * (turn calculation complete)
-- `end_turn` — Player → * (advance to next turn)
+- `tick_completed` — TickCoordinator → * (tick calculation complete, V4)
+- `session_state` — System → Client (session state sync)
 
-### Turn Resolution Flow
+### Tick Flow (V4)
 
 ```
-1. Player → {"type": "end_turn", "dst": ["*"]}
+1. TickCoordinator timer triggers (every N seconds, default 5s)
 
-2. All Agents receive "end_turn"
-   ├─ Agent A → {"type": "ready", "dst": ["system:calculator"]}
-   ├─ Agent B → {"type": "ready", "dst": ["system:calculator"]}
-   └─ Agent C → {"type": "ready", "dst": ["system:calculator"]}
+2. TickCoordinator calls Engine.apply_tick()
+   - Apply base growth rates (production_value *= 1.01, population *= 1.005)
+   - Apply all active Effects (add once, factor every tick)
+   - Calculate tax and treasury updates
+   - Refresh Incidents (decrement remaining_ticks, remove expired)
 
-3. Calculator receives all "ready" → resolve_turn()
-   - Load current state
-   - Run 13 economic formulas
-   - Save new state
-   - Save turn metrics
+3. TickCoordinator → {"type": "tick_completed", "dst": ["*"], "payload": {"tick": 42}}
 
-4. Calculator → {"type": "turn_resolved", "dst": ["*"], "payload": {"turn": 5}}
-
-5. All Agents receive "turn_resolved" → write summary to memory/
+4. All Agents receive "tick_completed" → Respond if needed
 ```
 
-**Synchronization:** Calculator manages `pending_ready` set with 5s timeout. Missing agents trigger warning but don't block turn resolution.
+**Time Units:**
+- 1 tick = 1 week
+- 4 ticks = 1 month
+- 48 ticks = 1 year
+
+**Effect Types:**
+- `add`: One-time numeric change (e.g., stockpile += 1000, only applied once)
+- `factor`: Continuous percentage multiplier (e.g., production_value *= 1.1, every tick)
 
 ### Key Patterns
 
@@ -459,43 +461,62 @@ All events use this JSON structure:
 - **Async everywhere:** asyncio, aiosqlite, aiofiles
 - **Deterministic engine:** Random functions accept seeded `random.Random` for reproducibility
 
-### Data Models
+### Data Models (V4)
 
-**Province Hierarchy:**
-```
-ProvinceBaseData
-├── province_id, name
-├── population: PopulationData (total, happiness, growth_rate)
-├── agriculture: AgricultureData (crops[], irrigation_level)
-├── commerce: CommerceData (merchant_households, market_prosperity)
-├── trade: TradeData (trade_volume, trade_route_quality)
-├── military: MilitaryData (soldiers, morale, upkeep_per_soldier)
-├── taxation: TaxationData (land_tax_rate, commercial_tax_rate, tariff_rate)
-├── consumption: ConsumptionData (civilian_grain_per_capita, military_grain_per_soldier)
-├── administration: AdministrationData (official_count, official_salary, infrastructure_value)
-└── granary_stock, local_treasury
-```
+**ProvinceData (simplified from V3):**
+```python
+@dataclass
+class ProvinceData:
+    province_id: str
+    name: str
 
-**National Aggregation:**
-```
-NationalBaseData
-├── turn (current turn number)
-├── provinces: list[ProvinceBaseData]
-├── imperial_treasury
-├── national_tax_modifier
-└── tribute_rate
+    # Four core fields
+    production_value: Decimal  # Economic output
+    population: Decimal         # Population count
+    fixed_expenditure: Decimal  # Fixed costs
+    stockpile: Decimal          # Inventory/reserves
+
+    # Growth rates (fixed)
+    base_production_growth: Decimal = 0.01   # 1%/tick
+    base_population_growth: Decimal = 0.005  # 0.5%/tick
+
+    # Tax modifier (province-level adjustment)
+    tax_modifier: Decimal = 0.0
 ```
 
-**Turn Metrics (not stored in base data):**
+**NationData:**
+```python
+@dataclass
+class NationData:
+    turn: int                           # Current tick number
+    base_tax_rate: Decimal = 0.10       # National base tax rate 10%
+    tribute_rate: Decimal = 0.8         # Remittance ratio 80%
+    fixed_expenditure: Decimal = 0      # Imperial fixed costs
+    imperial_treasury: Decimal = 0      # Imperial treasury
+    provinces: Dict[str, ProvinceData]   # Province dictionary
 ```
-NationalTurnMetrics
-├── total_food_production
-├── total_food_consumption
-├── total_tax_revenue
-├── total_expenditure
-├── net_treasury_change
-├── total_population_change
-└── ... (13 formula outputs)
+
+**Incident (time-limited game event):**
+```python
+@dataclass
+class Incident:
+    incident_id: str
+    title: str
+    description: str
+    effects: List[Effect]
+    source: str
+    remaining_ticks: int  # > 0, decrements each tick
+    applied: bool = False  # Marks if add-effects were applied
+```
+
+**Effect (single modification):**
+```python
+@dataclass
+class Effect:
+    target_path: str  # e.g. "provinces.zhili.production_value"
+    add: Optional[Decimal] = None      # One-time change
+    factor: Optional[Decimal] = None   # Continuous multiplier
+    # Exactly one of add or factor must be set
 ```
 
 ### Import Rules
@@ -503,7 +524,7 @@ NationalTurnMetrics
 ```python
 # ✅ Correct: upper imports lower
 from simu_emperor.event_bus.core import EventBus
-from simu_emperor.core.calculator import Calculator
+from simu_emperor.engine.engine import Engine
 from simu_emperor.agents.agent import Agent
 
 # ✅ Correct: same-level imports
@@ -533,13 +554,24 @@ from simu_emperor.cli.app import EmperorCLI  # core must not import cli
 
 ## Development Workflow
 
-V2 implementation follows the phases defined in `.prd/V2_PRD.md` (§8.1):
+V4 implementation follows the design defined in `.plan/engine-refactor-v4-design.md`:
 
-**Phase 1: EventBus** — Event routing, async handling, logging ✅
-**Phase 2: Calculator** — Reuse V1 engine, turn coordination, persistence ✅
-**Phase 3: Agents** — File-driven agents, LLM integration, memory ✅
-**Phase 4: CLI** — Rich TUI, natural language parsing (TODO)
-**Phase 5: Integration** — E2E testing, performance optimization (TODO)
+**Stage 1: Basic Models** — Incident, Effect, simplified ProvinceData/NationData ✅
+**Stage 2: Engine Core** — apply_tick() with growth rates, Effects, tax calculation ✅
+**Stage 3: TickCoordinator** — Timer-based tick progression with event publishing ✅
+**Stage 4: Cleanup** — Removed core/, interfaces/, old engine files ✅
+**Stage 5: Testing** — 45 unit tests for new engine module ✅
+**Stage 6: Documentation** — Updated CLAUDE.md ✅
+
+**V4 Engine (Completed 2026-03-09):**
+- ✅ engine/models/incident.py: Effect and Incident dataclasses
+- ✅ engine/models/base_data.py: Simplified to 4 core fields
+- ✅ engine/engine.py: Engine class with apply_tick()
+- ✅ engine/tick_coordinator.py: TickCoordinator with timer loop
+- ✅ event_types.py: Added TICK_COMPLETED event type
+- ✅ 45 unit tests (100% passing)
+- ✅ Deleted old code: core/, interfaces/, formulas.py
+- ✅ Updated CLAUDE.md with V4 architecture
 
 **Skill System (Completed 2026-03-03):**
 - ✅ Week 1: Infrastructure (models, parser, validator, loader, registry)
@@ -548,12 +580,10 @@ V2 implementation follows the phases defined in `.prd/V2_PRD.md` (§8.1):
 - ✅ 73 unit tests (100% passing)
 - ✅ Code review and Important issues fixed
 
-**V3 Memory System (Completed 2026-03-04):**
-- ✅ Week 1: Infrastructure (models, exceptions, tape_writer, manifest_index)
-- ✅ Week 1.5: Context management (ContextManager with sliding window)
-- ✅ Week 2: Query and retrieval (QueryParser, TapeSearcher, StructuredRetriever)
-- ✅ Week 2.5: Agent integration (MemoryTools, TapeWriter hooks, token counting)
-- ✅ 28 tests (24 unit + 4 integration, 100% passing, 92% coverage)
+**Memory System:**
+- ✅ Event-based retrieval with tape.jsonl logs + manifest.json index
+- ✅ Sliding window context management with automatic summarization
+- ✅ Natural language query parsing (LLM-based)
 - ✅ tiktoken dependency added
 - ✅ `retrieve_memory` tool registered in function handlers
 
@@ -633,27 +663,28 @@ if not agents_info:
 
 ## Key Differences from V1
 
-| Aspect | V1 (Phase-Driven) | V2 (Event-Driven) |
+| Aspect | V1 (Phase-Driven) | V4 (Tick-Based) |
 |--------|-------------------|-------------------|
 | **Communication** | Direct function calls | EventBus (async) |
-| **Game Loop** | GameLoop enforces phases | Calculator coordinates turns |
-| **Phases** | RESOLUTION → SUMMARY → INTERACTION → EXECUTION | None (event-triggered) |
+| **Game Loop** | GameLoop enforces phases | TickCoordinator (timer-based) |
+| **Timing** | Manual turn advancement | Automatic tick progression |
+| **Time Unit** | 1 turn = 1 year | 1 tick = 1 week (48 ticks = 1 year) |
 | **Player UI** | FastAPI + Vue.js | Rich CLI |
 | **Agent Initiation** | None (passive) | None (passive) |
-| **State Writes** | GameLoop → Repository | Calculator only |
+| **State Writes** | GameLoop → Repository | Engine only |
+| **Data Model** | 8 nested data types | 4 core fields per province |
+| **Events** | Hardcoded formulas | Incident/Effect system |
 | **Concurrency** | Phase-locked, agents parallel within phase | Fully async, event-driven |
 | **Event Logging** | Database tables | JSONL files |
 
 **Preserved from V1:**
-- Economic formulas (engine/)
-- Data models (ProvinceBaseData, NationalBaseData)
 - Agent file-driven design (soul.md, data_scope.yaml)
-- V2 Memory: summary.md + recent/ (agent-maintained)
 - Deception via LLM emergence
+- Memory: summary.md + recent/ (agent-maintained)
 
-**Added in V3:**
-- V3 Memory: tape.jsonl event logs + manifest.json index
-- Natural language query parsing (LLM-based)
-- Cross-session memory retrieval
-- Sliding window context management with automatic summarization
-- Token counting (tiktoken) for accurate context tracking
+**Added in V4:**
+- Tick-based automatic progression (timer-driven)
+- Simplified data models (4 core fields vs 8 nested types)
+- Incident/Effect system (time-limited game events)
+- Fixed growth rates with Effect-based modifications
+- Unified tax rate system with province modifiers
