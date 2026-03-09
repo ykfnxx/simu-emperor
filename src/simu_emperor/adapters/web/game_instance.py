@@ -177,6 +177,9 @@ class WebGameInstance:
             )
         logger.info(f"SessionManager initialized with main session: {self.session_id}")
 
+        # 3.6. 加载群聊数据
+        await self._load_group_chats()
+
         # 4. 初始化 AgentManager（在 Calculator 之前）
         agent_dir = self.settings.data_dir / "agent" / "web"
         agent_dir.mkdir(parents=True, exist_ok=True)
@@ -221,6 +224,8 @@ class WebGameInstance:
             return
 
         logger.info("Shutting down WebGameInstance...")
+
+        await self._save_group_chats()
 
         if self.agent_manager:
             self.agent_manager.stop_all()
@@ -591,15 +596,17 @@ class WebGameInstance:
                 if depth > 10:  # 防止无限循环
                     break
 
-            sub_sessions.append({
-                "session_id": session_id,
-                "parent_id": parent_id,
-                "created_at": session_data.get("created_at", ""),
-                "updated_at": session_data.get("updated_at", ""),
-                "event_count": int(self._to_number(session_data.get("event_count", 0))),
-                "depth": depth,
-                "status": session_data.get("status", "ACTIVE"),
-            })
+            sub_sessions.append(
+                {
+                    "session_id": session_id,
+                    "parent_id": parent_id,
+                    "created_at": session_data.get("created_at", ""),
+                    "updated_at": session_data.get("updated_at", ""),
+                    "event_count": int(self._to_number(session_data.get("event_count", 0))),
+                    "depth": depth,
+                    "status": session_data.get("status", "ACTIVE"),
+                }
+            )
 
         # 按创建时间排序
         sub_sessions.sort(key=lambda s: s.get("created_at", ""), reverse=True)
@@ -953,13 +960,11 @@ class WebGameInstance:
         if not self.event_bus:
             return
 
-        # 创建内部状态更新事件
         state_event = Event(
             src="system:web",
             dst=["*"],
-            type=EventType.CHAT,  # 使用CHAT类型作为载体
+            type=EventType.SESSION_STATE,
             payload={
-                "__internal_type__": "session_state",
                 "session_id": session_id,
                 "agent_id": agent_id,
                 "event_count": event_count,
@@ -974,9 +979,35 @@ class WebGameInstance:
     # 群聊管理
     # ========================================================================
 
-    async def create_group_chat(
-        self, name: str, agent_ids: list[str]
-    ) -> GroupChat:
+    async def _load_group_chats(self) -> None:
+        groups_file = self.memory_dir / "groups.json"
+        data = await FileOperationsHelper.read_json_file(groups_file)
+        if not data or "groups" not in data:
+            return
+
+        for group_data in data.get("groups", []):
+            try:
+                group = GroupChat.from_dict(group_data)
+                self._group_chats[group.group_id] = group
+            except (KeyError, ValueError):
+                continue
+
+        if self._group_chats:
+            logger.info(f"Loaded {len(self._group_chats)} group chats from {groups_file}")
+
+    async def _save_group_chats(self) -> None:
+        if not self._group_chats:
+            return
+
+        groups_file = self.memory_dir / "groups.json"
+        data = {
+            "groups": [group.to_dict() for group in self._group_chats.values()],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await FileOperationsHelper.write_json_file(groups_file, data)
+        logger.info(f"Saved {len(self._group_chats)} group chats to {groups_file}")
+
+    async def create_group_chat(self, name: str, agent_ids: list[str]) -> GroupChat:
         """
         创建群聊
 
@@ -1011,6 +1042,7 @@ class WebGameInstance:
         )
 
         self._group_chats[group_id] = group
+        await self._save_group_chats()
         logger.info(f"Created group chat: {group_id} with agents: {agent_ids}")
 
         return group
@@ -1036,9 +1068,7 @@ class WebGameInstance:
         """
         return self._group_chats.get(group_id)
 
-    async def send_to_group_chat(
-        self, group_id: str, message: str
-    ) -> list[str]:
+    async def send_to_group_chat(self, group_id: str, message: str) -> list[str]:
         """
         向群聊发送消息（广播给所有成员agent）
 
@@ -1093,9 +1123,7 @@ class WebGameInstance:
 
         return sent_agents
 
-    async def add_agent_to_group(
-        self, group_id: str, agent_id: str
-    ) -> bool:
+    async def add_agent_to_group(self, group_id: str, agent_id: str) -> bool:
         """
         向群聊添加agent
 
@@ -1124,13 +1152,12 @@ class WebGameInstance:
 
         group.agent_ids.append(normalized_agent)
         await self._ensure_session_registered(group.session_id, agent_ids=[normalized_agent])
+        await self._save_group_chats()
 
         logger.info(f"Added agent {normalized_agent} to group {group_id}")
         return True
 
-    async def remove_agent_from_group(
-        self, group_id: str, agent_id: str
-    ) -> bool:
+    async def remove_agent_from_group(self, group_id: str, agent_id: str) -> bool:
         """
         从群聊移除agent
 
@@ -1152,6 +1179,7 @@ class WebGameInstance:
             return False
 
         group.agent_ids.remove(normalized_agent)
+        await self._save_group_chats()
 
         logger.info(f"Removed agent {normalized_agent} from group {group_id}")
         return True

@@ -1016,24 +1016,42 @@ export default function App() {
           </div>
 
           <div className="border-t border-slate-200 p-4">
+            {currentGroupId && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1.5 text-sm text-purple-700">
+                <Users className="h-4 w-4" />
+                <span>群聊模式：消息将发送给所有成员</span>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <input
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    void handleSend();
+                    if (currentGroupId) {
+                      void handleSendToGroup();
+                    } else {
+                      void handleSend();
+                    }
                   }
                 }}
-                placeholder="输入消息，Enter 发送..."
-                disabled={sending || !currentAgentId || !currentSessionId}
+                placeholder={currentGroupId ? "输入群聊消息，Enter 发送..." : "输入消息，Enter 发送..."}
+                disabled={sending || (!currentGroupId && (!currentAgentId || !currentSessionId))}
                 className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-300"
               />
               <button
                 type="button"
-                onClick={() => void handleSend()}
-                disabled={sending || !inputText.trim() || !currentAgentId || !currentSessionId}
-                className="rounded-xl bg-blue-600 px-3 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={() => {
+                  if (currentGroupId) {
+                    void handleSendToGroup();
+                  } else {
+                    void handleSend();
+                  }
+                }}
+                disabled={sending || !inputText.trim() || (!currentGroupId && (!currentAgentId || !currentSessionId))}
+                className={`rounded-xl px-3 py-2 text-white hover:opacity-90 disabled:opacity-60 ${
+                  currentGroupId ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
                 <Send className="h-4 w-4" />
               </button>

@@ -46,8 +46,7 @@ class MessageConverter:
             "data": {...}
         }
         """
-        # 处理 session_state 事件（用于同步session状态更新）
-        if event.payload and event.payload.get("__internal_type__") == "session_state":
+        if event.type == EventType.SESSION_STATE:
             return self._convert_session_state(event)
 
         if event.type == EventType.RESPONSE:
@@ -70,7 +69,7 @@ class MessageConverter:
                 "text": event.payload.get("narrative", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
-            }
+            },
         }
 
     async def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
@@ -89,7 +88,9 @@ class MessageConverter:
         # 计算平均幸福度
         avg_happiness = 0
         if province_metrics:
-            total_happiness = sum(p.get("population", {}).get("happiness", 0) for p in province_metrics)
+            total_happiness = sum(
+                p.get("population", {}).get("happiness", 0) for p in province_metrics
+            )
             avg_happiness = total_happiness / len(province_metrics)
 
         # 计算农业总产量
@@ -131,8 +132,10 @@ class MessageConverter:
                         treasury = getattr(state, "imperial_treasury", 0)
                         # 如果顶层没有，尝试从 base_data 读取
                         if treasury == 0 and hasattr(state, "base_data"):
-                            treasury = getattr(getattr(state, "base_data", None), "imperial_treasury", 0)
-            except Exception as e:
+                            treasury = getattr(
+                                getattr(state, "base_data", None), "imperial_treasury", 0
+                            )
+            except Exception:
                 # 降级到 treasury_change
                 treasury = metrics.get("imperial_treasury_change", 0)
 
@@ -146,7 +149,7 @@ class MessageConverter:
                 "happiness": round(avg_happiness, 2),
                 "agriculture": agriculture,
                 "corruption": 0,  # TODO: 计算贪腐指数
-            }
+            },
         }
 
     def _convert_chat(self, event: Event) -> dict[str, Any]:
@@ -159,7 +162,7 @@ class MessageConverter:
                 "text": event.payload.get("message", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
-            }
+            },
         }
 
     def _convert_session_state(self, event: Event) -> dict[str, Any]:
@@ -172,7 +175,7 @@ class MessageConverter:
                 "agent_id": payload.get("agent_id", ""),
                 "event_count": payload.get("event_count", 0),
                 "last_update": payload.get("last_update", datetime.now(timezone.utc).isoformat()),
-            }
+            },
         }
 
     @staticmethod
