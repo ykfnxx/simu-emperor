@@ -7,6 +7,10 @@ from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.session.constants import MAX_TASK_DEPTH
 
+# Maximum number of members allowed in a task session
+# This prevents task creation in crowded sessions (>2 members)
+MAX_TASK_SESSION_MEMBERS = 2
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -40,14 +44,13 @@ class TaskSessionTools:
         # === 双重检查：确保 task session 最多 2 个成员 ===
 
         # 检查 1：当前 session 的成员数
-        max_members = 2
         current_member_count = len(current_session.agent_states)
 
-        if current_member_count > max_members:
+        if current_member_count > MAX_TASK_SESSION_MEMBERS:
             raise ValueError(
-                f"❌ Task session 最多支持 {max_members} 个成员。\n"
+                f"❌ Task session 最多支持 {MAX_TASK_SESSION_MEMBERS} 个成员。\n"
                 f"当前 session 有 {current_member_count} 个成员，无法创建 task。\n"
-                f"请在成员数 ≤ {max_members} 的 session 中创建 task。"
+                f"请在成员数 ≤ {MAX_TASK_SESSION_MEMBERS} 的 session 中创建 task。"
             )
 
         depth = self.session_manager._calculate_depth(current_session_id)

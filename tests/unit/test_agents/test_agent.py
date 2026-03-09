@@ -37,8 +37,8 @@ def mock_repository():
                     "population": {"total": 2600000, "happiness": 0.7},
                 },
                 {
-                    "province_id": "shanxi",
-                    "name": "山西",
+                    "province_id": "jiangsu",
+                    "name": "江苏",
                     "population": {"total": 1800000, "happiness": 0.65},
                 },
             ],
@@ -440,7 +440,7 @@ class TestAgent:
         # 应该返回结果字符串
         assert isinstance(result, str)
         assert "zhili" in result
-        assert "shanxi" in result
+        assert "jiangsu" in result
 
     @pytest.mark.asyncio
     async def test_query_without_repository(self, agent, mock_repository):
@@ -664,6 +664,7 @@ class TestAgent:
 
         # Patch settings to use temporary memory directory
         from simu_emperor.config import settings
+
         monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
 
         # 创建 mock SessionManager
