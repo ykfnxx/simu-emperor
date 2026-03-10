@@ -51,17 +51,26 @@ class MemoryTools:
         self.context_manager = context_manager
 
         # Lazy import to avoid circular dependencies
+        # V4: Use TwoLevelSearcher instead of TapeSearcher
         from simu_emperor.memory.structured_retriever import StructuredRetriever
         from simu_emperor.memory.query_parser import QueryParser
-        from simu_emperor.memory.manifest_index import ManifestIndex
-        from simu_emperor.memory.tape_searcher import TapeSearcher
+        from simu_emperor.memory.tape_metadata_index import TapeMetadataIndex
+        from simu_emperor.memory.segment_searcher import SegmentSearcher
+        from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
 
-        # Initialize retrieval components
+        # Initialize two-level search components
+        tape_metadata_index = TapeMetadataIndex(memory_dir=memory_dir)
+        segment_searcher = SegmentSearcher(memory_dir=memory_dir)
+        two_level_searcher = TwoLevelSearcher(
+            tape_metadata_index=tape_metadata_index,
+            segment_searcher=segment_searcher,
+        )
+
+        # Initialize retriever with two-level search
         self.retriever = StructuredRetriever(
             memory_dir=memory_dir,
             query_parser=QueryParser(llm_provider=llm_provider),
-            manifest_index=ManifestIndex(memory_dir=memory_dir),
-            tape_searcher=TapeSearcher(memory_dir=memory_dir),
+            two_level_searcher=two_level_searcher,
         )
 
     async def retrieve_memory(self, args: dict, event: Event) -> str:
@@ -108,7 +117,7 @@ class MemoryTools:
 
     def _format_retrieval_result(self, result) -> str:
         """
-        Format retrieval result for LLM consumption.
+        Format retrieval result for LLM consumption (V4: handles TapeSegment).
 
         Args:
             result: RetrievalResult from StructuredRetriever
@@ -139,13 +148,15 @@ class MemoryTools:
             lines.append(f"### 记录 {idx} (会话: {session_id})")
 
             for item in items:
-                if item.get("type") == "summary":
+                item_type = item.get("type")
+
+                if item_type == "summary":
                     lines.append(f"**摘要**: {item.get('content', '')}")
                     if item.get("turn_start"):
                         lines.append(
                             f"- 回合范围: {item['turn_start']} - {item.get('turn_end', '?')}"
                         )
-                elif item.get("type") == "event":
+                elif item_type == "event":
                     event_type = item.get("event_type", "UNKNOWN")
                     content = item.get("content", {})
                     timestamp = item.get("timestamp", "")
@@ -166,6 +177,30 @@ class MemoryTools:
                                 lines.append(f"- 参数: {content['args']}")
                     else:
                         lines.append(f"- 内容: {content}")
+
+                elif item_type == "segment_summary":
+                    # V4: TapeSegment summary format
+                    lines.append(f"**片段摘要** (相关度: {item.get('relevance_score', 0):.2f})")
+                    if item.get("tick_start") is not None:
+                        lines.append(f"- Tick范围: {item['tick_start']} - {item.get('tick_end', '?')}")
+                    lines.append(f"- 事件数: {item.get('event_count', 0)}")
+
+                elif item_type == "segment":
+                    # V4: Full TapeSegment format
+                    lines.append(f"**事件片段** (相关度: {item.get('relevance_score', 0):.2f})")
+                    lines.append(f"- 位置: {item.get('start_position', '?')} - {item.get('end_position', '?')}")
+                    lines.append(f"- 事件数: {item.get('event_count', 0)}")
+
+                    if item.get("tick_start") is not None:
+                        lines.append(f"- Tick范围: {item['tick_start']} - {item.get('tick_end', '?')}")
+
+                    if item.get("timestamp_start"):
+                        lines.append(f"- 时间: {item.get('timestamp_start', '')} - {item.get('timestamp_end', '')}")
+
+                    # Show event summary
+                    event_summary = item.get("event_summary", "")
+                    if event_summary:
+                        lines.append(f"- 摘要: {event_summary}")
 
                 lines.append("")  # Blank line between items
 
