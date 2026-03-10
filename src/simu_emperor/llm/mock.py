@@ -208,32 +208,6 @@ class MockProvider(LLMProvider):
                 }
             ]
 
-        elif event_type == "END_TURN":
-            # 回合结束：发送 ready 信号
-            return [
-                {
-                    "id": "call_1",
-                    "function": {
-                        "name": "send_ready",
-                        "arguments": json.dumps({}, ensure_ascii=False),
-                    },
-                }
-            ]
-
-        elif event_type == "TURN_RESOLVED":
-            # 回合结算完成：写入记忆
-            return [
-                {
-                    "id": "call_1",
-                    "function": {
-                        "name": "write_memory",
-                        "arguments": json.dumps(
-                            {"content": "本回合臣完成了陛下的命令。"}, ensure_ascii=False
-                        ),
-                    },
-                }
-            ]
-
         else:
             # 默认：只回复
             return [
@@ -255,7 +229,7 @@ class MockProvider(LLMProvider):
             system_prompt: 系统提示词
 
         Returns:
-            事件类型（COMMAND, QUERY, CHAT, END_TURN, TURN_RESOLVED）
+            事件类型（COMMAND, QUERY, CHAT）
         """
         # 检查 system_prompt 中的任务说明
         if system_prompt:
@@ -265,17 +239,13 @@ class MockProvider(LLMProvider):
                 return "QUERY"
             elif "皇帝想和你聊天" in system_prompt:
                 return "CHAT"
-            elif "回合即将结束" in system_prompt:
-                return "END_TURN"
-            elif "回合结算完成" in system_prompt:
-                return "TURN_RESOLVED"
 
         # 检查 prompt 中的事件类型
         if "- 类型:" in prompt:
             match = re.search(r"- 类型:\s*(\w+)", prompt)
             if match:
                 event_type = match.group(1).upper()
-                if event_type in ["COMMAND", "QUERY", "CHAT", "END_TURN", "TURN_RESOLVED"]:
+                if event_type in ["COMMAND", "QUERY", "CHAT"]:
                     return event_type
 
         return "UNKNOWN"

@@ -88,11 +88,17 @@ async def test_game_session_lifecycle(mock_settings, mock_bot_application, mock_
                     mock_bus_cls.return_value = mock_bus
 
                     with patch(
-                        "simu_emperor.adapters.telegram.session.TurnCoordinator"
-                    ) as mock_coord:
-                        mock_coord_instance = MagicMock()
-                        mock_coord_instance.start = MagicMock()
-                        mock_coord.return_value = mock_coord_instance
+                        "simu_emperor.adapters.telegram.session.TickCoordinator"
+                    ) as mock_tick_coord:
+                        mock_tick_coord_instance = MagicMock()
+                        mock_tick_coord_instance.start = MagicMock()
+                        mock_tick_coord.return_value = mock_tick_coord_instance
+
+                    with patch(
+                        "simu_emperor.adapters.telegram.session.Engine"
+                    ) as mock_engine:
+                        mock_engine_instance = MagicMock()
+                        mock_engine.return_value = mock_engine_instance
 
                         with patch(
                             "simu_emperor.adapters.telegram.session.AgentManager"
@@ -108,7 +114,8 @@ async def test_game_session_lifecycle(mock_settings, mock_bot_application, mock_
                             assert session._running
                             assert session.event_bus is not None
                             assert session.repository is not None
-                            assert session.calculator is not None
+                            assert session.tick_coordinator is not None
+                            assert session.engine is not None
                             assert session.agent_manager is not None
 
                             await session.shutdown()

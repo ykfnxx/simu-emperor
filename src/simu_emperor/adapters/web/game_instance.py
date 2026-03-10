@@ -17,7 +17,9 @@ from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
-from simu_emperor.engine.coordinator import TurnCoordinator
+from simu_emperor.engine.tick_coordinator import TickCoordinator
+from simu_emperor.engine.engine import Engine
+from simu_emperor.engine.models.base_data import NationData, ProvinceData
 from simu_emperor.agents.manager import AgentManager
 from simu_emperor.memory.manifest_index import ManifestIndex
 from simu_emperor.llm.base import LLMProvider
@@ -48,7 +50,7 @@ class WebGameInstance:
         db_path: 数据库路径
         event_bus: 事件总线
         repository: 数据库仓储
-        calculator: 游戏状态管理器
+        tick_coordinator: Tick 协调器
         agent_manager: Agent 管理器
         llm_provider: LLM 提供商
         _running: 运行状态标志
@@ -77,7 +79,8 @@ class WebGameInstance:
         # 延迟初始化的组件
         self.event_bus: EventBus | None = None
         self.repository: GameRepository | None = None
-        self.calculator: TurnCoordinator | None = None
+        self.tick_coordinator: TickCoordinator | None = None
+        self.engine: Engine | None = None
         self.agent_manager: AgentManager | None = None
         self.llm_provider: LLMProvider | None = None
         self.session_manager = None  # SessionManager for task sessions
@@ -152,8 +155,6 @@ class WebGameInstance:
 
         # 订阅响应事件
         self.event_bus.subscribe(self.player_id, self._on_response)
-        # 订阅回合结算完成事件
-        self.event_bus.subscribe(self.player_id, self._on_turn_resolved)
 
         logger.info("EventBus initialized")
 
@@ -221,10 +222,32 @@ class WebGameInstance:
                 self._current_session_by_agent.setdefault(agent_id, self.session_id)
         await self._ensure_session_registered(self.session_id, agent_ids=active_agents)
 
-        # 5. 初始化 Calculator（传入 AgentManager）
-        self.calculator = TurnCoordinator(self.event_bus, self.repository, self.agent_manager)
-        self.calculator.start()
-        logger.info("Calculator started")
+        # 5. 初始化 V4 Engine 和 TickCoordinator
+        from decimal import Decimal
+
+        initial_provinces = {
+            "zhili": ProvinceData(
+                province_id="zhili",
+                name="直隶",
+                production_value=Decimal("100000"),
+                population=Decimal("2600000"),
+                fixed_expenditure=Decimal("50000"),
+                stockpile=Decimal("1200000"),
+            )
+        }
+        initial_state = NationData(
+            turn=0,
+            base_tax_rate=Decimal("0.10"),
+            tribute_rate=Decimal("0.8"),
+            fixed_expenditure=Decimal("0"),
+            imperial_treasury=Decimal("100000"),
+            provinces=initial_provinces,
+        )
+
+        self.engine = Engine(initial_state)
+        self.tick_coordinator = TickCoordinator(self.event_bus, self.engine)
+        self.tick_coordinator.start()
+        logger.info("TickCoordinator started")
 
         self._running = True
         logger.info("WebGameInstance started successfully")
@@ -241,8 +264,8 @@ class WebGameInstance:
         if self.agent_manager:
             self.agent_manager.stop_all()
 
-        if self.calculator:
-            self.calculator.stop()
+        if self.tick_coordinator:
+            self.tick_coordinator.stop()
 
         if self.repository:
             await close_database()
@@ -930,17 +953,6 @@ class WebGameInstance:
         narrative = event.payload.get("narrative", "")
 
         logger.info(f"📨 Received response from {agent_name}: {narrative[:50]}...")
-        # 注意：实际的 WebSocket 发送由 server.py 中的事件监听器处理
-
-    async def _on_turn_resolved(self, event: Event) -> None:
-        """
-        回合结算事件处理器
-
-        Args:
-            event: 回合结算事件
-        """
-        turn = event.payload.get("turn")
-        logger.info(f"🔄 Turn {turn} resolved")
         # 注意：实际的 WebSocket 发送由 server.py 中的事件监听器处理
 
     async def broadcast_session_state(

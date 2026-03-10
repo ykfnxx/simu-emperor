@@ -48,4 +48,5 @@ class TestEventTypeV4:
     def test_system_events_includes_timeout(self):
         system_events = EventType.system_events()
         assert EventType.TASK_TIMEOUT in system_events
-        assert EventType.TURN_RESOLVED in system_events
+        assert EventType.TICK_COMPLETED in system_events
+        assert EventType.SESSION_STATE in system_events

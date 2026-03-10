@@ -47,7 +47,6 @@ class CommandHandler:
   /help              显示此帮助
   /chat [agent_id]   进入对话模式
   /exit              退出对话模式
-  /end_turn          结束当前回合
   /quit              退出游戏
 
 自然语言:
@@ -85,20 +84,6 @@ class CommandHandler:
         """退出对话模式"""
         logger.info("Exiting chat mode")
         print("\n退出对话模式")
-
-    async def handle_end_turn(self) -> None:
-        """结束回合"""
-        logger.info("Ending turn")
-        print("\n结束回合...")
-
-        # 发送 end_turn 事件
-        event = Event(
-            src="player",
-            dst=["*"],
-            type=EventType.END_TURN,
-            payload={},
-        )
-        await self.event_bus.send_event(event)
 
     async def handle_quit(self) -> None:
         """退出游戏"""

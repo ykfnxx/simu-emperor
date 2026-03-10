@@ -51,8 +51,6 @@ class MessageConverter:
 
         if event.type == EventType.RESPONSE:
             return self._convert_response(event)
-        elif event.type == EventType.TURN_RESOLVED:
-            return await self._convert_turn_resolved(event)
         elif event.type == EventType.CHAT:
             # Chat 消息也转换为 chat 类型（用户聊天）
             return self._convert_chat(event)
@@ -69,86 +67,6 @@ class MessageConverter:
                 "text": event.payload.get("narrative", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
-            },
-        }
-
-    async def _convert_turn_resolved(self, event: Event) -> dict[str, Any]:
-        """转换回合结算事件"""
-        turn = event.payload.get("turn", 0)
-        metrics = event.payload.get("metrics", {})
-
-        # 从 metrics (NationalTurnMetrics) 中提取可用数据
-        # NationalTurnMetrics 包含: turn, province_metrics, imperial_treasury_change, tribute_total
-
-        # 从 province_metrics 聚合数据
-        province_metrics = metrics.get("province_metrics", [])
-        total_population = sum(p.get("population", {}).get("total", 0) for p in province_metrics)
-        total_military = sum(p.get("military", {}).get("soldiers", 0) for p in province_metrics)
-
-        # 计算平均幸福度
-        avg_happiness = 0
-        if province_metrics:
-            total_happiness = sum(
-                p.get("population", {}).get("happiness", 0) for p in province_metrics
-            )
-            avg_happiness = total_happiness / len(province_metrics)
-
-        # 计算农业总产量
-        total_food = 0
-        for p in province_metrics:
-            crops = p.get("agriculture", {}).get("crops", [])
-            for crop in crops:
-                area = crop.get("area_mu", 0)
-                yield_per = crop.get("yield_per_mu", 0)
-                total_food += area * yield_per
-
-        # 农业状况描述
-        agriculture = "正常"
-        if total_food > 1000000:
-            agriculture = "丰收"
-        elif total_food < 500000:
-            agriculture = "歉收"
-
-        # 获取国库总额（优先从顶层字段读取，兼容 base_data 包装）
-        treasury = 0
-        if self._repository:
-            try:
-                state = await self._repository.load_state()
-                if state:
-                    # state 可能是 dict 或 Pydantic 模型
-                    if isinstance(state, dict):
-                        # 优先读取顶层的 imperial_treasury
-                        treasury = state.get("imperial_treasury", 0)
-                        # 如果顶层没有，尝试从 base_data 读取
-                        if treasury == 0 and "base_data" in state:
-                            base_data = state.get("base_data", {})
-                            if isinstance(base_data, dict):
-                                treasury = base_data.get("imperial_treasury", 0)
-                            else:
-                                treasury = getattr(base_data, "imperial_treasury", 0)
-                    else:
-                        # Pydantic 模型
-                        # 优先读取顶层属性
-                        treasury = getattr(state, "imperial_treasury", 0)
-                        # 如果顶层没有，尝试从 base_data 读取
-                        if treasury == 0 and hasattr(state, "base_data"):
-                            treasury = getattr(
-                                getattr(state, "base_data", None), "imperial_treasury", 0
-                            )
-            except Exception:
-                # 降级到 treasury_change
-                treasury = metrics.get("imperial_treasury_change", 0)
-
-        return {
-            "kind": "state",
-            "data": {
-                "turn": turn,
-                "treasury": float(treasury),  # 国库总额（与前端契约一致）
-                "population": total_population,
-                "military": total_military,
-                "happiness": round(avg_happiness, 2),
-                "agriculture": agriculture,
-                "corruption": 0,  # TODO: 计算贪腐指数
             },
         }
 

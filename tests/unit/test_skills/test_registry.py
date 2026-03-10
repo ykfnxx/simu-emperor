@@ -14,15 +14,11 @@ class TestDefaultEventSkillMap:
         assert EventType.COMMAND in DEFAULT_EVENT_SKILL_MAP
         assert EventType.CHAT in DEFAULT_EVENT_SKILL_MAP
         assert EventType.AGENT_MESSAGE in DEFAULT_EVENT_SKILL_MAP
-        assert EventType.END_TURN in DEFAULT_EVENT_SKILL_MAP
-        assert EventType.TURN_RESOLVED in DEFAULT_EVENT_SKILL_MAP
 
         # 验证映射值正确
         assert DEFAULT_EVENT_SKILL_MAP[EventType.COMMAND] == "execute_command"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.CHAT] == "chat"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.AGENT_MESSAGE] == "receive_message"
-        assert DEFAULT_EVENT_SKILL_MAP[EventType.END_TURN] == "prepare_turn"
-        assert DEFAULT_EVENT_SKILL_MAP[EventType.TURN_RESOLVED] == "summarize_turn"
 
 
 class TestSkillRegistry:
@@ -35,8 +31,6 @@ class TestSkillRegistry:
         assert registry.get_skill_for_event(EventType.COMMAND) == "execute_command"
         assert registry.get_skill_for_event(EventType.CHAT) == "chat"
         assert registry.get_skill_for_event(EventType.AGENT_MESSAGE) == "receive_message"
-        assert registry.get_skill_for_event(EventType.END_TURN) == "prepare_turn"
-        assert registry.get_skill_for_event(EventType.TURN_RESOLVED) == "summarize_turn"
 
     def test_get_skill_for_event_unknown(self):
         """验证未知事件返回 None"""

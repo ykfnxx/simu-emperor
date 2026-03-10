@@ -16,12 +16,12 @@ class TestEventType:
         assert EventType.CHAT in all_types
         assert EventType.RESPONSE in all_types
         assert EventType.AGENT_MESSAGE in all_types
-        assert EventType.ADJUST_TAX in all_types
-        assert EventType.BUILD_IRRIGATION in all_types
-        assert EventType.RECRUIT_TROOPS in all_types
-        assert EventType.READY in all_types
-        assert EventType.TURN_RESOLVED in all_types
-        assert EventType.END_TURN in all_types
+        assert EventType.SESSION_STATE in all_types
+        assert EventType.TICK_COMPLETED in all_types
+        assert EventType.TASK_CREATED in all_types
+        assert EventType.TASK_FINISHED in all_types
+        assert EventType.TASK_FAILED in all_types
+        assert EventType.TASK_TIMEOUT in all_types
 
     def test_is_valid(self):
         """测试验证事件类型"""
@@ -39,10 +39,8 @@ class TestEventType:
 
         assert EventType.COMMAND in player_events
         assert EventType.CHAT in player_events
-        assert EventType.END_TURN in player_events
 
         assert EventType.RESPONSE not in player_events
-        assert EventType.READY not in player_events
 
     def test_agent_events(self):
         """测试 Agent 事件类型"""
@@ -50,19 +48,19 @@ class TestEventType:
 
         assert EventType.RESPONSE in agent_events
         assert EventType.AGENT_MESSAGE in agent_events
-        assert EventType.ADJUST_TAX in agent_events
-        assert EventType.BUILD_IRRIGATION in agent_events
-        assert EventType.RECRUIT_TROOPS in agent_events
-        assert EventType.READY in agent_events
+        assert EventType.TASK_CREATED in agent_events
+        assert EventType.TASK_FINISHED in agent_events
+        assert EventType.TASK_FAILED in agent_events
 
         assert EventType.COMMAND not in agent_events
-        assert EventType.END_TURN not in agent_events
 
     def test_system_events(self):
         """测试系统事件类型"""
         system_events = EventType.system_events()
 
-        assert EventType.TURN_RESOLVED in system_events
+        assert EventType.TASK_TIMEOUT in system_events
+        assert EventType.SESSION_STATE in system_events
+        assert EventType.TICK_COMPLETED in system_events
 
         assert EventType.COMMAND not in system_events
         assert EventType.RESPONSE not in system_events
