@@ -6,6 +6,7 @@ V4 数据模型：
 """
 
 import logging
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 
@@ -130,6 +131,11 @@ class GameRepository:
     # 保留旧方法以兼容 (标记为 deprecated)
     async def load_state(self) -> dict[str, Any]:
         """[已废弃] 使用 load_nation_data 替代."""
+        warnings.warn(
+            "load_state() is deprecated, use load_nation_data() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         nation = await self.load_nation_data()
         from dataclasses import asdict
 

@@ -35,26 +35,54 @@ def _decimal_to_str(obj: Any) -> Any:
     return obj
 
 
-def _str_to_decimal(obj: Any) -> Any:
-    """递归将数字字符串转换回 Decimal.
+# 已知 Decimal 字段白名单
+# 只有这些字段名的字符串值才会被转换为 Decimal
+DECIMAL_FIELDS = frozenset(
+    {
+        # ProvinceData Decimal 字段
+        "production_value",
+        "population",
+        "fixed_expenditure",
+        "stockpile",
+        "base_production_growth",
+        "base_population_growth",
+        "tax_modifier",
+        # NationData Decimal 字段
+        "base_tax_rate",
+        "tribute_rate",
+        "imperial_treasury",
+    }
+)
+
+
+def _str_to_decimal(obj: Any, path: str = "") -> Any:
+    """递归将已知 Decimal 字段的字符串值转换回 Decimal.
 
     Args:
         obj: 任意对象
+        path: 当前路径（用于识别字段名）
 
     Returns:
-        转换后的对象，数字字符串变为 Decimal
+        转换后的对象，只有白名单字段的字符串变为 Decimal
+
+    Note:
+        使用字段名白名单确保 string 类型的 ID 字段（如 province_id）
+        不会被错误转换为 Decimal。
     """
     if isinstance(obj, str):
-        # 只尝试转换纯数字字符串（包括负数和小数）
-        try:
-            return Decimal(obj)
-        except Exception:
-            # 转换失败说明不是数字字符串，保持原样
-            return obj
+        # 只转换已知 Decimal 字段的值
+        field_name = path.split(".")[-1] if path else ""
+        if field_name in DECIMAL_FIELDS:
+            try:
+                return Decimal(obj)
+            except Exception:
+                # 转换失败保持原样
+                return obj
+        return obj
     if isinstance(obj, dict):
-        return {k: _str_to_decimal(v) for k, v in obj.items()}
+        return {k: _str_to_decimal(v, f"{path}.{k}" if path else k) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_str_to_decimal(item) for item in obj]
+        return [_str_to_decimal(item, f"{path}[{i}]") for i, item in enumerate(obj)]
     return obj
 
 
