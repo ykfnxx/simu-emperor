@@ -5,6 +5,10 @@ These handlers execute side effects (send events, write files, etc.).
 
 import logging
 import os
+import re
+import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 from simu_emperor.event_bus.core import EventBus
@@ -130,18 +134,14 @@ class ActionTools:
                 # Traverse to main session (parent_id is None) to get original player
                 current_session = session
                 while current_session.parent_id:
-                    parent = await self.session_manager.get_session(
-                        current_session.parent_id
-                    )
+                    parent = await self.session_manager.get_session(current_session.parent_id)
                     if not parent:
                         break
                     current_session = parent
                 # Use main session's creator as the destination
                 player_src = current_session.created_by or "player"
 
-        logger.info(
-            f"💬 [Agent:{self.agent_id}] Responding to {player_src}: {content[:50]}..."
-        )
+        logger.info(f"💬 [Agent:{self.agent_id}] Responding to {player_src}: {content[:50]}...")
 
         new_event = Event(
             src=f"agent:{self.agent_id}",
@@ -227,3 +227,74 @@ class ActionTools:
                         logger.debug(f"Cleaned up old memory: {filename}")
                 except (ValueError, IndexError):
                     continue
+
+    async def create_incident(self, args: dict, event: Event) -> str:
+        incident_id = (
+            f"inc_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        )
+
+        effects = self._validate_and_build_effects(args["effects"])
+
+        await self.event_bus.send_event(
+            Event(
+                src=f"agent:{self.agent_id}",
+                dst=["system:engine"],
+                type=EventType.INCIDENT_CREATED,
+                payload={
+                    "incident_id": incident_id,
+                    "title": args["title"],
+                    "description": args["description"],
+                    "effects": effects,
+                    "source": self.agent_id,
+                    "remaining_ticks": args["duration_ticks"],
+                },
+                session_id=event.session_id,
+                parent_event_id=event.event_id,
+                root_event_id=event.root_event_id,
+            )
+        )
+
+        return f"✅ 事件已创建: {args['title']} (ID: {incident_id}, 持续 {args['duration_ticks']} ticks)"
+
+    def _validate_and_build_effects(self, effects_data: list) -> list:
+        ALLOWED_ADD_PATHS = [
+            r"^provinces\.[a-z_]+\.stockpile$",
+            r"^nation\.imperial_treasury$",
+        ]
+        ALLOWED_FACTOR_PATHS = [
+            r"^provinces\.[a-z_]+\.production_value$",
+            r"^provinces\.[a-z_]+\.population$",
+        ]
+
+        effects = []
+        for eff in effects_data:
+            target_path = eff["target_path"]
+
+            if "add" in eff and eff["add"] is not None:
+                if not any(re.match(pattern, target_path) for pattern in ALLOWED_ADD_PATHS):
+                    raise ValueError(
+                        f"add 类型效果只能作用于 stockpile 或 imperial_treasury，无效路径: {target_path}"
+                    )
+                effects.append(
+                    {
+                        "target_path": target_path,
+                        "add": str(Decimal(str(eff["add"]))),
+                        "factor": None,
+                    }
+                )
+            elif "factor" in eff and eff["factor"] is not None:
+                if not any(re.match(pattern, target_path) for pattern in ALLOWED_FACTOR_PATHS):
+                    raise ValueError(
+                        f"factor 类型效果只能作用于 production_value 或 population，无效路径: {target_path}"
+                    )
+                effects.append(
+                    {
+                        "target_path": target_path,
+                        "add": None,
+                        "factor": str(Decimal(str(eff["factor"]))),
+                    }
+                )
+            else:
+                raise ValueError(f"Effect 必须指定 add 或 factor 其中之一: {target_path}")
+
+        return effects

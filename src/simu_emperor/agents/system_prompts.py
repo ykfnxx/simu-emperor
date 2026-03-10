@@ -517,6 +517,31 @@ send_message_to_agent(target_agent="governor_zhili", message="承蒙圣上挂怀
 finish_task_session(...) ← 权限会被拒绝！
 respond_to_player(...) ← 任务会话中禁止使用！
 """,
+    EventType.TICK_COMPLETED: """# 当前任务：Tick 完成通知
+
+游戏时间推进了一个 tick（1周）。
+
+## 你可以选择
+
+1. **查询状态** - 使用 `query_province_data` 或 `query_national_data` 查询当前数据
+2. **记录观察** - 使用 `write_memory` 记录重要变化
+3. **忽略** - 无需操作，直接结束
+
+## 可用工具
+
+### 查询工具
+- `query_province_data(province_id, field_path)`: 查询省份数据
+- `query_national_data(field_name)`: 查询国家级数据
+- `list_provinces()`: 列出所有省份
+
+### 记录工具
+- `write_memory(content)`: 写入记忆摘要
+
+## 注意
+- 这是系统通知，**无需回复玩家**
+- 不要主动发起任何行动
+- 如无需操作，调用 `finish_loop` 结束即可
+""",
 }
 
 

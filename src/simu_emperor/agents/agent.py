@@ -204,6 +204,7 @@ class Agent:
             ),
             "respond_to_player": (self._action_tools.respond_to_player, "✅ 响应已发送给玩家"),
             "finish_loop": (self._action_tools.finish_loop, "✅ finish_loop 已执行"),
+            "create_incident": (self._action_tools.create_incident, "✅ 事件已创建"),
         }
 
         for func_name, (handler, success_msg) in action_handlers.items():
