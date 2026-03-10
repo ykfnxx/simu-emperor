@@ -2,10 +2,15 @@
 
 import logging
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from simu_emperor.engine.models.base_data import NationData
 from simu_emperor.engine.models.incident import Incident, Effect
+
+
+if TYPE_CHECKING:
+    from simu_emperor.event_bus.core import EventBus
+    from simu_emperor.event_bus.event import Event
 
 
 logger = logging.getLogger(__name__)
@@ -22,9 +27,13 @@ class Engine:
     - 如需获取状态快照，请使用 copy.deepcopy(engine.get_state())
     """
 
-    def __init__(self, initial_state: NationData):
+    def __init__(self, initial_state: NationData, event_bus: Optional["EventBus"] = None):
         self.state = initial_state
         self.active_incidents: List[Incident] = []
+        self.event_bus = event_bus
+
+        if event_bus:
+            event_bus.subscribe("system:engine", self._on_incident_created)
 
     def apply_tick(self) -> NationData:
         """应用一个 tick，返回新状态
@@ -267,3 +276,29 @@ class Engine:
             Current game state
         """
         return self.state
+
+    async def _on_incident_created(self, event: "Event") -> None:
+        if event.type != "incident_created":
+            return
+
+        effects = []
+        for eff_data in event.payload["effects"]:
+            effect = Effect(
+                target_path=eff_data["target_path"],
+                add=Decimal(eff_data["add"]) if eff_data.get("add") else None,
+                factor=Decimal(eff_data["factor"]) if eff_data.get("factor") else None,
+            )
+            effects.append(effect)
+
+        incident = Incident(
+            incident_id=event.payload["incident_id"],
+            title=event.payload["title"],
+            description=event.payload["description"],
+            effects=effects,
+            source=event.payload["source"],
+            remaining_ticks=event.payload["remaining_ticks"],
+            applied=False,
+        )
+
+        self.add_incident(incident)
+        logger.info(f"Engine received incident: {incident.incident_id}")

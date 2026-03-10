@@ -13,7 +13,7 @@ class EventType:
     - 玩家交互：COMMAND, CHAT
     - Agent 响应：RESPONSE, AGENT_MESSAGE
     - 记忆系统：USER_QUERY, ASSISTANT_RESPONSE, TOOL_RESULT
-    - 系统事件：SESSION_STATE, TICK_COMPLETED
+    - 系统事件：SESSION_STATE, TICK_COMPLETED, INCIDENT_CREATED
     - Task 生命周期：TASK_CREATED, TASK_FINISHED, TASK_FAILED, TASK_TIMEOUT
     """
 
@@ -34,6 +34,7 @@ class EventType:
     # 系统事件
     SESSION_STATE = "session_state"  # 系统 → 客户端 (session状态同步)
     TICK_COMPLETED = "tick_completed"  # TickCoordinator → * (tick 完成，V4 新增)
+    INCIDENT_CREATED = "incident_created"  # Agent → Engine (创建 Incident，V4 新增)
 
     # Task Session 生命周期事件
     TASK_CREATED = "task_created"  # Agent 创建 Task Session
@@ -55,6 +56,7 @@ class EventType:
             cls.TOOL_RESULT,
             cls.SESSION_STATE,
             cls.TICK_COMPLETED,
+            cls.INCIDENT_CREATED,
             cls.TASK_CREATED,
             cls.TASK_FINISHED,
             cls.TASK_FAILED,

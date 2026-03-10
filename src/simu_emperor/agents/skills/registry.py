@@ -9,6 +9,7 @@ DEFAULT_EVENT_SKILL_MAP: dict[str, str] = {
     EventType.COMMAND: "execute_command",
     EventType.CHAT: "chat",
     EventType.AGENT_MESSAGE: "receive_message",
+    EventType.TICK_COMPLETED: "on_tick_completed",
 }
 
 

@@ -207,4 +207,35 @@ AVAILABLE_FUNCTIONS = [
             "required": ["reason"],
         },
     },
+    {
+        "name": "create_incident",
+        "description": "创建持续 N 个 tick 的游戏事件。add 影响数值（一次性），factor 影响变化率（持续）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "事件标题"},
+                "description": {"type": "string", "description": "事件描述"},
+                "effects": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target_path": {"type": "string", "description": "目标路径"},
+                            "add": {
+                                "type": "number",
+                                "description": "一次性数值变化（仅影响 stockpile/treasury）",
+                            },
+                            "factor": {
+                                "type": "number",
+                                "description": "持续比例变化（仅影响 production_value/population）",
+                            },
+                        },
+                        "required": ["target_path"],
+                    },
+                },
+                "duration_ticks": {"type": "integer", "minimum": 1, "description": "持续 tick 数"},
+            },
+            "required": ["title", "description", "effects", "duration_ticks"],
+        },
+    },
 ]
