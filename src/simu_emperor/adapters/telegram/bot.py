@@ -120,7 +120,6 @@ class TelegramBotService:
             "help": self._cmd_help,
             "agents": self._cmd_agents,
             "stat": self._cmd_stat,
-            "end_turn": self._cmd_end_turn,
         }
 
         for cmd_name, handler in commands.items():
@@ -260,23 +259,6 @@ class TelegramBotService:
             logger.error(f"Error loading game state: {e}", exc_info=True)
             await update.message.reply_text("❌ 加载游戏状态失败")
 
-    async def _cmd_end_turn(self, update: Update, context: Any) -> None:
-        """
-        /end_turn 命令处理器（已废弃）
-
-        V4 架构采用 Tick-based 自动推进，回合自动进行。
-        此命令保留用于向后兼容，但会提示用户新机制。
-
-        Args:
-            update: Telegram 更新对象
-            context: 上下文对象
-        """
-        await update.message.reply_text(
-            "⏳ V4 架构已采用 Tick-based 实时推进机制，游戏时间会自动推进，无需手动结束回合。\n"
-            "直接与官员交互即可，游戏会按固定节奏自动更新。"
-        )
-        logger.info(f"User {update.effective_chat.id} called deprecated /end_turn")
-
     async def _handle_message(self, update: Update, context: Any) -> None:
         """
         处理所有消息
@@ -296,7 +278,7 @@ class TelegramBotService:
         # 检查是否是已注册的命令
         import re
 
-        if re.match(r"^/(start|help|agents|stat|end_turn)(\s+|$)", text):
+        if re.match(r"^/(start|help|agents|stat)(\s+|$)", text):
             logger.debug(f"⏭️  [Bot] MessageHandler skipping registered command: {text}")
             return
 
@@ -321,7 +303,6 @@ class TelegramBotService:
             "help": "查看帮助",
             "agents": "列出所有官员",
             "stat": "查看游戏状态",
-            "end_turn": "结束回合",
         }
 
         # 获取启用的命令

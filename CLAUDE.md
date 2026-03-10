@@ -129,9 +129,9 @@ data/
 │   ├── query_data.md                 # Query data within permissions
 │   ├── chat.md                       # Chat with emperor (role-play)
 │   ├── receive_message.md            # Receive inter-agent messages
-│   ├── prepare_turn.md               # Prepare for turn end (send ready)
-│   ├── summarize_turn.md             # Summarize turn results (write memory)
 │   └── write_report.md               # Write reports to emperor
+│
+├── initial_state_v4.json             # V4 initial game state configuration (simplified 4-field model)
 │
 ├── default_agents/                   # Agent templates (version-controlled)
 │   └── {agent_id}/
@@ -445,6 +445,26 @@ All events use this JSON structure:
 **Effect Types:**
 - `add`: One-time numeric change (e.g., stockpile += 1000, only applied once)
 - `factor`: Continuous percentage multiplier (e.g., production_value *= 1.1, every tick)
+
+### Game Action Flow (V4)
+
+**Current State:**
+- Agents respond to player commands by querying data and replying in character
+- Game state changes occur via Engine's automatic tick progression
+- Initial state loaded from `data/initial_state_v4.json` (simplified 4-field model)
+
+**Planned Development:**
+- Agents will be able to create Incident objects to influence game state
+- Incidents can have time-limited Effects that modify province/nation data
+- This allows agents to take actions with persistent, trackable consequences
+
+```
+Future flow:
+Player → Agent (via command event)
+Agent → creates Incident → Engine.add_incident()
+Engine → apply_tick() → applies active Effects
+Game state updates → tick_completed event → Agents notified
+```
 
 ### Key Patterns
 

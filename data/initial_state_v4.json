@@ -1,0 +1,23 @@
+{
+  "_comment": "V4 初始游戏状态配置 - 使用简化的4字段模型",
+  "nation": {
+    "turn": 0,
+    "base_tax_rate": "0.10",
+    "tribute_rate": "0.8",
+    "fixed_expenditure": "0",
+    "imperial_treasury": "100000"
+  },
+  "provinces": {
+    "zhili": {
+      "province_id": "zhili",
+      "name": "直隶",
+      "production_value": "100000",
+      "population": "2600000",
+      "fixed_expenditure": "50000",
+      "stockpile": "1200000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    }
+  }
+}
