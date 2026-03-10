@@ -90,6 +90,7 @@ class Agent:
         # 初始化记忆系统组件（V3）- 必须在工具类之前初始化
         from simu_emperor.memory.tape_writer import TapeWriter
         from simu_emperor.memory.manifest_index import ManifestIndex
+        from simu_emperor.memory.tape_metadata import TapeMetadataManager  # V4
 
         # Use configured memory_dir
         # Resolve to absolute path (relative to cwd when not absolute)
@@ -98,6 +99,7 @@ class Agent:
 
         self._tape_writer = TapeWriter(memory_dir=self._memory_dir)
         self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
+        self._tape_metadata_mgr = TapeMetadataManager(memory_dir=self._memory_dir)  # V4
 
         # 初始化工具类
         self._query_tools = QueryTools(
@@ -463,10 +465,11 @@ class Agent:
 
         流程：
         1. 过滤事件
-        2. 初始化记忆组件
-        3. 构建上下文。
-        4. 多轮 LLM 调用。
-        5. 发送响应
+        2. V4: Tick 驱动的元数据刷新
+        3. 初始化记忆组件
+        4. 构建上下文。
+        5. 多轮 LLM 调用。
+        6. 发送响应
 
         Args:
             event: 事件对象
@@ -475,7 +478,12 @@ class Agent:
         if not await self._should_process_event(event):
             return
 
-        # 2. 记录日志和初始化记忆组件
+        # 2. V4: Tick 驱动的元数据刷新（在 LLM 处理之前）
+        if event.type == EventType.TICK_COMPLETED:
+            await self._refresh_memory_metadata(event)
+            return  # Tick 事件不需要 LLM 处理
+
+        # 3. 记录日志和初始化记忆组件
         session_id = event.session_id
         event_id = event.id if hasattr(event, "id") else "unknown"
         self._log_event("RECV", event, f"{event.type} from {event.src}")
@@ -485,10 +493,10 @@ class Agent:
 
         await self._ensure_memory_components(event.session_id)
 
-        # 3. 准备 Tape 写入任务
+        # 4. 准备 Tape 写入任务
         tape_write_tasks = await self._prepare_tape_for_event(event)
 
-        # 4. 处理事件
+        # 5. 处理事件
         try:
             await self._process_event_with_llm(event, session_id, tape_write_tasks)
         except Exception as e:
@@ -497,7 +505,7 @@ class Agent:
                 exc_info=True,
             )
         finally:
-            # 5. 确保所有 Tape 写入任务完成
+            # 6. 确保所有 Tape 写入任务完成
             await self._complete_tape_writes(tape_write_tasks)
 
     def _should_handle_event(self, event: Event) -> bool:
@@ -1222,3 +1230,29 @@ class Agent:
         else:
             logger.warning(f"Data scope file not found: {scope_path}")
             self._data_scope = {}
+
+    async def _refresh_memory_metadata(self, event: Event) -> None:
+        """
+        V4: Tick 驱动的元数据刷新
+
+        在收到 TICK_COMPLETED 事件时，刷新 tape_meta.jsonl 中当前 session 的元数据。
+
+        Args:
+            event: TICK_COMPLETED 事件，payload 包含 {"tick": int}
+        """
+        current_tick = event.payload.get("tick")
+
+        try:
+            await self._tape_metadata_mgr.append_or_update_entry(
+                agent_id=self.agent_id,
+                session_id=event.session_id,
+                first_event=None,  # 更新模式，不需要 first_event
+                llm=self.llm_provider,
+                current_tick=current_tick,
+            )
+            logger.debug(
+                f"🔄 [Agent:{self.agent_id}] Refreshed memory metadata for session {event.session_id} at tick {current_tick}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh metadata: {e}")
+
