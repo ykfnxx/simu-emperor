@@ -198,18 +198,12 @@ class Agent:
         # Action 类函数 - 执行后返回成功消息
         # 使用包装器将无返回值的函数转换为返回成功消息
         action_handlers = {
-            "send_game_event": (
-                self._action_tools.send_game_event,
-                "✅ 游戏事件已发送到 Calculator",
-            ),
             "send_message_to_agent": (
                 self._action_tools.send_message_to_agent,
                 "✅ 消息已发送给其他官员",
             ),
             "respond_to_player": (self._action_tools.respond_to_player, "✅ 响应已发送给玩家"),
-            "send_ready": (self._action_tools.send_ready, "✅ Ready 信号已发送"),
             "finish_loop": (self._action_tools.finish_loop, "✅ finish_loop 已执行"),
-            "write_memory": (self._action_tools.write_memory, "✅ 记忆已写入"),
         }
 
         for func_name, (handler, success_msg) in action_handlers.items():
@@ -431,7 +425,7 @@ class Agent:
         订阅发往此 Agent 的事件（精确匹配）。
 
         注意：不订阅 '*'，因为发给特定agent的事件会通过 '*' 再次路由，导致重复处理。
-        广播事件（END_TURN, TURN_RESOLVED）通过 EventBus 的路由规则自动处理。
+        广播事件（TICK_COMPLETED）通过 EventBus 的路由规则自动处理。
         """
         logger.info(f"🚀 [Agent:{self.agent_id}] Starting agent...")
 
@@ -1090,11 +1084,6 @@ class Agent:
             task_session_id = event.payload.get("task_session_id", "")
             if task_session_id:
                 parts.extend(["\n# 任务超时", f"任务会话 {task_session_id} 已超时"])
-
-        # TURN_RESOLVED
-        elif event.type == EventType.TURN_RESOLVED and event.payload:
-            turn = event.payload.get("turn", 0)
-            parts.append(f"\n# 回合 {turn} 结算完成")
 
         # 其他 payload
         if event.payload and event.type not in (EventType.COMMAND, EventType.CHAT):

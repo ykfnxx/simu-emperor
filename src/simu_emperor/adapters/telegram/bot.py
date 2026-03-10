@@ -262,37 +262,20 @@ class TelegramBotService:
 
     async def _cmd_end_turn(self, update: Update, context: Any) -> None:
         """
-        /end_turn 命令处理器
+        /end_turn 命令处理器（已废弃）
 
-        结束当前回合。
+        V4 架构采用 Tick-based 自动推进，回合自动进行。
+        此命令保留用于向后兼容，但会提示用户新机制。
 
         Args:
             update: Telegram 更新对象
             context: 上下文对象
         """
-        chat_id = update.effective_chat.id
-        session = await self.session_manager.get_session(chat_id)
-
-        if not session.event_bus:
-            await update.message.reply_text("❌ 会话未初始化")
-            return
-
-        from simu_emperor.event_bus.event import Event
-        from simu_emperor.event_bus.event_types import EventType
-
-        event = Event(
-            src=session.player_id,
-            dst=["*"],
-            type=EventType.END_TURN,
-            payload={"chat_id": chat_id},
-            session_id=session.session_id,  # ✅ 添加 session_id
-            parent_event_id=None,  # ✅ 根事件
-            root_event_id="",  # ✅ EventBus 自动设置
+        await update.message.reply_text(
+            "⏳ V4 架构已采用 Tick-based 实时推进机制，游戏时间会自动推进，无需手动结束回合。\n"
+            "直接与官员交互即可，游戏会按固定节奏自动更新。"
         )
-
-        await session.event_bus.send_event(event)
-        await update.message.reply_text("⏳ 回合结束中，请稍候...")
-        logger.info(f"User {chat_id} ended turn")
+        logger.info(f"User {update.effective_chat.id} called deprecated /end_turn")
 
     async def _handle_message(self, update: Update, context: Any) -> None:
         """

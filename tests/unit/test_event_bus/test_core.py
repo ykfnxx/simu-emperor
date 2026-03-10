@@ -230,7 +230,7 @@ class TestEventBus:
         event = Event(
             src="system",
             dst=["player", "agent:test"],
-            type=EventType.TURN_RESOLVED,
+            type=EventType.TICK_COMPLETED,
             session_id="session:test",
         )
         await event_bus.send_event(event)

@@ -94,12 +94,26 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, mo
 
     monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
 
+    # 创建 mock SessionManager with proper mock session
+    mock_session = MagicMock()
+    mock_session.is_task = False
+    mock_session.status = "ACTIVE"
+    mock_session.pending_async_replies = 0
+    mock_session.parent_id = None
+    mock_session.pending_message_ids = []
+    mock_session_manager = MagicMock()
+    mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+    mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+    mock_session_manager.increment_async_replies = AsyncMock()
+    mock_session_manager.save_manifest = AsyncMock()
+
     agent = Agent(
         agent_id="test_agent",
         event_bus=mock_event_bus,
         llm_provider=mock_llm,
         data_dir=temp_data_dir,
         repository=mock_repository,
+        session_manager=mock_session_manager,
     )
 
     yield agent
@@ -121,8 +135,8 @@ class TestAgent:
         """测试启动"""
         agent.start()
 
-        # 订阅3次：agent:xxx, * (broadcast only), TASK_CREATED
-        assert mock_event_bus.subscribe.call_count == 3
+        # 订阅2次：agent:xxx, * (broadcast only)
+        assert mock_event_bus.subscribe.call_count == 2
 
     def test_stop(self, agent, mock_event_bus):
         """测试停止"""
@@ -142,21 +156,14 @@ class TestAgent:
 
         agent.start()
 
-        # 设置 tool calls
+        # 设置 tool calls（只回复，不执行游戏动作）
         fresh_mock.set_tool_calls(
             [
                 {
                     "id": "call_1",
                     "function": {
-                        "name": "send_game_event",
-                        "arguments": '{"event_type": "adjust_tax", "payload": {"province": "zhili", "rate": 0.05}}',
-                    },
-                },
-                {
-                    "id": "call_2",
-                    "function": {
                         "name": "respond_to_player",
-                        "arguments": '{"content": "臣遵旨！已调整直隶税率为 5%。"}',
+                        "arguments": '{"content": "臣遵旨！已记录陛下的命令。"}',
                     },
                 },
             ]
@@ -177,9 +184,6 @@ class TestAgent:
 
         # 应该发送事件
         assert agent.event_bus.send_event.called
-        # 验证发送的事件
-        calls = agent.event_bus.send_event.call_args_list
-        assert len(calls) == 2  # send_game_event + respond_to_player
 
     @pytest.mark.asyncio
     async def test_on_event_query(self, agent, mock_llm):
@@ -251,57 +255,6 @@ class TestAgent:
         assert agent.event_bus.send_event.called
 
     @pytest.mark.asyncio
-    async def test_on_event_end_turn(self, agent, mock_llm):
-        """测试处理回合结束"""
-        agent.start()
-
-        # 设置 tool calls
-        mock_llm.set_tool_calls(
-            [{"id": "call_1", "function": {"name": "send_ready", "arguments": "{}"}}]
-        )
-
-        event = Event(
-            src="player", dst=["*"], type=EventType.END_TURN, session_id="test_session_end_turn"
-        )
-
-        await agent._on_event(event)
-
-        # 应该调用 LLM 并发送 ready
-        assert mock_llm.call_count >= 1
-        assert agent.event_bus.send_event.called
-
-    @pytest.mark.asyncio
-    async def test_on_event_turn_resolved(self, agent, mock_llm):
-        """测试处理回合结算完成"""
-        agent.start()
-
-        # 设置 tool calls
-        mock_llm.set_tool_calls(
-            [
-                {
-                    "id": "call_1",
-                    "function": {
-                        "name": "write_memory",
-                        "arguments": '{"content": "本回合臣完成了陛下的命令，调整了直隶税率。"}',
-                    },
-                }
-            ]
-        )
-
-        event = Event(
-            src="system:calculator",
-            dst=["*"],
-            type=EventType.TURN_RESOLVED,
-            payload={"turn": 1},
-            session_id="test_session_turn_resolved",
-        )
-
-        await agent._on_event(event)
-
-        # 应该调用 LLM 并写入记忆
-        assert mock_llm.call_count >= 1
-
-    @pytest.mark.asyncio
     async def test_send_message_to_agent(self, agent, mock_llm):
         """测试发送消息给其他 Agent"""
         # 创建新的 MockProvider 实例以避免测试之间的状态污染
@@ -351,25 +304,13 @@ class TestAgent:
         agent.start()
 
         # COMMAND 事件
-        prompt_cmd = await agent._get_system_prompt_for_event(EventType.COMMAND)
+        prompt_cmd = agent._get_system_prompt_for_event(EventType.COMMAND)
         assert "执行皇帝的命令" in prompt_cmd
-        assert "send_game_event" in prompt_cmd
-        assert "执行动作" in prompt_cmd
 
         # CHAT 事件
-        prompt_chat = await agent._get_system_prompt_for_event(EventType.CHAT)
+        prompt_chat = agent._get_system_prompt_for_event(EventType.CHAT)
         assert "皇帝想和你聊天" in prompt_chat
         assert "respond_to_player" in prompt_chat
-
-        # END_TURN 事件
-        prompt_end = await agent._get_system_prompt_for_event(EventType.END_TURN)
-        assert "回合即将结束" in prompt_end
-        assert "send_ready" in prompt_end
-
-        # TURN_RESOLVED 事件
-        prompt_resolved = await agent._get_system_prompt_for_event(EventType.TURN_RESOLVED)
-        assert "回合结算完成" in prompt_resolved
-        assert "write_memory" in prompt_resolved
 
     @pytest.mark.asyncio
     async def test_query_province_data(self, agent, mock_repository):
@@ -476,6 +417,19 @@ class TestAgent:
         # 创建 mock SkillLoader
         mock_skill_loader = Mock()
 
+        # 创建 mock SessionManager with proper mock session
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.parent_id = None
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
         # 创建 Agent 时传入 skill_loader
         agent = Agent(
             agent_id="test_agent_with_loader",
@@ -484,6 +438,7 @@ class TestAgent:
             data_dir=temp_data_dir,
             repository=mock_repository,
             skill_loader=mock_skill_loader,
+            session_manager=mock_session_manager,
         )
 
         # 验证 skill_loader 被正确保存
@@ -494,6 +449,19 @@ class TestAgent:
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
         """测试不传 skill_loader 时向后兼容"""
+        # 创建 mock SessionManager with proper mock session
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.parent_id = None
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
         # 创建 Agent 时不传入 skill_loader
         agent = Agent(
             agent_id="test_agent_no_loader",
@@ -501,6 +469,7 @@ class TestAgent:
             llm_provider=mock_llm,
             data_dir=temp_data_dir,
             repository=mock_repository,
+            session_manager=mock_session_manager,
             # 不传 skill_loader 参数
         )
 
@@ -517,27 +486,48 @@ class TestAgent:
     ):
         """测试使用硬编码的 System Prompt 内容"""
         # 创建 Agent（不传入 SkillLoader，因为已不再使用）
+        # 创建 mock SessionManager with proper mock session
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.parent_id = None
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
         agent = Agent(
             agent_id="test_agent",
             event_bus=mock_event_bus,
             llm_provider=mock_llm,
             data_dir=temp_data_dir,
             repository=mock_repository,
+            session_manager=mock_session_manager,
         )
 
         # 获取 system prompt
-        prompt = await agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event("command")
 
         # 验证使用了硬编码指令
         assert "执行皇帝的命令" in prompt
-        assert "send_game_event" in prompt
-        assert "执行动作" in prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_fallback_to_hardcoded(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
     ):
         """测试回退到硬编码指令"""
+        # 创建 mock SessionManager
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
         # 创建 Agent 时不传入 SkillLoader
         agent = Agent(
             agent_id="test_agent",
@@ -545,15 +535,14 @@ class TestAgent:
             llm_provider=mock_llm,
             data_dir=temp_data_dir,
             repository=mock_repository,
-            # 不传 skill_loader
+            session_manager=mock_session_manager,
         )
 
         # 获取 system prompt
-        prompt = await agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event("command")
 
         # 验证使用了硬编码指令
         assert "执行皇帝的命令" in prompt
-        assert "send_game_event" in prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_fallback_when_skill_not_found(
@@ -565,6 +554,19 @@ class TestAgent:
         mock_skill_loader.load.return_value = None
         mock_skill_loader.registry.get_skill_for_event.return_value = "nonexistent_skill"
 
+        # 创建 mock SessionManager with proper mock session
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.parent_id = None
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
         # 创建 Agent 并注入 SkillLoader
         agent = Agent(
             agent_id="test_agent",
@@ -573,66 +575,73 @@ class TestAgent:
             data_dir=temp_data_dir,
             repository=mock_repository,
             skill_loader=mock_skill_loader,
+            session_manager=mock_session_manager,
         )
 
         # 获取 system prompt
-        prompt = await agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event("command")
 
         # 验证回退到硬编码指令
         assert "执行皇帝的命令" in prompt
-        assert "send_game_event" in prompt
+
 
     @pytest.mark.asyncio
-    async def test_system_prompt_task_session_uses_task_created_prompt(
-        self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
-    ):
-        """测试 task session 使用 TASK_CREATED 的 system prompt"""
-        # 创建 Agent（不传入 SkillLoader）
-        agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
+    async def test_send_message_to_agent_with_await_reply_true(self, agent, tmp_path, monkeypatch):
+        """测试 send_message_to_agent 返回正确的等待消息（await_reply=true）"""
+        # 创建临时 memory 目录
+        memory_dir = tmp_path / "memory_for_await_test"
+        memory_dir.mkdir(exist_ok=True)
+
+        # Patch settings to use temporary memory directory
+        from simu_emperor.config import settings
+
+        monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
+
+        # 创建 mock SessionManager with task session
+        mock_session = MagicMock()
+        mock_session.parent_id = "parent_session"
+        mock_session.is_task = True  # Task session
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
+
+        # 创建 Agent with task session manager
+        agent_with_task = Agent(
+            agent_id="test_agent_task",
+            event_bus=agent.event_bus,
+            llm_provider=agent.llm_provider,
+            data_dir=agent.data_dir,
+            repository=agent.repository,
+            session_manager=mock_session_manager,
         )
 
-        # Task session 应该使用 TASK_CREATED 的 prompt
         task_session_id = "task:test_agent:parent_session:123"
-        prompt = await agent._get_system_prompt_for_event("agent_message", task_session_id)
-
-        # 验证 task session 使用了 TASK_CREATED 的提示
-        assert "Task Session" in prompt
-        assert "单一目标" in prompt
-        assert "finish_task_session" in prompt
-        assert "创建者职责" in prompt
-        assert "参与者职责" in prompt
-
-    @pytest.mark.asyncio
-    async def test_send_message_to_agent_with_await_reply_true(self, agent):
-        """测试 send_message_to_agent 返回正确的等待消息（await_reply=true）"""
         event = Event(
             src="player",
-            dst=["agent:test_agent"],
+            dst=["agent:test_agent_task"],
             type=EventType.COMMAND,
             payload={"command": "test"},
-            session_id="test_session",
+            session_id=task_session_id,
         )
 
         # 调用 send_message_to_agent with await_reply=true
-        result = await agent._action_tools.send_message_to_agent(
+        result = await agent_with_task._action_tools.send_message_to_agent(
             {"target_agent": "governor_zhili", "message": "请查收", "await_reply": True},
             event,
         )
 
-        # 应该返回等待消息（不包含 ⏳，改为基于函数名称和参数检测）
+        # 应该返回等待消息
         assert "等待回复" in result
 
-        # 验证发送的事件使用的是当前 session（没有切换）
-        assert agent.event_bus.send_event.called
-        sent_event = agent.event_bus.send_event.call_args[0][0]
-        assert sent_event.session_id == "test_session"
-        # 验证没有 reply_to_session 字段
-        assert "reply_to_session" not in sent_event.payload
+        # 验证发送的事件使用的是 task session
+        assert agent_with_task.event_bus.send_event.called
+        sent_event = agent_with_task.event_bus.send_event.call_args[0][0]
+        assert sent_event.session_id == task_session_id
 
     @pytest.mark.asyncio
     async def test_send_message_to_agent_with_await_reply_false(self, agent):
@@ -667,13 +676,16 @@ class TestAgent:
 
         monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
 
-        # 创建 mock SessionManager
-        mock_session_manager = Mock()
-        mock_session = Mock()
+        # 创建 mock SessionManager with proper mocks
+        mock_session_manager = MagicMock()
+        mock_session = MagicMock()
         mock_session.parent_id = "parent_session"
         mock_session.is_task = True
         mock_session.status = "ACTIVE"
         mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+        mock_session_manager.increment_async_replies = AsyncMock()
+        mock_session_manager.save_manifest = AsyncMock()
 
         # 创建 Agent with session_manager
         agent_with_sm = Agent(

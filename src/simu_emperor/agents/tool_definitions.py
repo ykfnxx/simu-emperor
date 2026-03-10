@@ -94,31 +94,6 @@ AVAILABLE_FUNCTIONS = [
         },
     },
     {
-        "name": "send_game_event",
-        "description": "【执行动作】发送游戏事件到 Calculator。这是修改游戏状态的唯一方式！执行命令时必须调用此函数。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_type": {
-                    "type": "string",
-                    "description": "游戏事件类型\n- allocate_funds: 拨款（从国库拨给省库）\n- adjust_tax: 调整税率\n- build_irrigation: 建设水利\n- recruit_troops: 招募军队",
-                    "enum": ["allocate_funds", "adjust_tax", "build_irrigation", "recruit_troops"],
-                },
-                "payload": {
-                    "type": "object",
-                    "description": "事件参数（根据 event_type 不同而不同）",
-                    "properties": {
-                        "province": {"type": "string", "description": "省份 ID"},
-                        "amount": {"type": "number", "description": "金额（拨款时使用）"},
-                        "rate": {"type": "number", "description": "税率（0-1）"},
-                        "count": {"type": "integer", "description": "数量（士兵数等）"},
-                    },
-                },
-            },
-            "required": ["event_type", "payload"],
-        },
-    },
-    {
         "name": "send_message_to_agent",
         "description": "向其他官员发送消息（不能向自己发送），仅限于task中确认需要协调其他官员时使用（如需要其他官员执行某个操作）。不能主会话中直接调用此函数，应该在任务会话中调用以确保流程清晰。",
         "parameters": {
@@ -144,12 +119,12 @@ AVAILABLE_FUNCTIONS = [
 
 ⚠️ 极其重要的使用规则：
 1. 必须是单次响应中最后一轮 agent loop 的唯一调用
-2. 不能与任何其他工具同时调用（如 send_game_event、query_xxx、send_message_to_agent 等）
+2. 不能与任何其他工具同时调用（如 query_xxx、send_message_to_agent 等）
 3. 如果需要执行其他操作，先在上一轮调用其他工具，然后在下一轮单独调用此工具
 4. 违反此规则会导致其他工具被忽略，命令可能无法正确执行
 
 正确模式：
-- 第1轮：send_game_event(...) / query_xxx(...) / send_message_to_agent(...)
+- 第1轮：query_xxx(...) / send_message_to_agent(...)
 - 第2轮：respond_to_player(...) ← 最后一轮，唯一调用
 """,
         "parameters": {
@@ -187,25 +162,6 @@ AVAILABLE_FUNCTIONS = [
                 },
             },
             "required": ["reason"],
-        },
-    },
-    {
-        "name": "send_ready",
-        "description": "发送 ready 信号（仅在 end_turn 事件时使用）",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "write_memory",
-        "description": "写入记忆（仅在 turn_resolved 事件时使用）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "总结内容（本回合发生的事情、重要决策和结果）",
-                }
-            },
-            "required": ["content"],
         },
     },
     {

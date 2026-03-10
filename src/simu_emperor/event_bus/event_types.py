@@ -13,8 +13,8 @@ class EventType:
     - 玩家交互：COMMAND, CHAT
     - Agent 响应：RESPONSE, AGENT_MESSAGE
     - 记忆系统：USER_QUERY, ASSISTANT_RESPONSE, TOOL_RESULT
-    - 游戏动作：ADJUST_TAX, BUILD_IRRIGATION, RECRUIT_TROOPS
-    - 系统事件：READY, TURN_RESOLVED, END_TURN
+    - 系统事件：SESSION_STATE, TICK_COMPLETED
+    - Task 生命周期：TASK_CREATED, TASK_FINISHED, TASK_FAILED, TASK_TIMEOUT
     """
 
     # 玩家交互事件
@@ -31,16 +31,7 @@ class EventType:
     TOOL_CALL = "tool_call"  # 工具调用（写入 tape）
     TOOL_RESULT = "tool_result"  # 工具执行结果（写入 tape）
 
-    # 游戏动作事件 (Agent → Calculator)
-    ALLOCATE_FUNDS = "allocate_funds"  # 拨款（从国库到省库）
-    ADJUST_TAX = "adjust_tax"  # 调整税率
-    BUILD_IRRIGATION = "build_irrigation"  # 建设水利
-    RECRUIT_TROOPS = "recruit_troops"  # 招募军队
-
     # 系统事件
-    READY = "ready"  # Agent → Calculator (回合准备完成)
-    TURN_RESOLVED = "turn_resolved"  # Calculator → * (回合结算完成)
-    END_TURN = "end_turn"  # 玩家 → * (结束回合)
     SESSION_STATE = "session_state"  # 系统 → 客户端 (session状态同步)
     TICK_COMPLETED = "tick_completed"  # TickCoordinator → * (tick 完成，V4 新增)
 
@@ -62,13 +53,6 @@ class EventType:
             cls.ASSISTANT_RESPONSE,
             cls.TOOL_CALL,
             cls.TOOL_RESULT,
-            cls.ALLOCATE_FUNDS,
-            cls.ADJUST_TAX,
-            cls.BUILD_IRRIGATION,
-            cls.RECRUIT_TROOPS,
-            cls.READY,
-            cls.TURN_RESOLVED,
-            cls.END_TURN,
             cls.SESSION_STATE,
             cls.TICK_COMPLETED,
             cls.TASK_CREATED,
@@ -85,7 +69,7 @@ class EventType:
     @classmethod
     def player_events(cls) -> list[str]:
         """玩家发起的事件类型"""
-        return [cls.COMMAND, cls.CHAT, cls.END_TURN]
+        return [cls.COMMAND, cls.CHAT]
 
     @classmethod
     def agent_events(cls) -> list[str]:
@@ -93,11 +77,6 @@ class EventType:
         return [
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
-            cls.ALLOCATE_FUNDS,
-            cls.ADJUST_TAX,
-            cls.BUILD_IRRIGATION,
-            cls.RECRUIT_TROOPS,
-            cls.READY,
             cls.TASK_CREATED,
             cls.TASK_FINISHED,
             cls.TASK_FAILED,
@@ -106,4 +85,4 @@ class EventType:
     @classmethod
     def system_events(cls) -> list[str]:
         """系统事件类型"""
-        return [cls.TURN_RESOLVED, cls.TASK_TIMEOUT, cls.SESSION_STATE, cls.TICK_COMPLETED]
+        return [cls.TASK_TIMEOUT, cls.SESSION_STATE, cls.TICK_COMPLETED]

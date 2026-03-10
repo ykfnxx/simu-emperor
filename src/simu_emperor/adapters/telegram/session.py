@@ -1,7 +1,7 @@
 """
 Telegram 会话管理
 
-每个 Telegram 用户有独立的游戏会话，包含独立的 EventBus、Repository、AgentManager 和 Calculator。
+每个 Telegram 用户有独立的游戏会话，包含独立的 EventBus、Repository、AgentManager、Engine 和 TickCoordinator。
 """
 
 import asyncio
@@ -17,7 +17,9 @@ from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
-from simu_emperor.engine.coordinator import TurnCoordinator
+from simu_emperor.engine.tick_coordinator import TickCoordinator
+from simu_emperor.engine.engine import Engine
+from simu_emperor.engine.models.base_data import NationData, ProvinceData
 from simu_emperor.agents.manager import AgentManager
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.adapters.telegram.session_context import SessionContextManager
@@ -35,7 +37,7 @@ class GameSession:
     - 独立的数据库（sessions/telegram_{chat_id}.db）
     - 独立的事件总线
     - 独立的 Repository
-    - 独立的 Calculator
+    - 独立的 Engine 和 TickCoordinator
     - 独立的 AgentManager
     - Session 上下文管理器（用于 session 切换）
 
@@ -85,7 +87,8 @@ class GameSession:
         # 延迟初始化的组件
         self.event_bus: EventBus | None = None
         self.repository: GameRepository | None = None
-        self.calculator: Calculator | None = None
+        self.engine: Engine | None = None
+        self.tick_coordinator: TickCoordinator | None = None
         self.agent_manager: AgentManager | None = None
         self._running: bool = False
 
@@ -132,11 +135,9 @@ class GameSession:
 
         # 订阅响应事件
         self.event_bus.subscribe(self.player_id, self._on_response)
-        # 订阅回合结算完成事件
-        self.event_bus.subscribe(self.player_id, self._on_turn_resolved)
         logger.info("EventBus initialized")
 
-        # 3. 初始化 AgentManager（在 Calculator 之前）
+        # 3. 初始化 AgentManager（在 TickCoordinator 之前）
         self.agent_manager = AgentManager(
             event_bus=self.event_bus,
             llm_provider=self.llm_provider,
@@ -155,10 +156,32 @@ class GameSession:
 
         logger.info(f"AgentManager initialized with {len(default_agents)} agents")
 
-        # 4. 初始化 Calculator（传入 AgentManager）
-        self.calculator = TurnCoordinator(self.event_bus, self.repository, self.agent_manager)
-        self.calculator.start()
-        logger.info("Calculator started")
+        # 4. 初始化 V4 Engine 和 TickCoordinator
+        from decimal import Decimal
+
+        initial_provinces = {
+            "zhili": ProvinceData(
+                province_id="zhili",
+                name="直隶",
+                production_value=Decimal("100000"),
+                population=Decimal("2600000"),
+                fixed_expenditure=Decimal("50000"),
+                stockpile=Decimal("1200000"),
+            )
+        }
+        initial_state = NationData(
+            turn=0,
+            base_tax_rate=Decimal("0.10"),
+            tribute_rate=Decimal("0.8"),
+            fixed_expenditure=Decimal("0"),
+            imperial_treasury=Decimal("100000"),
+            provinces=initial_provinces,
+        )
+
+        self.engine = Engine(initial_state)
+        self.tick_coordinator = TickCoordinator(self.event_bus, self.engine)
+        self.tick_coordinator.start()
+        logger.info("TickCoordinator started")
         self._running = True
 
     async def shutdown(self) -> None:
@@ -171,8 +194,8 @@ class GameSession:
         if self.agent_manager:
             self.agent_manager.stop_all()
 
-        if self.calculator:
-            self.calculator.stop()
+        if self.tick_coordinator:
+            self.tick_coordinator.stop()
 
         if self.session_context_manager:
             await self.session_context_manager.stop_cleanup_task()
@@ -228,54 +251,6 @@ class GameSession:
                         exc_info=True,
                     )
                     logger.error(f"Failed to send message to {self.chat_id}: {e}")
-
-    async def _on_turn_resolved(self, event: Event) -> None:
-        """
-        处理回合结算完成事件 - 发送通知到 Telegram
-
-        Args:
-            event: turn_resolved 事件
-        """
-        if event.type != EventType.TURN_RESOLVED:
-            return
-
-        # 检查事件是否来自当前会话
-        event_chat_id = event.payload.get("chat_id")
-        if event_chat_id != self.chat_id:
-            return
-
-        turn = event.payload.get("turn", 0)
-
-        # 重试配置
-        max_retries = 3
-        base_delay = 1.0  # 基础延迟时间（秒）
-
-        for attempt in range(max_retries):
-            try:
-                await self.bot_application.bot.send_message(
-                    chat_id=self.chat_id,
-                    text=f"✅ <b>第 {turn} 回合结算完成</b>\n\n可以继续与官员交互或再次结束回合。",
-                    parse_mode="HTML",
-                )
-                logger.info(
-                    f"Sent turn resolved notification to chat {self.chat_id} for turn {turn}"
-                )
-                return  # 成功发送，退出
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    # 计算指数退避延迟
-                    delay = base_delay * (2**attempt)
-                    logger.warning(
-                        f"⚠️  Failed to send turn notification (attempt {attempt + 1}/{max_retries}): {e}. "
-                        f"Retrying in {delay}s..."
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    # 最后一次尝试失败
-                    logger.error(
-                        f"Failed to send turn resolved message to {self.chat_id} after {max_retries} attempts: {e}"
-                    )
 
     async def _initialize_game_state(self) -> None:
         """初始化游戏状态（如果数据库为空）"""

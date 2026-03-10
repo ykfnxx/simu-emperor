@@ -54,7 +54,8 @@ class TestWebGameInstance:
         assert instance._running is False
         assert instance.event_bus is None
         assert instance.repository is None
-        assert instance.calculator is None
+        assert instance.tick_coordinator is None
+        assert instance.engine is None
         assert instance.agent_manager is None
 
     @pytest.mark.asyncio

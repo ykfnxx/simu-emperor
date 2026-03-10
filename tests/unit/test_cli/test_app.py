@@ -51,16 +51,6 @@ class TestEmperorCLI:
         assert "命令帮助" in captured.out
 
     @pytest.mark.asyncio
-    async def test_handle_command_end_turn(self, cli, mock_event_bus):
-        """测试处理 /end_turn 命令"""
-        await cli._handle_command("/end_turn")
-
-        assert mock_event_bus.send_event.called
-        event = mock_event_bus.send_event.call_args[0][0]
-        assert event.type == EventType.END_TURN
-        assert event.src == "player"
-
-    @pytest.mark.asyncio
     async def test_handle_command_quit(self, cli):
         """测试处理 /quit 命令"""
         cli._running = True

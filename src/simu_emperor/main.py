@@ -14,7 +14,9 @@ from simu_emperor.event_bus.logger import FileEventLogger, DatabaseEventLogger
 from simu_emperor.config import settings
 from simu_emperor.persistence import init_database, close_database
 from simu_emperor.persistence.repositories import GameRepository
-from simu_emperor.engine.coordinator import TurnCoordinator
+from simu_emperor.engine.tick_coordinator import TickCoordinator
+from simu_emperor.engine.engine import Engine
+from simu_emperor.engine.models.base_data import NationData, ProvinceData
 from simu_emperor.cli.app import EmperorCLI
 from simu_emperor.agents.manager import AgentManager
 
@@ -227,10 +229,33 @@ async def main() -> None:
 
     logger.info(f"AgentManager initialized with {len(default_agents)} agents")
 
-    # 5. 初始化 Calculator（传入 AgentManager）
-    calculator = TurnCoordinator(event_bus, repository, agent_manager)
-    calculator.start()
-    logger.info("Calculator started")
+    # 5. 初始化 V4 Engine 和 TickCoordinator
+    # 创建简单的初始状态（V4 使用简化的数据模型）
+    from decimal import Decimal
+
+    initial_provinces = {
+        "zhili": ProvinceData(
+            province_id="zhili",
+            name="直隶",
+            production_value=Decimal("100000"),
+            population=Decimal("2600000"),
+            fixed_expenditure=Decimal("50000"),
+            stockpile=Decimal("1200000"),
+        )
+    }
+    initial_state = NationData(
+        turn=0,
+        base_tax_rate=Decimal("0.10"),
+        tribute_rate=Decimal("0.8"),
+        fixed_expenditure=Decimal("0"),
+        imperial_treasury=Decimal("100000"),
+        provinces=initial_provinces,
+    )
+
+    engine = Engine(initial_state)
+    tick_coordinator = TickCoordinator(event_bus, engine)
+    tick_coordinator.start()
+    logger.info("TickCoordinator started")
 
     # 6. 初始化 CLI
     cli = EmperorCLI(event_bus, repository, agent_manager, session_id=session_id)
@@ -243,7 +268,7 @@ async def main() -> None:
         logger.info("收到中断信号，正在关闭...")
     finally:
         # 清理资源
-        calculator.stop()
+        tick_coordinator.stop()
         if agent_manager:
             agent_manager.stop_all()
         await close_database()

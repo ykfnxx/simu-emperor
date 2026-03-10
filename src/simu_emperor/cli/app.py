@@ -189,8 +189,6 @@ class EmperorCLI:
             await self._enter_chat_mode(parts[1] if len(parts) > 1 else None)
         elif command == "/exit":
             self._exit_chat_mode()
-        elif command == "/end_turn":
-            await self._end_turn()
         elif command == "/quit":
             self._running = False
         else:
@@ -267,22 +265,6 @@ class EmperorCLI:
             self._chat_mode = False
             self._chat_agent_id = ""
 
-    async def _end_turn(self) -> None:
-        """结束回合"""
-        print("\n结束回合...")
-
-        # 发送 end_turn 事件
-        event = Event(
-            src="player",
-            dst=["*"],
-            type=EventType.END_TURN,
-            payload={},
-            session_id=self.session_id,
-            parent_event_id=None,  # 根事件
-            root_event_id="",  # EventBus 自动设置
-        )
-        await self.event_bus.send_event(event)
-
     def _show_help(self) -> None:
         """显示帮助信息"""
         help_text = """
@@ -292,7 +274,6 @@ class EmperorCLI:
   /help              显示此帮助
   /chat [agent_id]   进入对话模式
   /exit              退出对话模式
-  /end_turn          结束当前回合
   /quit              退出游戏
 
 自然语言:

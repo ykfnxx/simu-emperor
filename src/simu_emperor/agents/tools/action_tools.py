@@ -22,10 +22,8 @@ class ActionTools:
     side effects like sending events or writing files.
 
     Action functions:
-    - send_game_event: Send game events to Calculator
     - send_message_to_agent: Send messages to other agents
     - respond_to_player: Send responses to player
-    - send_ready: Send ready signal to Calculator
     - finish_loop: End agent loop (when session has > 2 members)
     - write_memory: Write memory summaries to files
     """
@@ -43,33 +41,6 @@ class ActionTools:
         self.data_dir = data_dir
         self.session_manager = session_manager
         self._tape_writer = tape_writer
-
-    async def send_game_event(self, args: dict, event: Event) -> None:
-        """Send game events to Calculator"""
-        event_type_str = args.get("event_type")
-        payload = args.get("payload", {})
-
-        logger.info(
-            f"🎮 [Agent:{self.agent_id}] Sending game event: {event_type_str} with payload: {payload}"
-        )
-
-        # 映射到 EventType
-        event_type = self._str_to_event_type(event_type_str)
-        if not event_type:
-            logger.warning(f"⚠️  [Agent:{self.agent_id}] Unknown event type: {event_type_str}")
-            return
-
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=["system:calculator"],
-            type=event_type,
-            payload=payload,
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ [Agent:{self.agent_id}] Sent {event_type_str} event to system:calculator")
 
     async def send_message_to_agent(self, args: dict, event: Event) -> str:
         target_agent = args.get("target_agent", "")
@@ -191,20 +162,6 @@ class ActionTools:
 
         return "✅ 响应已发送"
 
-    async def send_ready(self, args: dict, event: Event) -> None:
-        """Send ready signal to Calculator"""
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=["system:calculator"],
-            type=EventType.READY,
-            payload={},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ Agent {self.agent_id} sent READY to system:calculator")
-
     async def finish_loop(self, args: dict, event: Event) -> str:
         """结束 agent loop（仅在成员 > 2 时生效）"""
         if not self.session_manager:
@@ -251,17 +208,6 @@ class ActionTools:
         self._cleanup_old_memories(recent_dir, turn)
 
         logger.info(f"✅ Agent {self.agent_id} wrote memory for turn {turn}")
-
-    @staticmethod
-    def _str_to_event_type(event_type_str: str) -> str | None:
-        """将字符串映射到 EventType"""
-        event_map = {
-            "allocate_funds": EventType.ALLOCATE_FUNDS,
-            "adjust_tax": EventType.ADJUST_TAX,
-            "build_irrigation": EventType.BUILD_IRRIGATION,
-            "recruit_troops": EventType.RECRUIT_TROOPS,
-        }
-        return event_map.get(event_type_str)
 
     @staticmethod
     def _cleanup_old_memories(recent_dir: Path, current_turn: int) -> None:
