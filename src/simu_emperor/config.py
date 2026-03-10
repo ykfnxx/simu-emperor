@@ -54,7 +54,7 @@ class TelegramConfig(BaseSettings):
     response_timeout_seconds: int = Field(default=30, ge=5, description="响应超时时间（秒）")
     max_sessions: int = Field(default=100, ge=1, description="最大会话数")
     enabled_commands: list[str] = Field(
-        default=["start", "help", "agents", "stat", "end_turn"], description="启用的命令列表"
+        default=["start", "help", "agents", "stat"], description="启用的命令列表"
     )
 
 

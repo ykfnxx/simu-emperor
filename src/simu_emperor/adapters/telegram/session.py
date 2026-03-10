@@ -157,26 +157,7 @@ class GameSession:
         logger.info(f"AgentManager initialized with {len(default_agents)} agents")
 
         # 4. 初始化 V4 Engine 和 TickCoordinator
-        from decimal import Decimal
-
-        initial_provinces = {
-            "zhili": ProvinceData(
-                province_id="zhili",
-                name="直隶",
-                production_value=Decimal("100000"),
-                population=Decimal("2600000"),
-                fixed_expenditure=Decimal("50000"),
-                stockpile=Decimal("1200000"),
-            )
-        }
-        initial_state = NationData(
-            turn=0,
-            base_tax_rate=Decimal("0.10"),
-            tribute_rate=Decimal("0.8"),
-            fixed_expenditure=Decimal("0"),
-            imperial_treasury=Decimal("100000"),
-            provinces=initial_provinces,
-        )
+        initial_state = await self._load_v4_initial_state()
 
         self.engine = Engine(initial_state)
         self.tick_coordinator = TickCoordinator(self.event_bus, self.engine)
@@ -350,6 +331,72 @@ class GameSession:
         await self.repository.save_state(state_dict)
 
         logger.info(f"Initialized game state with {len(initial_state.provinces)} province(s)")
+
+    async def _load_v4_initial_state(self) -> NationData:
+        """
+        从 JSON 配置文件加载 V4 初始游戏状态
+
+        Returns:
+            NationData: V4 初始国家数据（简化模型）
+        """
+        from decimal import Decimal
+        import json
+
+        config_path = self.settings.data_dir / "initial_state_v4.json"
+        logger.info(f"Loading V4 initial state from {config_path}")
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to load V4 initial state from {config_path}: {e}, using fallback defaults")
+            # 回退到硬编码默认值
+            provinces_data = {
+                "zhili": ProvinceData(
+                    province_id="zhili",
+                    name="直隶",
+                    production_value=Decimal("100000"),
+                    population=Decimal("2600000"),
+                    fixed_expenditure=Decimal("50000"),
+                    stockpile=Decimal("1200000"),
+                )
+            }
+            return NationData(
+                turn=0,
+                base_tax_rate=Decimal("0.10"),
+                tribute_rate=Decimal("0.8"),
+                fixed_expenditure=Decimal("0"),
+                imperial_treasury=Decimal("100000"),
+                provinces=provinces_data,
+            )
+
+        # 从配置加载国家数据
+        nation_config = config_data.get("nation", {})
+        provinces_config = config_data.get("provinces", {})
+
+        # 构建省份数据
+        provinces_data = {}
+        for province_id, province_config in provinces_config.items():
+            provinces_data[province_id] = ProvinceData(
+                province_id=province_config.get("province_id", province_id),
+                name=province_config.get("name", province_id),
+                production_value=Decimal(province_config.get("production_value", "100000")),
+                population=Decimal(province_config.get("population", "1000000")),
+                fixed_expenditure=Decimal(province_config.get("fixed_expenditure", "0")),
+                stockpile=Decimal(province_config.get("stockpile", "0")),
+                base_production_growth=Decimal(province_config.get("base_production_growth", "0.01")),
+                base_population_growth=Decimal(province_config.get("base_population_growth", "0.005")),
+                tax_modifier=Decimal(province_config.get("tax_modifier", "0.0")),
+            )
+
+        return NationData(
+            turn=int(nation_config.get("turn", 0)),
+            base_tax_rate=Decimal(nation_config.get("base_tax_rate", "0.10")),
+            tribute_rate=Decimal(nation_config.get("tribute_rate", "0.8")),
+            fixed_expenditure=Decimal(nation_config.get("fixed_expenditure", "0")),
+            imperial_treasury=Decimal(nation_config.get("imperial_treasury", "100000")),
+            provinces=provinces_data,
+        )
 
     async def get_session_id_for_event(self, event_category: str = "other") -> str:
         """
