@@ -1043,20 +1043,8 @@ class Agent:
             f"- 时间: {event.timestamp}",
         ]
 
-        # COMMAND
-        if event.type == EventType.COMMAND and event.payload:
-            command = event.payload.get("command", "")
-            if command:
-                parts.extend(
-                    [
-                        "\n# 皇帝的命令：",
-                        f"```\n{command}\n```",
-                        "\n**重要**：你需要**执行**这个命令！",
-                    ]
-                )
-
         # CHAT
-        elif event.type == EventType.CHAT and event.payload:
+        if event.type == EventType.CHAT and event.payload:
             message = event.payload.get("message", "")
             if message:
                 parts.extend(["\n# 皇帝的消息：", f"```\n{message}\n```"])
@@ -1086,8 +1074,18 @@ class Agent:
             if task_session_id:
                 parts.extend(["\n# 任务超时", f"任务会话 {task_session_id} 已超时"])
 
+        # TICK_COMPLETED
+        elif event.type == EventType.TICK_COMPLETED and event.payload:
+            tick = event.payload.get("tick", 0)
+            parts.extend(
+                [
+                    "\n# ⏰ Tick 已完成",
+                    f"游戏时间推进了一周（Tick {tick}）。",
+                ]
+            )
+
         # 其他 payload
-        if event.payload and event.type not in (EventType.COMMAND, EventType.CHAT):
+        if event.payload and event.type != EventType.CHAT:
             display_payload = {k: v for k, v in event.payload.items() if not k.startswith("_")}
             if display_payload:
                 parts.extend(

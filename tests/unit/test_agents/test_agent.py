@@ -172,8 +172,8 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
-            payload={"command": "调整直隶税率为 5%"},
+            type=EventType.CHAT,
+            payload={"message": "调整直隶税率为 5%"},
             session_id="test_session_command",
         )
 
@@ -210,8 +210,8 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
-            payload={"query": "国库还有多少银两？"},
+            type=EventType.CHAT,
+            payload={"message": "国库还有多少银两？"},
             session_id="test_session_query",
         )
 
@@ -286,7 +286,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"command": "命令直隶总督李卫执行任务"},
             session_id="test_session_send_message",
         )
@@ -303,10 +303,6 @@ class TestAgent:
         """测试不同事件类型的 system prompt"""
         agent.start()
 
-        # COMMAND 事件
-        prompt_cmd = agent._get_system_prompt_for_event(EventType.COMMAND)
-        assert "执行皇帝的命令" in prompt_cmd
-
         # CHAT 事件
         prompt_chat = agent._get_system_prompt_for_event(EventType.CHAT)
         assert "皇帝想和你聊天" in prompt_chat
@@ -320,7 +316,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"query": "查询直隶人口"},
             session_id="test_session_query_province",
         )
@@ -344,7 +340,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"query": "查询国库"},
             session_id="test_session_query_national",
         )
@@ -368,7 +364,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"query": "列出所有省份"},
             session_id="test_session_list_provinces",
         )
@@ -395,7 +391,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"query": "查询直隶人口"},
             session_id="test_session_query_province",
         )
@@ -509,10 +505,10 @@ class TestAgent:
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event(EventType.CHAT)
 
         # 验证使用了硬编码指令
-        assert "执行皇帝的命令" in prompt
+        assert "皇帝想和你聊天" in prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_fallback_to_hardcoded(
@@ -539,10 +535,10 @@ class TestAgent:
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event(EventType.CHAT)
 
         # 验证使用了硬编码指令
-        assert "执行皇帝的命令" in prompt
+        assert "皇帝想和你聊天" in prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_fallback_when_skill_not_found(
@@ -579,11 +575,10 @@ class TestAgent:
         )
 
         # 获取 system prompt
-        prompt = agent._get_system_prompt_for_event("command")
+        prompt = agent._get_system_prompt_for_event(EventType.CHAT)
 
         # 验证回退到硬编码指令
-        assert "执行皇帝的命令" in prompt
-
+        assert "皇帝想和你聊天" in prompt
 
     @pytest.mark.asyncio
     async def test_send_message_to_agent_with_await_reply_true(self, agent, tmp_path, monkeypatch):
@@ -624,7 +619,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent_task"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"command": "test"},
             session_id=task_session_id,
         )
@@ -649,7 +644,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"command": "test"},
             session_id="test_session",
         )
@@ -726,7 +721,7 @@ class TestAgent:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"command": "test"},
             session_id="test_session",
         )

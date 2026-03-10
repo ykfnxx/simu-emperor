@@ -10,15 +10,13 @@ class TestDefaultEventSkillMap:
 
     def test_default_event_skill_map(self):
         """验证默认事件映射正确性"""
-        # 验证映射包含所有预期的事件类型
-        assert EventType.COMMAND in DEFAULT_EVENT_SKILL_MAP
         assert EventType.CHAT in DEFAULT_EVENT_SKILL_MAP
         assert EventType.AGENT_MESSAGE in DEFAULT_EVENT_SKILL_MAP
+        assert EventType.TICK_COMPLETED in DEFAULT_EVENT_SKILL_MAP
 
-        # 验证映射值正确
-        assert DEFAULT_EVENT_SKILL_MAP[EventType.COMMAND] == "execute_command"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.CHAT] == "chat"
         assert DEFAULT_EVENT_SKILL_MAP[EventType.AGENT_MESSAGE] == "receive_message"
+        assert DEFAULT_EVENT_SKILL_MAP[EventType.TICK_COMPLETED] == "on_tick_completed"
 
 
 class TestSkillRegistry:
@@ -28,9 +26,9 @@ class TestSkillRegistry:
         """验证已知事件返回正确的 Skill 名称"""
         registry = SkillRegistry()
 
-        assert registry.get_skill_for_event(EventType.COMMAND) == "execute_command"
         assert registry.get_skill_for_event(EventType.CHAT) == "chat"
         assert registry.get_skill_for_event(EventType.AGENT_MESSAGE) == "receive_message"
+        assert registry.get_skill_for_event(EventType.TICK_COMPLETED) == "on_tick_completed"
 
     def test_get_skill_for_event_unknown(self):
         """验证未知事件返回 None"""
@@ -144,17 +142,14 @@ class TestSkillRegistry:
         registry1 = SkillRegistry()
         registry2 = SkillRegistry()
 
-        # 注册 Skill 到 registry1
         skill = Skill(
             metadata=SkillMetadata(name="test_skill", description="Test", version="1.0"),
             content="Test content",
         )
         registry1.register_skill(skill)
 
-        # 验证 registry1 有 Skill，registry2 没有
         assert registry1.has_skill("test_skill")
         assert not registry2.has_skill("test_skill")
 
-        # 验证事件映射在两个实例中都可用
-        assert registry1.get_skill_for_event(EventType.COMMAND) == "execute_command"
-        assert registry2.get_skill_for_event(EventType.COMMAND) == "execute_command"
+        assert registry1.get_skill_for_event(EventType.CHAT) == "chat"
+        assert registry2.get_skill_for_event(EventType.CHAT) == "chat"

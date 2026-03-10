@@ -6,7 +6,6 @@ from simu_emperor.event_bus.event_types import EventType
 
 # 硬编码事件映射（设计文档 v2.0 要求）
 DEFAULT_EVENT_SKILL_MAP: dict[str, str] = {
-    EventType.COMMAND: "execute_command",
     EventType.CHAT: "chat",
     EventType.AGENT_MESSAGE: "receive_message",
     EventType.TICK_COMPLETED: "on_tick_completed",

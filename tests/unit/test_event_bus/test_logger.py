@@ -34,7 +34,7 @@ class TestFileEventLogger:
         return Event(
             src="player",
             dst=["agent:revenue_minister"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"action": "adjust_tax", "rate": 0.1},
             session_id="session:test",
         )
@@ -58,12 +58,12 @@ class TestFileEventLogger:
             content = f.read()
             assert "player" in content
             assert "agent:revenue_minister" in content
-            assert "command" in content
+            assert "chat" in content
 
     def test_log_multiple_events(self, logger):
         """测试记录多个事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="chat", session_id="session:test"),
             Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
             Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
@@ -95,17 +95,17 @@ class TestFileEventLogger:
     def test_query_events_by_type(self, logger):
         """测试按类型查询事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="chat", session_id="session:test"),
             Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
-            Event(src="player", dst=["agent:b"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:b"], type="chat", session_id="session:test"),
         ]
 
         for event in events:
             logger.log(event)
 
-        # 查询 command 类型
-        command_events = logger.query_events(event_type="command")
-        assert len(command_events) == 2
+        # 查询 chat 类型
+        chat_events = logger.query_events(event_type="chat")
+        assert len(chat_events) == 2
 
         # 查询 response 类型
         response_events = logger.query_events(event_type="response")
@@ -114,7 +114,7 @@ class TestFileEventLogger:
     def test_query_events_by_src(self, logger):
         """测试按源查询事件"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="chat", session_id="session:test"),
             Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
             Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
@@ -134,7 +134,7 @@ class TestFileEventLogger:
         """测试按目标查询事件"""
         events = [
             Event(src="system", dst=["player"], type="notification", session_id="session:test"),
-            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="chat", session_id="session:test"),
             Event(src="system", dst=["player"], type="alert", session_id="session:test"),
         ]
 
@@ -148,7 +148,7 @@ class TestFileEventLogger:
     def test_query_events_with_limit(self, logger):
         """测试限制返回数量"""
         events = [
-            Event(src="player", dst=["agent:a"], type="command", session_id="session:test"),
+            Event(src="player", dst=["agent:a"], type="chat", session_id="session:test"),
             Event(src="agent:a", dst=["player"], type="response", session_id="session:test"),
             Event(src="player", dst=["agent:b"], type="query", session_id="session:test"),
         ]
