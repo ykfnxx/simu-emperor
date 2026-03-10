@@ -1,9 +1,8 @@
 """
 Session Context Manager - Telegram Bot Session 切换机制
 
-负责管理 Telegram Bot 的两种 Session 类型：
+负责管理 Telegram Bot 的 Session 类型：
 - Chat Session（聊天会话）：长期会话，可复用，用于维持连续对话上下文
-- Command Session（命令会话）：短期会话，每次新建，用于隔离命令执行上下文
 """
 
 import asyncio
@@ -19,14 +18,12 @@ class SessionType:
     """Session 类型常量"""
 
     CHAT = "chat"
-    COMMAND = "command"
 
 
 class EventCategory:
     """事件类别常量"""
 
     CHAT = "chat"
-    COMMAND = "command"
     OTHER = "other"
 
 
@@ -36,18 +33,14 @@ class SessionContextManager:
 
     管理单个 Telegram 用户的多种 Session 类型：
     - Chat Session: 24h TTL，可复用
-    - Command Session: 1h TTL，每次新建
 
     Attributes:
         chat_id: Telegram 聊天 ID
         base_session_id: 基础会话 ID（格式：session:telegram:{chat_id}）
         chat_ttl_hours: 聊天会话存活时间（小时）
-        command_ttl_hours: 命令会话存活时间（小时）
     """
 
-    # Session 类型定义
     CHAT_SESSION_TYPE: str = SessionType.CHAT
-    COMMAND_SESSION_TYPE: str = SessionType.COMMAND
 
     def __init__(
         self,
@@ -56,33 +49,20 @@ class SessionContextManager:
         chat_ttl_hours: int = 24,
         command_ttl_hours: int = 1,
     ):
-        """
-        初始化 Session 上下文管理器
-
-        Args:
-            chat_id: Telegram 聊天 ID
-            base_session_id: 基础会话 ID（格式：session:telegram:{chat_id}）
-            chat_ttl_hours: 聊天会话存活时间（小时），默认 24
-            command_ttl_hours: 命令会话存活时间（小时），默认 1
-        """
         self.chat_id = chat_id
         self.base_session_id = base_session_id
         self.chat_ttl_hours = chat_ttl_hours
         self.command_ttl_hours = command_ttl_hours
 
-        # 存储活跃的 session
         self._chat_session_id: str | None = None
         self._chat_session_expires_at: datetime | None = None
 
-        # Command sessions: {session_id: expires_at}
         self._command_sessions: dict[str, datetime] = {}
 
-        # 清理任务
         self._cleanup_task: asyncio.Task | None = None
 
         logger.info(
-            f"SessionContextManager initialized for chat_id={chat_id}, "
-            f"chat_ttl={chat_ttl_hours}h, command_ttl={command_ttl_hours}h"
+            f"SessionContextManager initialized for chat_id={chat_id}, chat_ttl={chat_ttl_hours}h"
         )
 
     def _generate_chat_session_id(self) -> str:
@@ -107,57 +87,32 @@ class SessionContextManager:
         return new_session_id
 
     def _generate_command_session_id(self) -> str:
-        """生成命令会话 ID（每次新建）"""
+        """生成命令会话 ID（每次新建）- 已废弃，仅保留向后兼容"""
         timestamp = int(datetime.now(timezone.utc).timestamp())
         session_uuid = uuid.uuid4().hex[:8]
         new_session_id = f"{self.base_session_id}:cmd:{timestamp}_{session_uuid}"
         expires_at = datetime.now(timezone.utc) + timedelta(hours=self.command_ttl_hours)
-
-        # 存储 command session
         self._command_sessions[new_session_id] = expires_at
-
         logger.info(
             f"Created new command session: {new_session_id}, expires at {expires_at.isoformat()}"
         )
         return new_session_id
 
     async def get_or_create_chat_session(self) -> str:
-        """
-        获取或创建聊天会话（复用逻辑）
-
-        Returns:
-            session_id（格式：session:telegram:{chat_id}:chat:{uuid}）
-        """
+        """获取或创建聊天会话（复用逻辑）"""
         return self._generate_chat_session_id()
 
     async def create_command_session(self) -> str:
-        """
-        创建新的命令会话（每次新建）
-
-        Returns:
-            session_id（格式：session:telegram:{chat_id}:cmd:{timestamp}_{uuid}）
-        """
-        return self._generate_command_session_id()
+        """创建新的命令会话（每次新建）- 已废弃，返回 chat session"""
+        return await self.get_or_create_chat_session()
 
     async def get_session_for_event(self, event_category: str = "other") -> str:
-        """
-        根据事件类型返回对应的 session_id
-
-        Args:
-            event_category: 事件类别
-                - "chat": CHAT/QUERY 事件，使用聊天会话
-                - "command": COMMAND 事件，使用命令会话
-                - "other": 其他事件，使用基础会话 ID
-
-        Returns:
-            session_id
-        """
+        """根据事件类型返回对应的 session_id"""
         if event_category == "chat":
             return await self.get_or_create_chat_session()
         elif event_category == "command":
-            return await self.create_command_session()
+            return await self.get_or_create_chat_session()
         else:
-            # 其他事件使用基础 session_id
             return self.base_session_id
 
     def _cleanup_expired_sessions(self) -> None:

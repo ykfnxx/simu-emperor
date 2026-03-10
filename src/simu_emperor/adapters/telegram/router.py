@@ -27,7 +27,6 @@ class MessageRouter:
     支持的格式：
     - @agent_name 消息内容 - 聊天
     - @all 消息内容 - 广播
-    - /cmd @agent1 @agent2 命令 - 命令
     """
 
     def __init__(self, session: GameSession):
@@ -74,19 +73,12 @@ class MessageRouter:
             return
 
         # 2. 检测命令类型并确定事件类别
-        if text.strip().startswith("/cmd "):
-            # /cmd @agent1 @agent2 command
-            intent, payload = self._parse_command(text)
-            targets = [f"agent:{agent}" for agent in mentions] if mentions != ["all"] else ["*"]
-            event_type = EventType.COMMAND
-            event_category = EventCategory.COMMAND  # 命令事件
-            logger.info(f"📋 [Router:{request_id}] Detected COMMAND event, targets: {targets}")
-        elif mentions:
+        if mentions:
             # @agent message 或 @all message
             intent, payload = self._parse_chat(text)
             targets = [f"agent:{agent}" for agent in mentions] if mentions != ["all"] else ["*"]
             event_type = EventType.CHAT
-            event_category = EventCategory.CHAT  # 聊天事件
+            event_category = EventCategory.CHAT
             logger.info(f"💬 [Router:{request_id}] Detected CHAT event, targets: {targets}")
         else:
             # 没有提及任何 agent
@@ -135,33 +127,8 @@ class MessageRouter:
         message = re.sub(r"@\w+\s*", "", text).strip()
         return mentions, message
 
-    def _parse_command(self, text: str) -> tuple[str, dict[str, Any]]:
-        """
-        解析命令格式
-
-        格式: /cmd @agent1 @agent2 命令描述
-
-        Args:
-            text: 消息文本
-
-        Returns:
-            (intent, payload)
-        """
-        # 移除 /cmd
-        text = text[5:].strip()
-
-        # 解析 mentions 和 命令
-        mentions, command = self._parse_mentions(text)
-
-        return "command", {
-            "intent": "execute_command",
-            "command": command,
-            "agents": mentions,
-        }
-
     def _parse_chat(self, text: str) -> tuple[str, dict[str, Any]]:
-        """
-        解析聊天格式
+        """解析聊天格式
 
         格式: @agent 消息内容 或 @all 消息内容
 

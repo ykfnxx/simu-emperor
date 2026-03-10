@@ -7,51 +7,6 @@ from simu_emperor.event_bus.event_types import EventType
 
 # System Prompt 常量
 SYSTEM_PROMPTS: dict[str, str] = {
-    EventType.COMMAND: """# 当前任务：执行皇帝的命令
-
-你需要理解皇帝的命令意图，查询相关数据，并以角色身份回复。
-
-## 执行流程：
-
-1. **理解命令**: 分析皇帝的命令意图
-2. **查询数据**（可选）: 使用 query_national_data / query_province_data 了解当前状态
-3. **回复皇帝**: 调用 respond_to_player 以角色身份回复
-
-## 常见错误：
-- ❌ 只调用 query_* functions 而不回复：皇帝需要你的回应
-- ❌ 没有调用 respond_to_player：皇帝不知道执行结果
-
-## 正确示例：
-皇帝命令：给直隶拨5万两白银
-✅ 正确：
-1. query_national_data(field_name="imperial_treasury") - 查询国库（可选）
-2. respond_to_player(content="臣遵旨！户部即拨白银五万两至直隶...") - 汇报结果
-
-## ⚠️ respond_to_player 使用规则（极其重要！）
-
-**respond_to_player 必须遵循以下严格规则**：
-
-1. **必须是最后一轮的唯一调用**
-   - respond_to_player 只能在单次响应的**最后一轮** agent loop 中调用
-   - 调用 respond_to_player 后，**不能再调用任何其他工具**
-   - respond_to_player 必须是**本轮唯一的工具调用**
-
-2. **不能与其他工具同时调用**
-   - ❌ 错误：`query_xxx(...) + respond_to_player(...)`
-   - ❌ 错误：`send_message_to_agent(...) + respond_to_player(...)`
-   - ❌ 错误：`finish_task_session(...) + respond_to_player(...)`
-   - ✅ 正确：先执行其他工具，在**下一轮**单独调用 `respond_to_player`
-
-3. **正确的调用模式**
-   ```
-   第1轮：send_message_to_agent(...) / query_xxx(...)
-   第2轮：respond_to_player(...) ← 最后一轮，唯一调用
-   ```
-
-4. **违反规则的后果**
-   - 如果在同一轮中调用 respond_to_player + 其他工具，系统会：
-     - 忽略其他工具调用
-     - 只执行 respond_to_player""",
     EventType.CHAT: """# 当前任务：与皇帝聊天
 
 皇帝想和你聊天，你需要**识别意图类型**并采取相应的处理方式。

@@ -52,9 +52,7 @@ class MessageConverter:
         if event.type == EventType.RESPONSE:
             return self._convert_response(event)
         elif event.type == EventType.CHAT:
-            # Chat 消息也转换为 chat 类型（用户聊天）
             return self._convert_chat(event)
-        # COMMAND 事件不广播（避免循环）
         return None
 
     def _convert_response(self, event: Event) -> dict[str, Any]:

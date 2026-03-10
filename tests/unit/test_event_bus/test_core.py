@@ -89,7 +89,7 @@ class TestEventBus:
         event_bus.subscribe("*", handler)
 
         event = Event(
-            src="player", dst=["agent:test"], type=EventType.COMMAND, session_id="session:test"
+            src="player", dst=["agent:test"], type=EventType.CHAT, session_id="session:test"
         )
         await event_bus.send_event(event)
 
@@ -110,7 +110,7 @@ class TestEventBus:
         event = Event(
             src="player",
             dst=["agent:revenue_minister"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             session_id="session:test",
         )
         await event_bus.send_event(event)
@@ -149,7 +149,7 @@ class TestEventBus:
         """测试没有处理器的事件"""
         # 不应该抛出异常
         event = Event(
-            src="player", dst=["non_existent"], type=EventType.COMMAND, session_id="session:test"
+            src="player", dst=["non_existent"], type=EventType.CHAT, session_id="session:test"
         )
         await event_bus.send_event(event)
 
