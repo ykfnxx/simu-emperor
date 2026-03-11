@@ -1,9 +1,7 @@
 """Unit tests for TwoLevelSearcher (V4 Memory System)."""
 
-import json
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
 from simu_emperor.memory.query_parser import StructuredQuery
@@ -144,7 +142,7 @@ class TestTwoLevelSearcher:
             depth="tape",
         )
 
-        results = await two_level_searcher.search(
+        _ = await two_level_searcher.search(
             query=query,
             agent_id="test_agent",
             exclude_session="session_1",
@@ -202,7 +200,7 @@ class TestTwoLevelSearcher:
             depth="tape",
         )
 
-        results = await two_level_searcher.search(
+        _ = await two_level_searcher.search(
             query=query,
             agent_id="test_agent",
             max_results=1,

@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from simu_emperor.memory.tape_metadata import TapeMetadataManager
@@ -66,7 +65,7 @@ class TestV4MemoryIntegration:
         mock_event = self._create_mock_event("调整税收")
         mock_llm.call = AsyncMock(return_value="税收调整讨论")  # Title with "税收"
 
-        entry = await metadata_mgr.append_or_update_entry(
+        await metadata_mgr.append_or_update_entry(
             agent_id=agent_id,
             session_id=session_id,
             first_event=mock_event,
@@ -276,9 +275,6 @@ class TestV4MemoryIntegration:
             with open(tape_path, "w", encoding="utf-8") as f:
                 for event in events:
                     f.write(json.dumps(event, ensure_ascii=False) + "\n")
-
-        # Get all entries for searching
-        all_entries = await metadata_mgr.get_all_entries(agent_id)
 
         # Search for "税收" across sessions
         metadata_index = TapeMetadataIndex(memory_dir=memory_dir)

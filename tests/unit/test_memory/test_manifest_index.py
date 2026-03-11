@@ -1,6 +1,5 @@
 """Test ManifestIndex for session management."""
 
-from pathlib import Path
 import json
 
 import pytest

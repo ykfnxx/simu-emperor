@@ -1,8 +1,5 @@
 """End-to-end test for V3 memory system in Agent."""
 
-import asyncio
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -85,7 +82,7 @@ class TestMemorySystemE2E:
         assert "test_session" in manifest_content, "Session not found in manifest"
         assert "test_agent" in manifest_content, "Agent not found in manifest"
 
-        print(f"✅ Memory files created successfully!")
+        print("✅ Memory files created successfully!")
         print(f"   Tape file: {tape_file}")
         print(f"   Manifest file: {manifest_file}")
 

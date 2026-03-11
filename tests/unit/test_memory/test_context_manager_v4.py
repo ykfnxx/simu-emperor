@@ -1,11 +1,9 @@
 """Unit tests for ContextManager V4 changes."""
 
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
-from simu_emperor.memory.tape_metadata import TapeMetadataManager
 
 
 @pytest.fixture
