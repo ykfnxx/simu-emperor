@@ -77,15 +77,14 @@ class GameRepository:
 
         await conn.execute(
             """
-            INSERT INTO game_state (id, state_json, created_at, updated_at)
-            VALUES (1, ?, ?, ?)
+            INSERT INTO game_state (id, state_json, updated_at)
+            VALUES (1, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 state_json = excluded.state_json,
                 updated_at = excluded.updated_at
             """,
             (
                 state_json,
-                datetime.now(timezone.utc).isoformat(),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
@@ -116,12 +115,14 @@ class GameRepository:
 
             await conn.execute(
                 """
-                INSERT INTO game_state (id, state_json, created_at, updated_at)
-                VALUES (1, ?, ?, ?)
+                INSERT INTO game_state (id, state_json, updated_at)
+                VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    state_json = excluded.state_json,
+                    updated_at = excluded.updated_at
                 """,
                 (
                     state_json,
-                    datetime.now(timezone.utc).isoformat(),
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -220,13 +221,16 @@ class AgentRepository:
             is_active: 是否活跃
         """
         conn = await self._get_conn()
-        await conn.execute(
-            """
-            INSERT OR REPLACE INTO agent_state (agent_id, is_active, updated_at)
-            VALUES (?, ?, ?)
-            """,
-            (agent_id, 1 if is_active else 0, datetime.now(timezone.utc).isoformat()),
-        )
+            await conn.execute(
+                """
+                INSERT INTO game_state (id, state_json, updated_at)
+                VALUES (1, ?, ?)
+                """,
+                (
+                    state_json,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
         await conn.commit()
         logger.info(f"Agent {agent_id} active status set to {is_active}")
 
