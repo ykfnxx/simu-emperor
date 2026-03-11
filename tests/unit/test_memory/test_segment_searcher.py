@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 
 from simu_emperor.memory.segment_searcher import SegmentSearcher
 from simu_emperor.memory.query_parser import StructuredQuery

@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from simu_emperor.memory.tape_metadata import TapeMetadataManager

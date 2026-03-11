@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from simu_emperor.memory.query_parser import QueryParser
-from simu_emperor.memory.models import StructuredQuery
 
 
 class TestQueryParser:
