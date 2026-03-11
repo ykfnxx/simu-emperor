@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from simu_emperor.config import GameConfig
 from simu_emperor.application.game_service import GameService
-from simu_emperor.engine.models.base_data import NationData, ProvinceData
+from simu_emperor.engine.models.base_data import NationData
 
 
 @pytest.fixture

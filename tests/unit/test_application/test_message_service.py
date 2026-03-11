@@ -1,7 +1,7 @@
 """Message Service unit tests."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from simu_emperor.application.message_service import MessageService
 

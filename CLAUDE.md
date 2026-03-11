@@ -98,6 +98,19 @@ src/simu_emperor/
 ├── cli/                              # Module: Player interface
 │   ├── app.py                        # EmperorCLI main class
 │   ├── ui.py                         # TUI components (rich/textual)
+│
+├── application/                      # **Application Layer** (NEW)
+│   ├── services.py                   # ApplicationServices container (DI)
+│   ├── game_service.py               # GameService - game lifecycle
+│   ├── session_service.py            # SessionService - session management
+│   ├── agent_service.py              # AgentService - agent lifecycle
+│   ├── group_chat_service.py         # GroupChatService - group chat
+│   ├── message_service.py            # MessageService - message routing
+│   └── tape_service.py               # TapeService - tape queries
+│
+├── cli/                              # Module: Player interface
+│   ├── app.py                        # EmperorCLI main class
+│   ├── ui.py                         # TUI components (rich/textual)
 │   ├── commands.py                   # Command handlers (/help, /chat, /end_turn)
 │   └── intent_parser.py              # LLM-based natural language parsing
 │
@@ -197,32 +210,103 @@ tests/
 │   │   └── test_structured_retriever.py  # Retrieval coordinator tests
 │   ├── test_cli/
 │   ├── test_persistence/
-│   └── test_llm/
+│   ├── test_llm/
+│   └── test_application/              # **Application Layer tests (NEW)**
+│       ├── test_services.py           # ApplicationServices container
+│       ├── test_game_service.py       # GameService tests (9 tests)
+│       ├── test_session_service.py    # SessionService tests (15 tests)
+│       ├── test_agent_service.py      # AgentService tests (13 tests)
+│       ├── test_group_chat_service.py # GroupChatService tests (17 tests)
+│       ├── test_message_service.py    # MessageService tests (11 tests)
+│       └── test_tape_service.py       # TapeService tests (14 tests)
 ├── integration/                      # Integration tests (multi-module)
 │   └── test_memory/                  # V3 Memory integration tests (4 tests)
 │       └── test_memory_integration.py  # End-to-end memory workflows
 └── e2e/                              # End-to-end tests (full game flow)
 ```
 
-### Module Dependencies
+### Module Dependencies (V4.1 - Clean Architecture)
 
 ```
-CLI
-  ↓
-EventBus ← (subscribe) ← Engine
-  ↓                      ↓
-Agent  ───────────────→ Repository
-  ↓                      ↓
-LLM                   SQLite + filesystem
+┌─────────────────────────────────────────────────────────────┐
+│                     Adapter Layer                           │
+│                     ┌──────────────┐                         │
+│                     │     Web      │                         │
+│                     │   Adapter    │                         │
+│                     └──────┬───────┘                         │
+│                            │                                 │
+└────────────────────────────┼─────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Application Layer (NEW)                    │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐   │
+│  │ GameService   │  │ SessionService│  │ AgentService  │   │
+│  └───────────────┘  └───────────────┘  └───────────────┘   │
+│  ┌───────────────┐  ┌───────────────┐                       │
+│  │ GroupChatSvc  │  │ MessageService│                       │
+│  └───────────────┘  └───────────────┘                       │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                       Core Layer                            │
+│  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌──────────────┐ │
+│  │  Engine │  │ Agents  │  │ EventBus │  │ Repository   │ │
+│  └─────────┘  └─────────┘  └──────────┘  └──────────────┘ │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **Dependency Rules:**
-- Upper layers can call lower layers
-- Same-layer modules communicate via EventBus only
-- Lower layers NEVER call upper layers
+- Adapter Layer ONLY depends on Application Layer (protocol conversion)
+- Application Layer depends on Core Layer (business logic)
+- Core Layer has NO dependencies on upper layers
+- No circular dependencies
 - No circular dependencies
 
 ### Core Modules
+
+**Application Layer** (`application/`) — Business logic services (NEW in V4.1)
+
+The Application Layer separates business logic from protocol handling, following Clean Architecture principles.
+
+- **GameService** (`game_service.py`) — Game lifecycle management
+  - `initialize()` - Initialize engine and tick coordinator
+  - `shutdown()` - Stop tick coordinator
+  - `get_state()` - Get current game state
+  - `get_overview()` - Get empire summary (treasury, population, etc.)
+
+- **SessionService** (`session_service.py`) — Session management
+  - `create_session()` - Create new session for agent
+  - `select_session()` - Switch to existing session
+  - `list_sessions()` - List all sessions
+  - `get_session_for_agent()` - Get agent's current session
+
+- **AgentService** (`agent_service.py`) — Agent lifecycle
+  - `initialize_agents()` - Initialize and start agents
+  - `get_available_agents()` - List active agents
+  - `is_agent_available()` - Check if agent exists
+  - `stop_all()` - Stop all agents
+
+- **GroupChatService** (`group_chat_service.py`) — Multi-agent chat
+  - `create_group_chat()` - Create group chat
+  - `list_group_chats()` - List all groups
+  - `send_to_group_chat()` - Broadcast to group members
+  - `add_agent_to_group()` / `remove_agent_from_group()` - Manage members
+
+- **MessageService** (`message_service.py`) — Message routing
+  - `send_command()` - Send command to agent
+  - `send_chat()` - Send chat to agent
+  - `broadcast()` - Broadcast to multiple agents
+
+- **TapeService** (`tape_service.py`) — Event tape queries
+  - `get_current_tape()` - Get tape events
+  - `get_tape_with_subs()` - Include sub-sessions
+  - `get_sub_sessions()` - List task sessions
+
+- **ApplicationServices** (`services.py`) — Dependency injection container
+  - `create()` - Initialize all services in dependency order
+  - `shutdown()` - Clean shutdown
 
 **EventBus** (`event_bus/`) — Event routing infrastructure. Routes events by src/dst matching, supports broadcast via `"*"`, fully async via `asyncio.create_task()`. Events logged to JSONL format. No business logic.
 

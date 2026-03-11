@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from simu_emperor.config import GameConfig
 from simu_emperor.application.session_service import SessionService, utcnow
 
 
