@@ -738,3 +738,155 @@ class TestAgent:
 
         # 验证没有发送任何事件
         assert not agent.event_bus.send_event.called
+
+
+class TestTickCompletedEvent:
+    """Test TICK_COMPLETED event handling (V4)."""
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Mock EventBus"""
+        event_bus = MagicMock(spec=EventBus)
+        event_bus.subscribe = MagicMock()
+        event_bus.unsubscribe = MagicMock()
+        event_bus.send_event = AsyncMock()
+        return event_bus
+
+    @pytest.fixture
+    def mock_repository(self):
+        """Mock Repository"""
+        repo = Mock()
+        repo.load_state = AsyncMock(
+            return_value={
+                "turn": 5,
+                "imperial_treasury": 100000,
+                "provinces": [],
+            }
+        )
+        return repo
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Mock LLM Provider"""
+        return MockProvider(
+            response="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "function": {
+                        "name": "finish_loop",
+                        "arguments": '{"reason": "no action needed"}',
+                    },
+                }
+            ],
+        )
+
+    @pytest.fixture
+    def temp_data_dir(self, tmp_path):
+        """创建临时数据目录"""
+        agent_dir = tmp_path / "data" / "agent" / "test_agent"
+        agent_dir.mkdir(parents=True)
+
+        soul_path = agent_dir / "soul.md"
+        soul_path.write_text("# Test Soul\nYou are a test agent.", encoding="utf-8")
+
+        import yaml
+
+        scope_path = agent_dir / "data_scope.yaml"
+        scope_path.write_text(yaml.dump({"query": ["province.population"]}), encoding="utf-8")
+
+        return agent_dir
+
+    def test_system_prompt_for_tick_completed(
+        self, mock_event_bus, mock_llm, temp_data_dir, mock_repository
+    ):
+        """Test TICK_COMPLETED system prompt is available."""
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+
+        agent = Agent(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            session_manager=mock_session_manager,
+        )
+
+        prompt = agent._get_system_prompt_for_event(EventType.TICK_COMPLETED)
+
+        assert "Tick 完成通知" in prompt
+        assert "query_province_data" in prompt
+        assert "write_memory" in prompt
+        assert "finish_loop" in prompt
+
+    @pytest.mark.asyncio
+    async def test_on_event_tick_completed(
+        self, mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, monkeypatch
+    ):
+        """Test handling TICK_COMPLETED event."""
+        from simu_emperor.config import settings
+
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        monkeypatch.setattr(settings.memory, "memory_dir", memory_dir)
+
+        mock_session = MagicMock()
+        mock_session.is_task = False
+        mock_session.status = "ACTIVE"
+        mock_session.pending_async_replies = 0
+        mock_session.parent_id = None
+        mock_session.pending_message_ids = []
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_agent_state = AsyncMock(return_value=None)
+
+        fresh_mock = MockProvider(response="", tool_calls=None)
+        fresh_mock.set_tool_calls(
+            [
+                {
+                    "id": "call_1",
+                    "function": {"name": "finish_loop", "arguments": '{"reason": "no action"}'},
+                }
+            ]
+        )
+
+        agent = Agent(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=fresh_mock,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            session_manager=mock_session_manager,
+        )
+
+        agent.start()
+
+        event = Event(
+            src="system:tick_coordinator",
+            dst=["agent:test_agent"],
+            type=EventType.TICK_COMPLETED,
+            payload={"tick": 42},
+            session_id="test_session_tick",
+        )
+
+        await agent._on_event(event)
+
+        assert fresh_mock.call_count == 1
+
+
+class TestIncidentCreatedEvent:
+    """Test INCIDENT_CREATED event type in EventType (V4)."""
+
+    def test_incident_created_in_all_types(self):
+        """Test INCIDENT_CREATED is in all event types."""
+        all_types = EventType.all()
+        assert EventType.INCIDENT_CREATED in all_types
+
+    def test_incident_created_is_system_event(self):
+        """Test INCIDENT_CREATED is not in system events (it's agent-initiated)."""
+        system_events = EventType.system_events()
+        assert EventType.INCIDENT_CREATED not in system_events
