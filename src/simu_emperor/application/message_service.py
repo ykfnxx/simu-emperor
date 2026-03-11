@@ -43,6 +43,8 @@ class MessageService:
     ) -> None:
         """Send a command to an agent.
 
+        Note: Uses EventType.CHAT for both commands and chat messages.
+
         Args:
             agent_id: Target agent ID
             command: Command text
@@ -57,7 +59,7 @@ class MessageService:
         event = Event(
             src=source,
             dst=[f"agent:{normalized_agent}"],
-            type=EventType.COMMAND,
+            type=EventType.CHAT,
             payload={"query": command},
             session_id=session_id,
         )
