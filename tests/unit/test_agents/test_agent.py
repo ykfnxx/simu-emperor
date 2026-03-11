@@ -827,7 +827,7 @@ class TestTickCompletedEvent:
     async def test_on_event_tick_completed(
         self, mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, monkeypatch
     ):
-        """Test handling TICK_COMPLETED event."""
+        """Test handling TICK_COMPLETED event - V4: only refresh metadata, no LLM call."""
         from simu_emperor.config import settings
 
         memory_dir = tmp_path / "memory"
@@ -875,7 +875,8 @@ class TestTickCompletedEvent:
 
         await agent._on_event(event)
 
-        assert fresh_mock.call_count == 1
+        # V4: TICK_COMPLETED only refreshes metadata, no LLM call
+        assert fresh_mock.call_count == 0
 
 
 class TestIncidentCreatedEvent:
