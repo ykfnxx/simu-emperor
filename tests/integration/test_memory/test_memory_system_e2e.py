@@ -1,6 +1,5 @@
 """End-to-end test for V3 memory system in Agent."""
 
-
 import pytest
 
 from simu_emperor.event_bus.core import EventBus
@@ -50,7 +49,7 @@ class TestMemorySystemE2E:
         event = Event(
             src="player",
             dst=["agent:test_agent"],
-            type=EventType.COMMAND,
+            type=EventType.USER_QUERY,
             payload={"query": "测试查询"},
             session_id="test_session",
         )
@@ -74,8 +73,7 @@ class TestMemorySystemE2E:
         # Verify tape.jsonl has content
         content = tape_file.read_text()
         assert len(content) > 0, "Tape file is empty"
-        # Agent writes raw event type to tape, COMMAND events are written as "command"
-        assert "command" in content, "Command event not found in tape"
+        assert "user_query" in content, "User query event not found in tape"
 
         # Verify manifest.json has content
         manifest_content = manifest_file.read_text()

@@ -22,7 +22,7 @@ class TestMessageConverter:
             type=EventType.RESPONSE,
             payload={"narrative": "陛下，直隶省..."},
             timestamp="2026-03-06T12:00:00Z",
-            session_id="session:web:test"
+            session_id="session:web:test",
         )
 
         converter = MessageConverter()
@@ -45,7 +45,7 @@ class TestMessageConverter:
             type=EventType.CHAT,
             payload={"message": "查看直隶省情况"},
             timestamp="2026-03-06T12:00:00Z",
-            session_id="session:web:test"
+            session_id="session:web:test",
         )
 
         converter = MessageConverter()
@@ -59,25 +59,28 @@ class TestMessageConverter:
         assert result["data"]["session_id"] == "session:web:test"
 
     @pytest.mark.asyncio
-    async def test_convert_command_event_returns_none(self):
-        """测试转换命令事件返回 None（不广播）"""
+    async def test_convert_unsupported_event_returns_none(self):
+        """测试转换不支持的事件类型返回 None（不广播）"""
         event = Event(
             src="player:web",
             dst=["agent:governor_zhili"],
-            type=EventType.COMMAND,
-            payload={"intent": "adjust_tax"},
-            session_id="session:web:test"
+            type=EventType.USER_QUERY,
+            payload={"query": "test query"},
+            session_id="session:web:test",
         )
 
         converter = MessageConverter()
         result = await converter.convert(event)
 
-        assert result is None  # COMMAND 事件不广播
+        assert result is None  # USER_QUERY 事件不广播
 
     def test_extract_agent_name(self):
         """测试提取 agent 名称"""
         assert MessageConverter._extract_agent_name("agent:governor_zhili") == "governor_zhili"
-        assert MessageConverter._extract_agent_name("agent:minister_of_revenue") == "minister_of_revenue"
+        assert (
+            MessageConverter._extract_agent_name("agent:minister_of_revenue")
+            == "minister_of_revenue"
+        )
         assert MessageConverter._extract_agent_name("player:web") == "player:web"
 
     def test_get_agent_display_name(self):
@@ -111,7 +114,7 @@ class TestMessageConverter:
             type=EventType.RESPONSE,
             payload={},  # 没有 narrative 字段
             timestamp="2026-03-06T12:00:00Z",
-            session_id="session:web:test"
+            session_id="session:web:test",
         )
 
         converter = MessageConverter()
@@ -129,7 +132,7 @@ class TestMessageConverter:
             type=EventType.RESPONSE,
             payload={"narrative": "测试"},
             timestamp=None,  # 无时间戳
-            session_id="session:web:test"
+            session_id="session:web:test",
         )
 
         converter = MessageConverter()

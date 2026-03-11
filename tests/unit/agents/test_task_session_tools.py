@@ -99,7 +99,7 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        with pytest.raises(ValueError, match="Permission denied"):
+        with pytest.raises(ValueError, match="权限错误"):
             await task_tools_agent_b.finish_task_session(
                 task_session_id=task.session_id,
                 result="Unauthorized finish",
@@ -141,7 +141,7 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        with pytest.raises(ValueError, match="Permission denied"):
+        with pytest.raises(ValueError, match="权限错误"):
             await task_tools_agent_b.fail_task_session(
                 task_session_id=task.session_id,
                 reason="Unauthorized fail",
@@ -182,9 +182,7 @@ class TestTaskSessionToolsPermission:
             )
 
     @pytest.mark.asyncio
-    async def test_finish_already_finished_task_fails(
-        self, session_manager, task_tools_agent_a
-    ):
+    async def test_finish_already_finished_task_fails(self, session_manager, task_tools_agent_a):
         """Test that finishing an already finished task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
@@ -204,16 +202,14 @@ class TestTaskSessionToolsPermission:
         )
 
         # Second finish should fail
-        with pytest.raises(ValueError, match="already finished"):
+        with pytest.raises(ValueError, match="已完成"):
             await task_tools_agent_a.finish_task_session(
                 task_session_id=task.session_id,
                 result="Duplicate finish",
             )
 
     @pytest.mark.asyncio
-    async def test_finish_already_failed_task_fails(
-        self, session_manager, task_tools_agent_a
-    ):
+    async def test_finish_already_failed_task_fails(self, session_manager, task_tools_agent_a):
         """Test that finishing an already failed task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
@@ -233,16 +229,14 @@ class TestTaskSessionToolsPermission:
         )
 
         # Trying to finish should fail
-        with pytest.raises(ValueError, match="already failed"):
+        with pytest.raises(ValueError, match="已失败"):
             await task_tools_agent_a.finish_task_session(
                 task_session_id=task.session_id,
                 result="Should not work",
             )
 
     @pytest.mark.asyncio
-    async def test_fail_already_finished_task_fails(
-        self, session_manager, task_tools_agent_a
-    ):
+    async def test_fail_already_finished_task_fails(self, session_manager, task_tools_agent_a):
         """Test that failing an already finished task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
@@ -262,16 +256,14 @@ class TestTaskSessionToolsPermission:
         )
 
         # Trying to fail should fail
-        with pytest.raises(ValueError, match="already finished"):
+        with pytest.raises(ValueError, match="已完成"):
             await task_tools_agent_a.fail_task_session(
                 task_session_id=task.session_id,
                 reason="Should not work",
             )
 
     @pytest.mark.asyncio
-    async def test_fail_already_failed_task_fails(
-        self, session_manager, task_tools_agent_a
-    ):
+    async def test_fail_already_failed_task_fails(self, session_manager, task_tools_agent_a):
         """Test that failing an already failed task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
@@ -291,7 +283,7 @@ class TestTaskSessionToolsPermission:
         )
 
         # Second fail should also fail
-        with pytest.raises(ValueError, match="already failed"):
+        with pytest.raises(ValueError, match="已失败"):
             await task_tools_agent_a.fail_task_session(
                 task_session_id=task.session_id,
                 reason="Duplicate fail",
