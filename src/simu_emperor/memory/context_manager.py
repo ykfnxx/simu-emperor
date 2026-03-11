@@ -118,7 +118,7 @@ class ContextManager:
         if event_type == EventType.USER_QUERY:
             query = payload.get("query") if isinstance(payload, dict) else payload
             return [{"role": "user", "content": str(query)}]
-        elif event_type == EventType.COMMAND:
+        elif event_type == EventType.CHAT:
             command = payload.get("command", "") if isinstance(payload, dict) else ""
             if command:
                 parts = [
@@ -555,7 +555,9 @@ class ContextManager:
 
         # Use LLM for summary if available
         try:
-            prompt = "Summarize these events in 1 sentence (≤100 chars):\n" + "\n".join(event_summaries[:10])
+            prompt = "Summarize these events in 1 sentence (≤100 chars):\n" + "\n".join(
+                event_summaries[:10]
+            )
             summary = await self.llm.call(
                 prompt=prompt,
                 system_prompt="You are a summarizer for event logs.",

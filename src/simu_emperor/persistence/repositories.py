@@ -221,16 +221,20 @@ class AgentRepository:
             is_active: 是否活跃
         """
         conn = await self._get_conn()
-            await conn.execute(
-                """
-                INSERT INTO game_state (id, state_json, updated_at)
-                VALUES (1, ?, ?)
-                """,
-                (
-                    state_json,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
+        await conn.execute(
+            """
+            INSERT INTO agent_state (agent_id, is_active, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                is_active = excluded.is_active,
+                updated_at = excluded.updated_at
+            """,
+            (
+                agent_id,
+                1 if is_active else 0,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
         await conn.commit()
         logger.info(f"Agent {agent_id} active status set to {is_active}")
 
