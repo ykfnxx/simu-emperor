@@ -134,7 +134,7 @@ class TestTapeMetadataManager:
 
         title = await metadata_mgr._generate_title(mock_event, mock_llm)
 
-        assert title == "Session"
+        assert title == "Untitled (LLM failed)"
 
     @pytest.mark.asyncio
     async def test_update_segment_index(self, metadata_mgr):
@@ -246,3 +246,83 @@ class TestTapeMetadataManager:
         path = metadata_mgr._get_metadata_path("test_agent")
         expected = memory_dir / "agents" / "test_agent" / "tape_meta.jsonl"
         assert path == expected
+
+
+class TestTapeMetadataEdgeCases:
+    """Test edge cases and error handling."""
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_lines_skipped(self, metadata_mgr, memory_dir):
+        """Test that malformed JSON lines are skipped when reading entries."""
+        agent_id = "test_agent"
+
+        # Create metadata file with some valid and some invalid lines
+        metadata_path = metadata_mgr._get_metadata_path(agent_id)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+
+        valid_entry = TapeMetadataEntry(
+            session_id="valid_session",
+            title="Valid Session",
+            created_tick=10,
+            created_time="2024-01-01T00:00:00Z",
+            last_updated_tick=10,
+            last_updated_time="2024-01-01T00:00:00Z",
+            event_count=5,
+        )
+
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            f.write("{invalid json\n")  # Malformed line
+            f.write(json.dumps(valid_entry.to_dict(), ensure_ascii=False) + "\n")
+            f.write("another malformed line\n")
+            f.write(json.dumps(valid_entry.to_dict(), ensure_ascii=False) + "\n")
+
+        # Get all entries - should skip malformed lines
+        entries = await metadata_mgr.get_all_entries(agent_id)
+
+        # Both valid entries should be parsed, malformed lines skipped
+        assert len(entries) == 2
+        assert all(e.session_id == "valid_session" for e in entries)
+
+    @pytest.mark.asyncio
+    async def test_empty_file_returns_empty_list(self, metadata_mgr, memory_dir):
+        """Test reading from an empty metadata file."""
+        agent_id = "test_agent"
+
+        # Create empty metadata file
+        metadata_path = metadata_mgr._get_metadata_path(agent_id)
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.touch()
+
+        entries = await metadata_mgr.get_all_entries(agent_id)
+
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_update_nonexistent_entry_fails_silently(self, metadata_mgr):
+        """Test updating segment_index for a nonexistent entry."""
+        # This should not raise an exception, just log a warning
+        await metadata_mgr.update_segment_index(
+            agent_id="nonexistent_agent",
+            session_id="nonexistent_session",
+            segment_info={"start": 0, "end": 10, "summary": "Test"},
+        )
+        # If we get here without exception, the test passes
+
+    @pytest.mark.asyncio
+    async def test_increment_nonexistent_entry_fails_silently(self, metadata_mgr):
+        """Test incrementing event count for a nonexistent entry."""
+        # This should not raise an exception, just log a warning
+        await metadata_mgr.increment_event_count(
+            agent_id="nonexistent_agent",
+            session_id="nonexistent_session",
+        )
+        # If we get here without exception, the test passes
+
+    @pytest.mark.asyncio
+    async def test_find_entry_in_nonexistent_file(self, metadata_mgr):
+        """Test finding an entry when the metadata file doesn't exist."""
+        metadata_path = metadata_mgr._get_metadata_path("nonexistent_agent")
+
+        entry = await metadata_mgr._find_entry(metadata_path, "any_session")
+
+        assert entry is None

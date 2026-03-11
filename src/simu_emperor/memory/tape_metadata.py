@@ -8,13 +8,47 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from simu_emperor.memory.models import TapeMetadataEntry
-from simu_emperor.memory.config import SEGMENT_SIZE
 
 if TYPE_CHECKING:
     from simu_emperor.event_bus.event import Event
     from simu_emperor.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+
+async def _atomic_write(path: Path, content: str) -> None:
+    """
+    Write content to a file atomically using temp file + rename pattern.
+
+    This prevents data corruption when multiple processes/threads write
+    to the same file simultaneously. On POSIX systems, rename() is atomic.
+
+    Args:
+        path: Target file path
+        content: Content to write
+
+    Raises:
+        IOError: If write or rename operation fails
+    """
+    # Create temp file in same directory (ensures same filesystem)
+    temp_path = path.with_suffix(".tmp")
+
+    try:
+        # Write to temp file
+        async with aiofiles.open(temp_path, mode="w", encoding="utf-8") as f:
+            await f.write(content)
+
+        # Atomic rename (overwrites target if exists)
+        temp_path.replace(path)
+
+    except Exception as e:
+        # Clean up temp file on failure
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+        raise IOError(f"Atomic write failed for {path}: {e}") from e
 
 
 class TapeMetadataManager:
@@ -78,12 +112,12 @@ class TapeMetadataManager:
             return updated_entry
 
         # Create new entry
-        title = "Untitled Session"
+        title = "Untitled (LLM failed)"  # More descriptive fallback for debugging
         if first_event and llm:
             try:
                 title = await self._generate_title(first_event, llm)
             except Exception as e:
-                logger.warning(f"Failed to generate title: {e}")
+                logger.warning(f"Failed to generate title for session {session_id}: {type(e).__name__}: {e}")
 
         new_entry = TapeMetadataEntry(
             session_id=session_id,
@@ -165,10 +199,10 @@ Guidelines:
             # Truncate if needed
             if len(title) > self.MAX_TITLE_LENGTH:
                 title = title[: self.MAX_TITLE_LENGTH]
-            return title if title else "Session"
+            return title if title else "Untitled (LLM failed)"
         except Exception as e:
-            logger.warning(f"LLM title generation failed: {e}")
-            return "Session"
+            logger.warning(f"LLM title generation failed: {type(e).__name__}: {e}")
+            return "Untitled (LLM failed)"
 
     async def update_segment_index(
         self,
@@ -294,7 +328,10 @@ Guidelines:
         self, metadata_path: Path, entry: TapeMetadataEntry
     ) -> None:
         """
-        Append a new entry to tape_meta.jsonl.
+        Append a new entry to tape_meta.jsonl using atomic write pattern.
+
+        Uses atomic write pattern (temp file + rename) to prevent
+        data loss from concurrent modifications.
 
         Args:
             metadata_path: Path to tape_meta.jsonl
@@ -302,17 +339,38 @@ Guidelines:
         """
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
-        async with aiofiles.open(metadata_path, mode="a", encoding="utf-8") as f:
-            await f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
+        # Read existing content (if file exists)
+        existing_content = ""
+        if metadata_path.exists():
+            try:
+                async with aiofiles.open(metadata_path, mode="r", encoding="utf-8") as f:
+                    existing_content = await f.read()
+            except (IOError, OSError) as e:
+                logger.warning(f"Failed to read existing metadata file: {e}")
+                # Continue with empty content
+
+        # Append new entry
+        new_entry_json = json.dumps(entry.to_dict(), ensure_ascii=False) + "\n"
+        updated_content = existing_content + new_entry_json
+
+        # Atomic write using temp file + rename
+        try:
+            await _atomic_write(metadata_path, updated_content)
+        except IOError as e:
+            logger.error(f"Failed to atomically append to metadata file: {e}")
+            raise
 
     async def _update_entry_in_file(
         self, metadata_path: Path, session_id: str, updated_entry: TapeMetadataEntry
     ) -> None:
         """
-        Update an existing entry in tape_meta.jsonl.
+        Update an existing entry in tape_meta.jsonl using atomic write pattern.
 
         Since JSONL is append-only, we rewrite the entire file
         with the updated entry replacing the old one.
+
+        Uses atomic write pattern (temp file + rename) to prevent
+        data loss from concurrent modifications.
 
         Args:
             metadata_path: Path to tape_meta.jsonl
@@ -342,10 +400,19 @@ Guidelines:
         # Add updated entry
         entries.append(updated_entry.to_dict())
 
-        # Rewrite file
-        async with aiofiles.open(metadata_path, mode="w", encoding="utf-8") as f:
-            for entry_data in entries:
-                await f.write(json.dumps(entry_data, ensure_ascii=False) + "\n")
+        # Build content for atomic write
+        content = "\n".join(
+            json.dumps(entry_data, ensure_ascii=False) for entry_data in entries
+        )
+        if content:  # Ensure trailing newline
+            content += "\n"
+
+        # Atomic write using temp file + rename
+        try:
+            await _atomic_write(metadata_path, content)
+        except IOError as e:
+            logger.error(f"Failed to atomically write metadata file: {e}")
+            raise
 
     async def get_all_entries(self, agent_id: str) -> list[TapeMetadataEntry]:
         """

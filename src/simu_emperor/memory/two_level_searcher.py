@@ -1,7 +1,6 @@
 """TwoLevelSearcher for coordinated two-level memory search (V4)."""
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from simu_emperor.memory.models import TapeSegment

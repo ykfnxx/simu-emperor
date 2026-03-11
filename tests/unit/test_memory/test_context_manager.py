@@ -699,3 +699,106 @@ class TestContextManager:
         assert messages[0]["role"] == "user"
         assert "来自 minister_of_revenue 的回复" in messages[0]["content"]
         assert "已收到您的命令。" in messages[0]["content"]
+
+
+class TestContextManagerPositionTracking:
+    """Test V4 tape position tracking for segment_index updates."""
+
+    @pytest.mark.asyncio
+    async def test_position_counter_initialized_from_tape(self, tmp_path):
+        """Test that position counter is initialized from tape length."""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # Create a tape file with 5 events
+        tape_content = "\n".join(
+            [f'{{"event_id": "evt_{i}", "event_type": "user_query"}}' for i in range(5)]
+        )
+        (tmp_path / "tape.jsonl").write_text(tape_content + "\n")
+
+        # Load from tape should initialize position counter
+        await context_mgr.load_from_tape()
+
+        assert context_mgr._tape_position_counter == 5
+
+    @pytest.mark.asyncio
+    async def test_position_counter_increments_on_add_event(self, tmp_path):
+        """Test that position counter increments when events are added."""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # Initial position should be 0
+        assert context_mgr._tape_position_counter == 0
+
+        # Add events
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=10
+        )
+        assert context_mgr._tape_position_counter == 1
+
+        context_mgr.add_event(
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "A1"}}, tokens=10
+        )
+        assert context_mgr._tape_position_counter == 2
+
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q2"}}, tokens=10
+        )
+        assert context_mgr._tape_position_counter == 3
+
+    @pytest.mark.asyncio
+    async def test_position_counter_with_load_and_add(self, tmp_path):
+        """Test position counter when loading from tape and adding new events."""
+        llm = AsyncMock()
+        llm.call = AsyncMock(return_value="Summary.")
+        llm.get_context_window_size = lambda: 8000
+
+        config = ContextConfig(max_tokens=1000)
+        context_mgr = ContextManager(
+            session_id="session:cli:default",
+            agent_id="revenue_minister",
+            tape_path=tmp_path / "tape.jsonl",
+            config=config,
+            llm_provider=llm,
+        )
+
+        # Create a tape file with 3 events
+        tape_content = "\n".join(
+            [f'{{"event_id": "evt_{i}", "event_type": "user_query"}}' for i in range(3)]
+        )
+        (tmp_path / "tape.jsonl").write_text(tape_content + "\n")
+
+        # Load from tape
+        await context_mgr.load_from_tape()
+        assert context_mgr._tape_position_counter == 3
+
+        # Add new events
+        context_mgr.add_event(
+            {"event_type": EventType.USER_QUERY, "content": {"query": "Q1"}}, tokens=10
+        )
+        assert context_mgr._tape_position_counter == 4
+
+        context_mgr.add_event(
+            {"event_type": EventType.RESPONSE, "content": {"narrative": "A1"}}, tokens=10
+        )
+        assert context_mgr._tape_position_counter == 5
