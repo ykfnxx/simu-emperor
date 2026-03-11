@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from simu_emperor.event_bus.event import Event
+    pass
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,10 @@ class TapeMetadataEntry:
         last_updated_time: ISO format timestamp when session was last updated
         event_count: Number of events in the tape
         segment_index: List of compacted segments with summaries
+
+    Note on naming convention:
+        - created_tick/last_updated_tick: Timestamp semantics (point in time)
+        - Contrast with TapeSegment.tick_start/tick_end which use range semantics
     """
 
     session_id: str
@@ -137,6 +141,10 @@ class TapeSegment:
         timestamp_start: First ISO timestamp in segment (optional)
         timestamp_end: Last ISO timestamp in segment (optional)
         relevance_score: Calculated relevance score (0.0-1.0)
+
+    Note on naming convention:
+        - tick_start/tick_end: Range semantics (start and end of a range)
+        - Contrast with TapeMetadataEntry.created_tick/last_updated_tick which use timestamp semantics
     """
 
     session_id: str

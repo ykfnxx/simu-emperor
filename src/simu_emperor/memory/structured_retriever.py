@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from simu_emperor.memory.context_manager import ContextManager
     from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
 
-from simu_emperor.memory.models import RetrievalResult, TapeSegment
+from simu_emperor.memory.models import RetrievalResult
 from simu_emperor.memory.query_parser import QueryParser
 
 

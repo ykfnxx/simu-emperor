@@ -95,6 +95,9 @@ class ContextManager:
         self.events: list[dict] = []  # 当前窗口内的事件（从tape加载）
         self.summary: str = ""  # 历史摘要
 
+        # V4: Track absolute tape position for segment_index updates
+        self._tape_position_counter: int = 0  # Current position in tape.jsonl
+
     def event_to_messages(self, event: dict) -> list[dict]:
         """
         将事件转换为messages格式
@@ -255,6 +258,9 @@ class ContextManager:
         events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
         self.events.extend(events)
 
+        # V4: Initialize tape position counter based on current tape length
+        self._tape_position_counter = len(events)
+
         if include_ancestors and self.session_manager:
             ancestors = self.session_manager.get_parent_chain(self.session_id)
             for ancestor in ancestors:
@@ -291,6 +297,9 @@ class ContextManager:
 
         # 先添加事件
         self.events.append(event)
+
+        # V4: Increment tape position counter for new events
+        self._tape_position_counter += 1
 
         # 计算添加后的总token
         current_tokens = self._calc_total_tokens()
@@ -480,13 +489,6 @@ class ContextManager:
             return
 
         try:
-            # Find position range of dropped events
-            dropped_positions = []
-            for event in dropped_events:
-                # Position in tape is inferred from event order
-                # For simplicity, we use event index tracking
-                pass
-
             # Calculate segment info
             tick = self._extract_tick_from_events(dropped_events)
 
@@ -496,12 +498,15 @@ class ContextManager:
             if not dropped_summary:
                 return
 
-            # Get start/end positions from events
-            # Note: In a real implementation, we'd track absolute positions
-            # For V4, we use event count as proxy
+            # Calculate absolute positions using tape position counter
+            # The dropped events were at the beginning of the current window
+            # Their positions are: [current_position - len(dropped_events), current_position)
+            start_position = max(0, self._tape_position_counter - len(dropped_events))
+            end_position = max(0, self._tape_position_counter - 1)
+
             segment_info = {
-                "start": 0,  # Placeholder - would need absolute position tracking
-                "end": len(dropped_events) - 1,
+                "start": start_position,
+                "end": end_position,
                 "summary": dropped_summary,
                 "tick": tick,
             }
@@ -512,7 +517,10 @@ class ContextManager:
                 segment_info=segment_info,
             )
 
-            logger.debug(f"Updated segment_index for {self.session_id}: {len(dropped_events)} events")
+            logger.debug(
+                f"Updated segment_index for {self.session_id}: "
+                f"positions [{start_position}-{end_position}], {len(dropped_events)} events"
+            )
         except Exception as e:
             logger.warning(f"Failed to update segment_index: {e}")
 
@@ -547,7 +555,7 @@ class ContextManager:
 
         # Use LLM for summary if available
         try:
-            prompt = f"Summarize these events in 1 sentence (≤100 chars):\n" + "\n".join(event_summaries[:10])
+            prompt = "Summarize these events in 1 sentence (≤100 chars):\n" + "\n".join(event_summaries[:10])
             summary = await self.llm.call(
                 prompt=prompt,
                 system_prompt="You are a summarizer for event logs.",
@@ -555,8 +563,9 @@ class ContextManager:
                 max_tokens=100,
             )
             return summary.strip()[:100] if summary else None
-        except Exception:
+        except Exception as e:
             # Fallback: simple concatenation
+            logger.debug(f"LLM summarization failed: {type(e).__name__}: {e}")
             return f"{len(events)} events: {', '.join(event_summaries[:3])}"
 
     def _extract_tick_from_events(self, events: list[dict]) -> int | None:
