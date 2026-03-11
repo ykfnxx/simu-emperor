@@ -302,3 +302,201 @@ class TestIncidentManagement:
 
         # Internal list should not be affected
         assert len(engine.get_active_incidents()) == 1
+
+
+class TestEngineEventBusIntegration:
+    """Test Engine EventBus integration (V4)."""
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Create a mock EventBus."""
+        from unittest.mock import MagicMock, AsyncMock
+
+        event_bus = MagicMock()
+        event_bus.subscribe = MagicMock()
+        event_bus.send_event = AsyncMock()
+        return event_bus
+
+    @pytest.fixture
+    def engine_with_bus(self, sample_nation, mock_event_bus):
+        """Create an Engine instance with EventBus."""
+        return Engine(initial_state=sample_nation, event_bus=mock_event_bus)
+
+    def test_engine_subscribes_to_incident_created(self, engine_with_bus, mock_event_bus):
+        """Test Engine subscribes to system:engine for INCIDENT_CREATED events."""
+        mock_event_bus.subscribe.assert_called_once()
+        args = mock_event_bus.subscribe.call_args
+        assert args[0][0] == "system:engine"
+
+    @pytest.mark.asyncio
+    async def test_on_incident_created_adds_incident(self, engine_with_bus, mock_event_bus):
+        """Test _on_incident_created handler adds incident to active list."""
+        from simu_emperor.event_bus.event import Event
+
+        event = Event(
+            src="agent:test_agent",
+            dst=["system:engine"],
+            type="incident_created",
+            payload={
+                "incident_id": "inc_001",
+                "title": "拨款",
+                "description": "国库拨款",
+                "effects": [
+                    {
+                        "target_path": "provinces.zhili.stockpile",
+                        "add": "5000",
+                        "factor": None,
+                    }
+                ],
+                "source": "test_agent",
+                "remaining_ticks": 3,
+            },
+            session_id="test_session",
+        )
+
+        await engine_with_bus._on_incident_created(event)
+
+        assert len(engine_with_bus.get_active_incidents()) == 1
+        incident = engine_with_bus.get_active_incidents()[0]
+        assert incident.incident_id == "inc_001"
+        assert incident.title == "拨款"
+        assert incident.remaining_ticks == 3
+        assert incident.applied is False
+
+    @pytest.mark.asyncio
+    async def test_on_incident_created_ignores_other_event_types(
+        self, engine_with_bus, mock_event_bus
+    ):
+        """Test _on_incident_created ignores non-incident_created events."""
+        from simu_emperor.event_bus.event import Event
+
+        event = Event(
+            src="player",
+            dst=["system:engine"],
+            type="chat",
+            payload={},
+            session_id="test_session",
+        )
+
+        await engine_with_bus._on_incident_created(event)
+
+        assert len(engine_with_bus.get_active_incidents()) == 0
+
+    @pytest.mark.asyncio
+    async def test_on_incident_created_with_factor_effect(self, engine_with_bus, mock_event_bus):
+        """Test _on_incident_created handles factor effects correctly."""
+        from simu_emperor.event_bus.event import Event
+
+        event = Event(
+            src="agent:test_agent",
+            dst=["system:engine"],
+            type="incident_created",
+            payload={
+                "incident_id": "inc_002",
+                "title": "丰收",
+                "description": "大丰收",
+                "effects": [
+                    {
+                        "target_path": "provinces.zhili.production_value",
+                        "add": None,
+                        "factor": "0.1",
+                    }
+                ],
+                "source": "test_agent",
+                "remaining_ticks": 2,
+            },
+            session_id="test_session",
+        )
+
+        await engine_with_bus._on_incident_created(event)
+
+        incident = engine_with_bus.get_active_incidents()[0]
+        assert incident.effects[0].factor == Decimal("0.1")
+        assert incident.effects[0].add is None
+
+    @pytest.mark.asyncio
+    async def test_on_incident_created_with_multiple_effects(self, engine_with_bus, mock_event_bus):
+        """Test _on_incident_created handles multiple effects."""
+        from simu_emperor.event_bus.event import Event
+
+        event = Event(
+            src="agent:test_agent",
+            dst=["system:engine"],
+            type="incident_created",
+            payload={
+                "incident_id": "inc_003",
+                "title": "复合事件",
+                "description": "多效果",
+                "effects": [
+                    {
+                        "target_path": "provinces.zhili.stockpile",
+                        "add": "1000",
+                        "factor": None,
+                    },
+                    {
+                        "target_path": "provinces.zhili.production_value",
+                        "add": None,
+                        "factor": "0.05",
+                    },
+                ],
+                "source": "test_agent",
+                "remaining_ticks": 3,
+            },
+            session_id="test_session",
+        )
+
+        await engine_with_bus._on_incident_created(event)
+
+        incident = engine_with_bus.get_active_incidents()[0]
+        assert len(incident.effects) == 2
+        assert incident.effects[0].add == Decimal("1000")
+        assert incident.effects[1].factor == Decimal("0.05")
+
+    @pytest.mark.asyncio
+    async def test_on_incident_created_with_negative_factor(self, engine_with_bus, mock_event_bus):
+        """Test _on_incident_created handles negative factor (penalty)."""
+        from simu_emperor.event_bus.event import Event
+
+        event = Event(
+            src="agent:test_agent",
+            dst=["system:engine"],
+            type="incident_created",
+            payload={
+                "incident_id": "inc_004",
+                "title": "旱灾",
+                "description": "严重旱灾",
+                "effects": [
+                    {
+                        "target_path": "provinces.zhili.production_value",
+                        "add": None,
+                        "factor": "-0.2",
+                    }
+                ],
+                "source": "system",
+                "remaining_ticks": 2,
+            },
+            session_id="test_session",
+        )
+
+        await engine_with_bus._on_incident_created(event)
+
+        incident = engine_with_bus.get_active_incidents()[0]
+        assert incident.effects[0].factor == Decimal("-0.2")
+
+    def test_engine_without_event_bus_still_works(self, sample_nation):
+        """Test Engine works without EventBus (backward compatibility)."""
+        engine = Engine(initial_state=sample_nation, event_bus=None)
+
+        assert engine.event_bus is None
+        assert engine.get_state() is sample_nation
+
+        incident = Incident(
+            incident_id="inc_001",
+            title="测试",
+            description="测试事件",
+            effects=[Effect(target_path="provinces.zhili.stockpile", add=Decimal("1000"))],
+            source="test",
+            remaining_ticks=1,
+        )
+        engine.add_incident(incident)
+        assert len(engine.get_active_incidents()) == 1
