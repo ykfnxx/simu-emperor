@@ -66,7 +66,7 @@ class MessageService:
             session_id=session_id,
         )
 
-        await self.event_bus.publish(event)
+        await self.event_bus.send_event(event)
         logger.info(f"Sent command to agent:{normalized_agent} in session {session_id}")
 
     async def send_chat(
@@ -97,7 +97,7 @@ class MessageService:
             session_id=session_id,
         )
 
-        await self.event_bus.publish(event)
+        await self.event_bus.send_event(event)
         logger.info(f"Sent chat to agent:{normalized_agent} in session {session_id}")
 
     async def broadcast(
@@ -131,7 +131,7 @@ class MessageService:
             session_id=session_id,
         )
 
-        await self.event_bus.publish(event)
+        await self.event_bus.send_event(event)
         logger.info(f"Broadcast message to {dst}")
 
     async def send_to_group(
