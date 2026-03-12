@@ -4,6 +4,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
+from simu_emperor.common.utils import FileOperationsHelper
+
 if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.memory.tape_writer import TapeWriter
@@ -54,10 +57,8 @@ class TapeService:
         Returns:
             Dict with agent_id, session_id, events list, and total count
         """
-        from simu_emperor.common.file_utils import FileOperationsHelper
-
-        normalized_agent = self._normalize_agent_id(agent_id) if agent_id else None
-        target_session_id = session_id or "session:web:main"
+        normalized_agent = strip_agent_prefix(agent_id) if agent_id else None
+        target_session_id = session_id or DEFAULT_WEB_SESSION_ID
 
         events: list[dict] = []
 
@@ -132,8 +133,6 @@ class TapeService:
         Returns:
             List of sub-session info dicts
         """
-        from simu_emperor.common.file_utils import FileOperationsHelper
-
         if not self.session_manager:
             return []
 
@@ -230,9 +229,3 @@ class TapeService:
             current = sessions.get(parent_id, {})
 
         return depth
-
-    def _normalize_agent_id(self, agent_id: str) -> str:
-        """Normalize agent ID (remove agent: prefix)."""
-        if agent_id.startswith("agent:"):
-            return agent_id.replace("agent:", "", 1)
-        return agent_id

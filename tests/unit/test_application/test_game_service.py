@@ -68,7 +68,7 @@ class TestGameService:
         """Test game service initialization."""
         with patch("simu_emperor.engine.engine.Engine") as mock_engine_cls, \
              patch("simu_emperor.engine.tick_coordinator.TickCoordinator") as mock_tick_coord_cls, \
-             patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+             patch("simu_emperor.common.utils.file_utils.FileOperationsHelper") as mock_file_helper:
 
             # Setup mocks
             mock_engine = MagicMock()
@@ -171,7 +171,7 @@ class TestGameService:
 
     async def test_load_initial_state_from_file(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
         """Test loading initial state from JSON config."""
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.game_service.FileOperationsHelper") as mock_file_helper:
             # Mock config file
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "nation": {
@@ -211,7 +211,7 @@ class TestGameService:
 
     async def test_load_initial_state_fallback(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
         """Test loading initial state with fallback when config missing."""
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.game_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value=None)
 
             service = GameService(

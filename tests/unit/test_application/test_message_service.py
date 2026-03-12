@@ -139,16 +139,6 @@ class TestMessageService:
 
         assert result == []
 
-    def test_normalize_agent_id(self, mock_event_bus, mock_session_manager):
-        """Test agent ID normalization."""
-        service = MessageService(
-            event_bus=mock_event_bus,
-            session_manager=mock_session_manager,
-        )
-
-        assert service._normalize_agent_id("agent:governor_zhili") == "governor_zhili"
-        assert service._normalize_agent_id("governor_zhili") == "governor_zhili"
-
     async def test_parse_message_command(self, mock_event_bus, mock_session_manager):
         """Test parsing command message."""
         service = MessageService(

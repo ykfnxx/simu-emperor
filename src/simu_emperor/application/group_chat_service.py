@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 import uuid
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
+
 if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.session.group_chat import GroupChat
@@ -47,7 +49,7 @@ class GroupChatService:
         self,
         name: str,
         agent_ids: list[str],
-        session_id: str = "session:web:main",
+        session_id: str = DEFAULT_WEB_SESSION_ID,
     ) -> "GroupChat":
         """Create a new group chat.
 
@@ -151,7 +153,7 @@ class GroupChatService:
         if not group:
             raise ValueError(f"Group chat not found: {group_id}")
 
-        normalized = self._normalize_agent_id(agent_id)
+        normalized = strip_agent_prefix(agent_id)
         if normalized not in group.agent_ids:
             group.agent_ids.append(normalized)
             await self._save_group_chats()
@@ -181,7 +183,7 @@ class GroupChatService:
         if not group:
             raise ValueError(f"Group chat not found: {group_id}")
 
-        normalized = self._normalize_agent_id(agent_id)
+        normalized = strip_agent_prefix(agent_id)
         if normalized in group.agent_ids:
             group.agent_ids.remove(normalized)
             await self._save_group_chats()
@@ -222,12 +224,6 @@ class GroupChatService:
             group_chats_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         except Exception as e:
             logger.error(f"Failed to save group chats: {e}")
-
-    def _normalize_agent_id(self, agent_id: str) -> str:
-        """Normalize agent ID (remove agent: prefix)."""
-        if agent_id.startswith("agent:"):
-            return agent_id.replace("agent:", "", 1)
-        return agent_id
 
     async def load_from_storage(self) -> None:
         """Load group chats from storage (public method)."""

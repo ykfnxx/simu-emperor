@@ -110,7 +110,7 @@ class TestTapeService:
         """Test getting sub-sessions."""
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "session:web:main": {"parent_id": None},
@@ -140,7 +140,7 @@ class TestTapeService:
         """Test getting sub-sessions filtered by agent."""
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "task:001": {
@@ -212,17 +212,6 @@ class TestTapeService:
         assert service._calculate_depth("session:web:main", sessions) == 0
         assert service._calculate_depth("task:001", sessions) == 1
         assert service._calculate_depth("task:002", sessions) == 2
-
-    def test_normalize_agent_id(self, mock_session_manager, mock_tape_writer, memory_dir):
-        """Test agent ID normalization."""
-        service = TapeService(
-            session_manager=mock_session_manager,
-            tape_writer=mock_tape_writer,
-            memory_dir=memory_dir,
-        )
-
-        assert service._normalize_agent_id("agent:governor_zhili") == "governor_zhili"
-        assert service._normalize_agent_id("governor_zhili") == "governor_zhili"
 
     async def test_iter_session_tape_paths_for_agent(self, mock_session_manager, mock_tape_writer, memory_dir):
         """Test getting tape paths for specific agent."""

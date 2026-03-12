@@ -12,11 +12,11 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
 from simu_emperor.config import settings
 from simu_emperor.event_bus.event import Event
-from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.adapters.web.game_instance import WebGameInstance
 from simu_emperor.adapters.web.connection_manager import ConnectionManager
 from simu_emperor.adapters.web.message_converter import MessageConverter
@@ -34,14 +34,6 @@ message_converter = MessageConverter()
 # ============================================================================
 
 
-def _normalize_agent_id(agent_id: str) -> str:
-    """规范化 agent_id，兼容 agent: 前缀。"""
-    normalized = agent_id.strip()
-    if normalized.startswith("agent:"):
-        return normalized.replace("agent:", "", 1)
-    return normalized
-
-
 def _validate_agent_id(
     agent_id: str | None,
     *,
@@ -54,7 +46,7 @@ def _validate_agent_id(
             raise ValueError(f"{field_name} is required")
         return None
 
-    normalized = _normalize_agent_id(agent_id)
+    normalized = strip_agent_prefix(agent_id)
     if not normalized:
         raise ValueError(f"{field_name} cannot be empty")
     return normalized
@@ -181,7 +173,7 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
                 raise ValueError("text cannot be empty")
 
             # 委托给 MessageService
-            target_session_id = session_id or "session:web:main"
+            target_session_id = session_id or DEFAULT_WEB_SESSION_ID
             if msg_type == "command":
                 await game_instance.message_service.send_command(
                     agent_id=agent,
@@ -268,7 +260,7 @@ async def send_command(cmd: CommandRequest):
         await game_instance.message_service.send_command(
             agent_id=cmd.agent,
             command=cmd.command,
-            session_id="session:web:main",
+            session_id=DEFAULT_WEB_SESSION_ID,
         )
         return {"success": True}
     except ValueError as exc:
@@ -419,7 +411,7 @@ async def create_group(request: GroupChatCreateRequest):
     group = await game_instance.group_chat_service.create_group_chat(
         name=request.name,
         agent_ids=request.agent_ids,
-        session_id="session:web:main",
+        session_id=DEFAULT_WEB_SESSION_ID,
     )
     return group.to_dict()
 

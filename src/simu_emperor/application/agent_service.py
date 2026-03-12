@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
 from simu_emperor.config import GameConfig
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ class AgentService:
         llm_provider: "LLMProvider",
         repository: "GameRepository",
         session_manager: "SessionManager",
-        session_id: str = "session:web:main",
+        session_id: str = DEFAULT_WEB_SESSION_ID,
     ) -> None:
         """Initialize AgentService.
 
@@ -131,7 +132,7 @@ class AgentService:
         Returns:
             True if agent is available
         """
-        normalized = self._normalize_agent_id(agent_id)
+        normalized = strip_agent_prefix(agent_id)
         available = await self.get_available_agents()
         return normalized in available
 
@@ -153,12 +154,6 @@ class AgentService:
         if self.agent_manager:
             self.agent_manager.stop_all()
             logger.info("All agents stopped")
-
-    def _normalize_agent_id(self, agent_id: str) -> str:
-        """Normalize agent ID (remove agent: prefix)."""
-        if agent_id.startswith("agent:"):
-            return agent_id.replace("agent:", "", 1)
-        return agent_id
 
     @property
     def is_initialized(self) -> bool:

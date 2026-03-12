@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 import uuid
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, get_agent_display_name, strip_agent_prefix
+from simu_emperor.common.utils import FileOperationsHelper
+
 if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.memory.manifest_index import ManifestIndex
@@ -51,7 +54,7 @@ class SessionService:
         # Track session metadata
         self._session_titles: dict[str, str] = {}
         self._current_session_by_agent: dict[str, str] = {}
-        self._main_session_id = "session:web:main"
+        self._main_session_id = DEFAULT_WEB_SESSION_ID
 
     async def create_session(
         self,
@@ -67,13 +70,13 @@ class SessionService:
         Returns:
             Session info dict with session_id, title, created_at, etc.
         """
-        normalized_agent = self._normalize_agent_id(agent_id)
+        normalized_agent = strip_agent_prefix(agent_id or "governor_zhili")
         now = utcnow()
         stamp = now.strftime("%Y%m%d%H%M%S")
         suffix = uuid.uuid4().hex[:6]
         session_id = f"session:web:{normalized_agent}:{stamp}:{suffix}"
 
-        default_title = f"{self._get_agent_display_name(normalized_agent)}会话 {stamp}"
+        default_title = f"{get_agent_display_name(normalized_agent)}会话 {stamp}"
         title = name.strip() if name and name.strip() else default_title
         self._session_titles[session_id] = title
 
@@ -114,7 +117,7 @@ class SessionService:
         Returns:
             Session info dict
         """
-        normalized_agent = self._normalize_agent_id(agent_id)
+        normalized_agent = strip_agent_prefix(agent_id or "governor_zhili")
 
         # Find agent if not provided
         if not agent_id:
@@ -174,7 +177,6 @@ class SessionService:
         Returns:
             List of dicts with agent_id and sessions list
         """
-        from simu_emperor.common.file_utils import FileOperationsHelper
 
         manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
         sessions_data = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
@@ -223,23 +225,8 @@ class SessionService:
         Returns:
             Current session ID for the agent
         """
-        normalized = self._normalize_agent_id(agent_id)
+        normalized = strip_agent_prefix(agent_id)
         return self._current_session_by_agent.get(normalized, self._main_session_id)
-
-    def _normalize_agent_id(self, agent_id: str | None) -> str:
-        """Normalize agent ID."""
-        if agent_id:
-            return agent_id.replace("agent:", "")
-        # Return default agent
-        return "governor_zhili"
-
-    def _get_agent_display_name(self, agent_id: str) -> str:
-        """Get display name for agent."""
-        mapping = {
-            "governor_zhili": "直隶巡抚",
-            "minister_of_revenue": "户部尚书",
-        }
-        return mapping.get(agent_id, agent_id)
 
     def _extract_title_from_id(self, session_id: str) -> str:
         """Extract title from session ID if no title stored."""
@@ -267,7 +254,7 @@ class SessionService:
 
     def set_current_context(self, agent_id: str, session_id: str) -> None:
         """Set current session context for agent."""
-        normalized_agent = self._normalize_agent_id(agent_id)
+        normalized_agent = strip_agent_prefix(agent_id)
         self._current_session_by_agent[normalized_agent] = session_id
 
     @property

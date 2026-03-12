@@ -287,16 +287,6 @@ class TestGroupChatService:
         assert "group_chats" in data
         assert len(data["group_chats"]) == 1
 
-    def test_normalize_agent_id(self, mock_session_manager, memory_dir):
-        """Test agent ID normalization."""
-        service = GroupChatService(
-            session_manager=mock_session_manager,
-            memory_dir=memory_dir,
-        )
-
-        assert service._normalize_agent_id("agent:governor_zhili") == "governor_zhili"
-        assert service._normalize_agent_id("governor_zhili") == "governor_zhili"
-
     def test_utcnow(self):
         """Test utcnow helper returns aware datetime."""
         result = utcnow()

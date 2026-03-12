@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID
 from simu_emperor.config import GameConfig
 
 if TYPE_CHECKING:
@@ -113,7 +114,7 @@ class ApplicationServices:
         )
 
         # 6. Create main session
-        main_session_id = "session:web:main"
+        main_session_id = DEFAULT_WEB_SESSION_ID
         if not await session_manager.get_session(main_session_id):
             await session_manager.create_session(
                 session_id=main_session_id,

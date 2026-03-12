@@ -245,19 +245,6 @@ class TestAgentService:
 
         mock_mgr.stop_all.assert_called_once()
 
-    def test_normalize_agent_id(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
-        """Test agent ID normalization."""
-        service = AgentService(
-            settings=mock_settings,
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm_provider,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
-        )
-
-        assert service._normalize_agent_id("agent:governor_zhili") == "governor_zhili"
-        assert service._normalize_agent_id("governor_zhili") == "governor_zhili"
-
     def test_default_agents_list(self):
         """Test default agents constant."""
         expected = [

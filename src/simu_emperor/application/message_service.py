@@ -3,6 +3,8 @@
 import logging
 from typing import TYPE_CHECKING
 
+from simu_emperor.common import normalize_agent_id
+
 if TYPE_CHECKING:
     from simu_emperor.event_bus.core import EventBus
     from simu_emperor.session.manager import SessionManager
@@ -54,11 +56,11 @@ class MessageService:
         from simu_emperor.event_bus.event import Event
         from simu_emperor.event_bus.event_types import EventType
 
-        normalized_agent = self._normalize_agent_id(agent_id)
+        normalized_agent = normalize_agent_id(agent_id)
 
         event = Event(
             src=source,
-            dst=[f"agent:{normalized_agent}"],
+            dst=[normalized_agent],
             type=EventType.CHAT,
             payload={"query": command},
             session_id=session_id,
@@ -85,11 +87,11 @@ class MessageService:
         from simu_emperor.event_bus.event import Event
         from simu_emperor.event_bus.event_types import EventType
 
-        normalized_agent = self._normalize_agent_id(agent_id)
+        normalized_agent = normalize_agent_id(agent_id)
 
         event = Event(
             src=source,
-            dst=[f"agent:{normalized_agent}"],
+            dst=[normalized_agent],
             type=EventType.CHAT,
             payload={"message": message},
             session_id=session_id,
@@ -117,8 +119,7 @@ class MessageService:
         from simu_emperor.event_bus.event_types import EventType
 
         if agent_ids:
-            dst = [self._normalize_agent_id(a) for a in agent_ids]
-            dst = [f"agent:{a}" for a in dst]
+            dst = [normalize_agent_id(a) for a in agent_ids]
         else:
             dst = ["*"]
 
@@ -155,12 +156,6 @@ class MessageService:
         # This method would need access to GroupChatService
         # For now, return empty list - will be connected via ApplicationServices
         return []
-
-    def _normalize_agent_id(self, agent_id: str) -> str:
-        """Normalize agent ID (remove agent: prefix)."""
-        if agent_id.startswith("agent:"):
-            return agent_id.replace("agent:", "", 1)
-        return agent_id
 
     async def parse_message(self, text: str) -> dict:
         """Parse a message to extract intent and entities.

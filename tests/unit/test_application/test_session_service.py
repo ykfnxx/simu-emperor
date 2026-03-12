@@ -184,7 +184,7 @@ class TestSessionService:
 
     async def test_list_agent_sessions(self, mock_session_manager, mock_manifest_index, memory_dir):
         """Test listing sessions grouped by agent."""
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "session:web:main": {
@@ -225,29 +225,6 @@ class TestSessionService:
 
         assert service._current_session_by_agent["governor_zhili"] == "session:web:new_context"
 
-    def test_normalize_agent_id(self, mock_session_manager, mock_manifest_index, memory_dir):
-        """Test agent ID normalization."""
-        service = SessionService(
-            session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
-            memory_dir=memory_dir,
-        )
-
-        assert service._normalize_agent_id("agent:governor_zhili") == "governor_zhili"
-        assert service._normalize_agent_id("governor_zhili") == "governor_zhili"
-
-    def test_get_agent_display_name(self, mock_session_manager, mock_manifest_index, memory_dir):
-        """Test getting display name for agent."""
-        service = SessionService(
-            session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
-            memory_dir=memory_dir,
-        )
-
-        assert service._get_agent_display_name("governor_zhili") == "直隶巡抚"
-        assert service._get_agent_display_name("minister_of_revenue") == "户部尚书"
-        assert service._get_agent_display_name("unknown") == "unknown"
-
     def test_extract_title_from_id(self, mock_session_manager, mock_manifest_index, memory_dir):
         """Test extracting title from session ID."""
         service = SessionService(
@@ -261,7 +238,7 @@ class TestSessionService:
 
     async def test_list_sessions_all(self, mock_session_manager, mock_manifest_index, memory_dir):
         """Test listing all sessions."""
-        with patch("simu_emperor.common.file_utils.FileOperationsHelper") as mock_file_helper:
+        with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "session:web:main": {
