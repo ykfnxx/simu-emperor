@@ -1,7 +1,7 @@
-"""
-FastAPI 服务器
+"""FastAPI 服务器 (V4 - 应用层集成)
 
 提供 WebSocket 实时通信和 REST API 端点。
+V4重构：所有业务逻辑委托给ApplicationServices，本模块仅处理协议转换。
 """
 
 from contextlib import asynccontextmanager
@@ -12,11 +12,11 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
+from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
 from simu_emperor.config import settings
 from simu_emperor.event_bus.event import Event
-from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.adapters.web.game_instance import WebGameInstance
 from simu_emperor.adapters.web.connection_manager import ConnectionManager
 from simu_emperor.adapters.web.message_converter import MessageConverter
@@ -30,16 +30,8 @@ connection_manager = ConnectionManager()
 message_converter = MessageConverter()
 
 # ============================================================================
-# Validation Helpers
+# Validation Helpers (协议层校验)
 # ============================================================================
-
-
-def _normalize_agent_id(agent_id: str) -> str:
-    """规范化 agent_id，兼容 agent: 前缀。"""
-    normalized = agent_id.strip()
-    if normalized.startswith("agent:"):
-        return normalized.replace("agent:", "", 1)
-    return normalized
 
 
 def _validate_agent_id(
@@ -48,22 +40,15 @@ def _validate_agent_id(
     required: bool,
     field_name: str,
 ) -> str | None:
-    """校验 agent_id 非空且存在。"""
+    """校验 agent_id 非空且格式正确。"""
     if agent_id is None:
         if required:
             raise ValueError(f"{field_name} is required")
         return None
 
-    normalized = _normalize_agent_id(agent_id)
+    normalized = strip_agent_prefix(agent_id)
     if not normalized:
         raise ValueError(f"{field_name} cannot be empty")
-
-    available_agents = {
-        _normalize_agent_id(agent) for agent in game_instance.get_available_agents()
-    }
-    if normalized not in available_agents:
-        raise ValueError(f"Unknown agent: {normalized}")
-
     return normalized
 
 
@@ -77,8 +62,6 @@ def _validate_session_id(session_id: str | None, *, required: bool) -> str | Non
     normalized = session_id.strip()
     if not normalized:
         raise ValueError("session_id cannot be empty")
-    if not normalized.startswith("session:web:"):
-        raise ValueError(f"Invalid session_id format: {normalized}")
     return normalized
 
 
@@ -180,70 +163,35 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
     """
     msg_type = data.get("type")
 
-    if msg_type == "command":
+    if msg_type in ("command", "chat"):
         try:
-            await handle_command(data)
+            agent = _validate_agent_id(data.get("agent"), required=True, field_name="agent")
+            text = _validate_text(data.get("text", ""), field_name="text").strip()
+            session_id = _validate_session_id(data.get("session_id"), required=False)
+
+            if not text:
+                raise ValueError("text cannot be empty")
+
+            # 委托给 MessageService
+            target_session_id = session_id or DEFAULT_WEB_SESSION_ID
+            if msg_type == "command":
+                await game_instance.message_service.send_command(
+                    agent_id=agent,
+                    command=text,
+                    session_id=target_session_id,
+                )
+            else:
+                await game_instance.message_service.send_chat(
+                    agent_id=agent,
+                    message=text,
+                    session_id=target_session_id,
+                )
+
         except ValueError as exc:
-            logger.warning("Invalid command payload: %s", exc)
-            await _send_ws_error(websocket, str(exc))
-    elif msg_type == "chat":
-        try:
-            await handle_chat(data)
-        except ValueError as exc:
-            logger.warning("Invalid chat payload: %s", exc)
+            logger.warning("Invalid message payload: %s", exc)
             await _send_ws_error(websocket, str(exc))
     else:
         await _send_ws_error(websocket, f"Unknown message type: {msg_type}")
-
-
-async def handle_command(data: dict) -> None:
-    """处理命令消息 - 转换为 CHAT 事件"""
-    agent = _validate_agent_id(data.get("agent"), required=True, field_name="agent")
-    command = _validate_text(data.get("text", ""), field_name="text").strip()
-    session_id = _validate_session_id(data.get("session_id"), required=False)
-    if not command:
-        raise ValueError("text cannot be empty")
-
-    target_session_id = session_id or game_instance.get_session_for_agent(agent)
-    game_instance.set_current_context(agent, target_session_id)
-
-    event = Event(
-        src="player:web",
-        dst=[f"agent:{agent}"],
-        type=EventType.CHAT,
-        payload={"message": command},
-        session_id=target_session_id,
-    )
-
-    if game_instance.event_bus:
-        await game_instance.event_bus.send_event(event)
-    else:
-        raise ValueError("Game not initialized")
-
-
-async def handle_chat(data: dict) -> None:
-    """处理聊天消息"""
-    agent = _validate_agent_id(data.get("agent"), required=True, field_name="agent")
-    text = _validate_text(data.get("text", ""), field_name="text").strip()
-    session_id = _validate_session_id(data.get("session_id"), required=False)
-    if not text:
-        raise ValueError("text cannot be empty")
-
-    target_session_id = session_id or game_instance.get_session_for_agent(agent)
-    game_instance.set_current_context(agent, target_session_id)
-
-    event = Event(
-        src="player:web",
-        dst=[f"agent:{agent}"],
-        type=EventType.CHAT,
-        payload={"message": text},
-        session_id=target_session_id,
-    )
-
-    if game_instance.event_bus:
-        await game_instance.event_bus.send_event(event)
-    else:
-        raise ValueError("Game not initialized")
 
 
 async def _on_event(event: Event) -> None:
@@ -261,194 +209,73 @@ async def _on_event(event: Event) -> None:
 
 
 # ============================================================================
-# REST API
+# REST API (协议转换层 - 委托给ApplicationServices)
 # ============================================================================
-
 
 class CommandRequest(BaseModel):
     """命令请求"""
-
     agent: str
     command: str
-
-    @field_validator("agent")
-    @classmethod
-    def _validate_agent(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("agent cannot be empty")
-        return normalized
-
-    @field_validator("command")
-    @classmethod
-    def _validate_command(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("command cannot be empty")
-        return normalized
 
 
 class SessionCreateRequest(BaseModel):
     """新建 session 请求"""
-
     name: str | None = None
     agent_id: str | None = None
-
-    @field_validator("name")
-    @classmethod
-    def _validate_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Session name cannot be empty")
-        return normalized
-
-    @field_validator("agent_id")
-    @classmethod
-    def _validate_agent_id(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("agent_id cannot be empty")
-        return normalized
 
 
 class SessionSelectRequest(BaseModel):
     """选择 session 请求"""
-
     session_id: str
     agent_id: str | None = None
-
-    @field_validator("session_id")
-    @classmethod
-    def _validate_session_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("session_id cannot be empty")
-        return normalized
-
-    @field_validator("agent_id")
-    @classmethod
-    def _validate_agent_id(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("agent_id cannot be empty")
-        return normalized
 
 
 class GroupChatCreateRequest(BaseModel):
     """创建群聊请求"""
-
     name: str
     agent_ids: list[str]
-
-    @field_validator("name")
-    @classmethod
-    def _validate_name(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("群聊名称不能为空")
-        return normalized
-
-    @field_validator("agent_ids")
-    @classmethod
-    def _validate_agent_ids(cls, value: list[str]) -> list[str]:
-        if not value:
-            raise ValueError("至少需要选择一个agent")
-        normalized = [agent.strip() for agent in value if agent.strip()]
-        if len(normalized) < 1:
-            raise ValueError("至少需要选择一个agent")
-        return normalized
 
 
 class GroupChatMessageRequest(BaseModel):
     """群聊消息请求"""
-
     group_id: str
     message: str
-
-    @field_validator("group_id")
-    @classmethod
-    def _validate_group_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("group_id不能为空")
-        return normalized
-
-    @field_validator("message")
-    @classmethod
-    def _validate_message(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("消息内容不能为空")
-        return normalized
 
 
 class GroupChatAgentRequest(BaseModel):
     """群聊agent操作请求"""
-
     group_id: str
     agent_id: str
 
-    @field_validator("group_id")
-    @classmethod
-    def _validate_group_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("group_id不能为空")
-        return normalized
 
-    @field_validator("agent_id")
-    @classmethod
-    def _validate_agent_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("agent_id不能为空")
-        return normalized
+# ============================================================================
+# Game State API
+# ============================================================================
 
 
 @app.post("/api/command")
 async def send_command(cmd: CommandRequest):
-    """发送命令到游戏 - 转换为 CHAT 事件"""
+    """发送命令到游戏"""
     try:
-        agent = _validate_agent_id(cmd.agent, required=True, field_name="agent")
+        await game_instance.message_service.send_command(
+            agent_id=cmd.agent,
+            command=cmd.command,
+            session_id=DEFAULT_WEB_SESSION_ID,
+        )
+        return {"success": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    event = Event(
-        src="player:web",
-        dst=[f"agent:{agent}"],
-        type=EventType.CHAT,
-        payload={"message": cmd.command.strip()},
-        session_id=game_instance.session_id,
-    )
-
-    if game_instance.event_bus:
-        await game_instance.event_bus.send_event(event)
-        return {"success": True}
-    else:
-        raise HTTPException(status_code=503, detail="Game not initialized")
 
 
 @app.get("/api/state")
 async def get_state():
-    """
-    查询当前游戏状态
-
-    Returns:
-        GameState (JSON)
-    """
+    """查询当前游戏状态"""
     if not game_instance.repository:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
     state = await game_instance.repository.load_state()
     if state is None:
         return {}
-    # state 可能是 Pydantic 模型或 dict
     if isinstance(state, dict):
         return state
     else:
@@ -457,22 +284,21 @@ async def get_state():
 
 @app.get("/api/overview")
 async def get_overview():
-    """
-    查询帝国概况（前端右侧状态面板）。
-    """
-    return await game_instance.get_empire_overview()
+    """查询帝国概况"""
+    return await game_instance.game_service.get_overview()
+
+
+# ============================================================================
+# Session API
+# ============================================================================
 
 
 @app.get("/api/sessions")
 async def list_sessions_api():
-    """
-    列出所有 session，并返回当前选中 session。
-    """
-    sessions = await game_instance.list_sessions()
-    agent_sessions = await game_instance.list_agent_sessions()
+    """列出所有 session"""
+    sessions = await game_instance.session_service.list_sessions()
+    agent_sessions = await game_instance.session_service.list_agent_sessions()
     return {
-        "current_session_id": game_instance.session_id,
-        "current_agent_id": game_instance.current_agent_id,
         "sessions": sessions,
         "agent_sessions": agent_sessions,
     }
@@ -480,50 +306,30 @@ async def list_sessions_api():
 
 @app.post("/api/sessions")
 async def create_session(request: SessionCreateRequest):
-    """
-    新建 session 并切换为当前 session。
-    """
-    try:
-        agent_id = _validate_agent_id(request.agent_id, required=False, field_name="agent_id")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    session = await game_instance.create_session(request.name, agent_id=agent_id)
-    return {
-        "success": True,
-        "current_session_id": game_instance.session_id,
-        "current_agent_id": game_instance.current_agent_id,
-        "session": session,
-    }
+    """新建 session 并切换为当前 session"""
+    session = await game_instance.session_service.create_session(
+        name=request.name,
+        agent_id=request.agent_id,
+    )
+    return {"success": True, "session": session}
 
 
 @app.post("/api/sessions/select")
 async def select_session(request: SessionSelectRequest):
-    """
-    选择当前 session。
-    """
+    """选择当前 session"""
     try:
-        validated_session_id = _validate_session_id(request.session_id, required=True)
-        validated_agent_id = _validate_agent_id(
-            request.agent_id, required=False, field_name="agent_id"
+        session = await game_instance.session_service.select_session(
+            session_id=request.session_id,
+            agent_id=request.agent_id,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    try:
-        session = await game_instance.select_session(
-            validated_session_id,
-            agent_id=validated_agent_id,
-        )
+        return {"success": True, "session": session}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return {
-        "success": True,
-        "current_session_id": game_instance.session_id,
-        "current_agent_id": game_instance.current_agent_id,
-        "session": session,
-    }
+
+# ============================================================================
+# Tape API
+# ============================================================================
 
 
 @app.get("/api/tape/current")
@@ -533,21 +339,7 @@ async def get_current_tape(
     session_id: str | None = None,
     include_sub_sessions: str | None = None,
 ):
-    """
-    查询当前 session 的 tape 事件。
-
-    Args:
-        limit: 事件数量限制
-        agent_id: agent ID
-        session_id: session ID
-        include_sub_sessions: 要包含的子session ID列表（逗号分隔）
-    """
-    try:
-        validated_agent_id = _validate_agent_id(agent_id, required=False, field_name="agent_id")
-        validated_session_id = _validate_session_id(session_id, required=False)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    """查询当前 session 的 tape 事件"""
     safe_limit = max(1, min(limit, 500))
 
     # 解析子session列表
@@ -556,17 +348,17 @@ async def get_current_tape(
         sub_sessions = [s.strip() for s in include_sub_sessions.split(",") if s.strip()]
 
     if sub_sessions:
-        return await game_instance.get_tape_with_subs(
+        return await game_instance.tape_service.get_tape_with_subs(
             limit=safe_limit,
-            agent_id=validated_agent_id,
-            session_id=validated_session_id,
-            include_sub_sessions=sub_sessions,
+            agent_id=agent_id,
+            session_id=session_id,
+            sub_sessions=sub_sessions,
         )
 
-    return await game_instance.get_current_tape(
+    return await game_instance.tape_service.get_current_tape(
         limit=safe_limit,
-        agent_id=validated_agent_id,
-        session_id=validated_session_id,
+        agent_id=agent_id,
+        session_id=session_id,
     )
 
 
@@ -575,34 +367,25 @@ async def get_sub_sessions(
     session_id: str,
     agent_id: str | None = None,
 ):
-    """
-    获取指定主会话的所有子session列表
-
-    Args:
-        session_id: 父会话ID
-        agent_id: 可选，筛选特定agent的子会话
-
-    Returns:
-        子会话列表
-    """
-    if not game_instance._running:
+    """获取指定主会话的所有子session列表"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    return await game_instance.get_sub_sessions(session_id, agent_id)
+    return await game_instance.tape_service.get_sub_sessions(session_id, agent_id)
+
+
+# ============================================================================
+# Agent API
+# ============================================================================
 
 
 @app.get("/api/agents")
 async def list_agents():
-    """
-    列出所有活跃 agents
-
-    Returns:
-        ["governor_zhili", "minister_of_revenue", ...]
-    """
-    if not game_instance._running:
+    """列出所有活跃 agents"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    return game_instance.get_available_agents()
+    return await game_instance.agent_service.get_available_agents()
 
 
 # ============================================================================
@@ -612,120 +395,89 @@ async def list_agents():
 
 @app.get("/api/groups")
 async def list_groups():
-    """
-    列出所有群聊
-
-    Returns:
-        群聊列表，每个群聊包含group_id, name, agent_ids等信息
-    """
-    if not game_instance._running:
+    """列出所有群聊"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    return await game_instance.list_group_chats()
+    return await game_instance.group_chat_service.list_group_chats()
 
 
 @app.post("/api/groups")
 async def create_group(request: GroupChatCreateRequest):
-    """
-    创建群聊
-
-    Args:
-        request: 群聊创建请求（name, agent_ids）
-
-    Returns:
-        创建的群聊信息
-    """
-    if not game_instance._running:
+    """创建群聊"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    # 验证所有agent都可用
-    available_agents = game_instance.get_available_agents()
-    for agent_id in request.agent_ids:
-        normalized = (
-            agent_id if not agent_id.startswith("agent:") else agent_id.replace("agent:", "")
-        )
-        if normalized not in available_agents:
-            raise HTTPException(status_code=400, detail=f"Agent不可用: {agent_id}")
-
-    group = await game_instance.create_group_chat(request.name, request.agent_ids)
+    group = await game_instance.group_chat_service.create_group_chat(
+        name=request.name,
+        agent_ids=request.agent_ids,
+        session_id=DEFAULT_WEB_SESSION_ID,
+    )
     return group.to_dict()
 
 
 @app.post("/api/groups/message")
 async def send_group_message(request: GroupChatMessageRequest):
-    """
-    向群聊发送消息
-
-    Args:
-        request: 消息请求（group_id, message）
-
-    Returns:
-        {"success": true, "sent_agents": [...]}
-    """
-    if not game_instance._running:
+    """向群聊发送消息"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    sent_agents = await game_instance.send_to_group_chat(request.group_id, request.message)
-
-    if not sent_agents:
-        raise HTTPException(status_code=404, detail=f"群聊不存在: {request.group_id}")
-
-    return {
-        "success": True,
-        "sent_agents": sent_agents,
-        "count": len(sent_agents),
-    }
+    try:
+        sent_agents = await game_instance.group_chat_service.send_to_group_chat(
+            group_id=request.group_id,
+            message=request.message,
+        )
+        return {
+            "success": True,
+            "sent_agents": sent_agents,
+            "count": len(sent_agents),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/groups/add-agent")
 async def add_group_agent(request: GroupChatAgentRequest):
-    """
-    向群聊添加agent
-
-    Args:
-        request: 添加请求（group_id, agent_id）
-
-    Returns:
-        {"success": true}
-    """
-    if not game_instance._running:
+    """向群聊添加agent"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    success = await game_instance.add_agent_to_group(request.group_id, request.agent_id)
-
-    if not success:
-        raise HTTPException(status_code=400, detail="添加agent失败")
-
-    return {"success": True}
+    try:
+        await game_instance.group_chat_service.add_agent_to_group(
+            group_id=request.group_id,
+            agent_id=request.agent_id,
+        )
+        return {"success": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/groups/remove-agent")
 async def remove_group_agent(request: GroupChatAgentRequest):
-    """
-    从群聊移除agent
-
-    Args:
-        request: 移除请求（group_id, agent_id）
-
-    Returns:
-        {"success": true}
-    """
-    if not game_instance._running:
+    """从群聊移除agent"""
+    if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    success = await game_instance.remove_agent_from_group(request.group_id, request.agent_id)
+    try:
+        await game_instance.group_chat_service.remove_agent_from_group(
+            group_id=request.group_id,
+            agent_id=request.agent_id,
+        )
+        return {"success": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if not success:
-        raise HTTPException(status_code=400, detail="移除agent失败")
 
-    return {"success": True}
+# ============================================================================
+# Health Check
+# ============================================================================
 
 
 @app.get("/api/health")
 async def health_check():
     """健康检查"""
     return {
-        "status": "running" if game_instance._running else "stopped",
+        "status": "running" if game_instance.is_running else "stopped",
         "connections": connection_manager.connection_count,
     }
 
