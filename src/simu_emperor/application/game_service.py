@@ -77,8 +77,10 @@ class GameService:
 
         # Initialize and start TickCoordinator
         from simu_emperor.engine.tick_coordinator import TickCoordinator
-        self._tick_coordinator = TickCoordinator(self.event_bus, self._engine)
-        self._tick_coordinator.start()
+        self._tick_coordinator = TickCoordinator(
+            self.event_bus, self._engine, self.repository
+        )
+        await self._tick_coordinator.start()
         logger.info("TickCoordinator started")
 
         self._running = True
@@ -95,7 +97,7 @@ class GameService:
         logger.info("Shutting down GameService...")
 
         if self._tick_coordinator:
-            self._tick_coordinator.stop()
+            await self._tick_coordinator.stop()
 
         self._running = False
         logger.info("GameService shut down")

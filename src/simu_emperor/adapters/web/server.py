@@ -174,6 +174,12 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
 
             # 委托给 MessageService
             target_session_id = session_id or DEFAULT_WEB_SESSION_ID
+
+            # 添加调试日志
+            logger.info(
+                f"[WS] Received {msg_type}: agent={agent}, session={target_session_id}, text={text[:50]}..."
+            )
+
             if msg_type == "command":
                 await game_instance.message_service.send_command(
                     agent_id=agent,
@@ -186,6 +192,8 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
                     message=text,
                     session_id=target_session_id,
                 )
+
+            logger.info(f"[WS] Message published to event bus: agent={agent}, session={target_session_id}")
 
         except ValueError as exc:
             logger.warning("Invalid message payload: %s", exc)
@@ -296,6 +304,9 @@ async def get_overview():
 @app.get("/api/sessions")
 async def list_sessions_api():
     """列出所有 session"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
     sessions = await game_instance.session_service.list_sessions()
     agent_sessions = await game_instance.session_service.list_agent_sessions()
     return {
@@ -307,22 +318,38 @@ async def list_sessions_api():
 @app.post("/api/sessions")
 async def create_session(request: SessionCreateRequest):
     """新建 session 并切换为当前 session"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
     session = await game_instance.session_service.create_session(
         name=request.name,
         agent_id=request.agent_id,
     )
-    return {"success": True, "session": session}
+    return {
+        "success": True,
+        "session": session,
+        "current_session_id": session.get("session_id"),
+        "current_agent_id": session.get("agent_id"),
+    }
 
 
 @app.post("/api/sessions/select")
 async def select_session(request: SessionSelectRequest):
     """选择当前 session"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
     try:
         session = await game_instance.session_service.select_session(
             session_id=request.session_id,
             agent_id=request.agent_id,
         )
-        return {"success": True, "session": session}
+        return {
+            "success": True,
+            "session": session,
+            "current_session_id": session.get("session_id") or request.session_id,
+            "current_agent_id": session.get("agent_id") or request.agent_id,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

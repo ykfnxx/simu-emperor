@@ -81,17 +81,21 @@ class SessionService:
         self._session_titles[session_id] = title
 
         # Create session in manager
-        await self.session_manager.create_session(
+        session = await self.session_manager.create_session(
             session_id=session_id,
             created_by="player:web",
             status="ACTIVE",
         )
 
+        # Register agent in session's agent_states
+        await self.session_manager.set_agent_state(
+            session_id=session_id,
+            agent_id=normalized_agent,
+            status="ACTIVE",
+        )
+
         # Update agent binding
         self._current_session_by_agent[normalized_agent] = session_id
-
-        # Register in manifest
-        await self._ensure_session_registered(session_id, [normalized_agent])
 
         return {
             "session_id": session_id,
@@ -189,12 +193,33 @@ class SessionService:
             if session_id.startswith("task:"):
                 continue
 
-            # Get agents in this session
-            agents = session_data.get("agents", {})
-            if not isinstance(agents, dict):
-                continue
+            # Get agents in this session - support both old and new formats
+            # New format (V2): agent_states is a dict of agent_id -> status
+            # Old format (V1): agents is a dict of agent_id -> agent_data
+            agent_states = session_data.get("agent_states", {})
+            old_agents = session_data.get("agents", {})
 
-            for agent_id in agents.keys():
+            # Use new format if available, otherwise fall back to old format
+            agents_to_process: list[str] = []
+            if agent_states:
+                # New V2 format: agent_states keys are agent IDs (with or without "agent:" prefix)
+                for agent_id in agent_states.keys():
+                    # Strip "agent:" prefix for consistency
+                    normalized = agent_id.replace("agent:", "") if agent_id.startswith("agent:") else agent_id
+                    agents_to_process.append(normalized)
+            elif old_agents:
+                # Old V1 format: agents dict keys are agent IDs
+                if isinstance(old_agents, dict):
+                    agents_to_process.extend(old_agents.keys())
+
+            # If no agents found but session has created_by info with agent prefix, use that
+            if not agents_to_process:
+                created_by = session_data.get("created_by", "")
+                if created_by.startswith("agent:"):
+                    agent_id = created_by.replace("agent:", "")
+                    agents_to_process.append(agent_id)
+
+            for agent_id in agents_to_process:
                 if agent_id not in agent_sessions:
                     agent_sessions[agent_id] = []
 
@@ -241,16 +266,6 @@ class SessionService:
                 if session["session_id"] == session_id:
                     return group["agent_id"]
         return None
-
-    async def _ensure_session_registered(
-        self,
-        session_id: str,
-        agent_ids: list[str],
-    ) -> None:
-        """Register session in manifest if not already registered."""
-        # This would update the manifest index
-        # Full implementation would register the session with metadata
-        pass
 
     def set_current_context(self, agent_id: str, session_id: str) -> None:
         """Set current session context for agent."""

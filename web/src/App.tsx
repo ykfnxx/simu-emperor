@@ -409,9 +409,14 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupAgents, setSelectedGroupAgents] = useState<Set<string>>(new Set());
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+  // 待创建的session信息（延迟创建模式）
+  const [pendingSession, setPendingSession] = useState<{ agentId: string; name?: string } | null>(null);
   const currentAgentRef = useRef(currentAgentId);
   const currentSessionRef = useRef(currentSessionId);
   const tapeRef = useRef(tape);
+  // 超时检测相关
+  const responseTimeoutRef = useRef<number | null>(null);
+  const [responseTimeoutError, setResponseTimeoutError] = useState<string | null>(null);
 
   const refreshTape = useCallback(
     async (agentId: string, sessionId: string, includeSubs?: string[]) => {
@@ -591,6 +596,12 @@ export default function App() {
       if (data.agent === 'player') {
         return;
       }
+      // 收到agent响应，清除超时检测
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current);
+        responseTimeoutRef.current = null;
+      }
+      setResponseTimeoutError(null);
       setAgentTyping(false);
       void refreshTape(currentAgentRef.current, currentSessionRef.current);
     });
@@ -654,6 +665,9 @@ export default function App() {
     [sessions, currentSessionId]
   );
 
+  // 检查当前session是否有效（存在或在pending状态）
+  const isValidSession = currentSession !== undefined || pendingSession !== null;
+
   const chatMessages = useMemo(() => toChatMessages(tape.events), [tape.events]);
   const tapeContextEvents = useMemo(() => toTapeContextEvents(tape.events), [tape.events]);
   const currentAgentName = useMemo(
@@ -666,8 +680,17 @@ export default function App() {
     setError(null);
     setExpandedAgents((prev) => ({ ...prev, [agentId]: true }));
     try {
-      await client.current.createSession(undefined, agentId);
-      await refreshData();
+      // 延迟创建模式：只设置pendingSession，真正创建在发送第一条消息时
+      setPendingSession({ agentId });
+      // 切换当前agent，但保持当前sessionId不变（会在发送消息时更新）
+      setCurrentAgentId(agentId);
+      // 清空tape显示
+      setTape({
+        agent_id: agentId,
+        session_id: '',
+        events: [],
+        total: 0,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : '新建会话失败';
       setError(message);
@@ -680,6 +703,7 @@ export default function App() {
     if (!agentId || !sessionId) return;
     setError(null);
     setAgentTyping(false);
+    setPendingSession(null); // 清除待创建的session
     try {
       try {
         await client.current.selectSession(sessionId, agentId);
@@ -763,7 +787,35 @@ export default function App() {
 
   const handleSend = async () => {
     const content = inputText.trim();
-    if (!content || !currentAgentId || !currentSessionId) return;
+    if (!content || !currentAgentId) return;
+
+    // 延迟创建session：如果有pendingSession，先创建session
+    let targetSessionId = currentSessionId;
+    if (pendingSession) {
+      setSending(true);
+      setError(null);
+      try {
+        const result = await client.current.createSession(undefined, pendingSession.agentId);
+        targetSessionId = result.session?.session_id || result.current_session_id || currentSessionId;
+        setCurrentSessionId(targetSessionId);
+        setPendingSession(null); // 清除pending状态
+        // 刷新session列表
+        await refreshData();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '创建会话失败';
+        setError(message);
+        setSending(false);
+        setAgentTyping(false);
+        return;
+      }
+    }
+
+    // 检查是否有有效的session
+    if (!targetSessionId) {
+      setError('请先选择或创建会话');
+      return;
+    }
+
     setSending(true);
     setAgentTyping(true);
     setError(null);
@@ -775,7 +827,7 @@ export default function App() {
       type: 'chat',
       payload: { message: content },
       timestamp: new Date().toISOString(),
-      session_id: currentSessionId,
+      session_id: targetSessionId,
       agent_id: currentAgentId,
     };
     setTape((prev) => {
@@ -789,17 +841,40 @@ export default function App() {
     });
 
     try {
-      await client.current.sendChat(currentAgentId, content, currentSessionId);
+      // 清除之前的超时检测
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current);
+        responseTimeoutRef.current = null;
+      }
+      setResponseTimeoutError(null);
+
+      await client.current.sendChat(currentAgentId, content, targetSessionId);
       setInputText('');
+
+      // 设置超时检测（30秒后如果agent还在typing状态，显示警告）
+      responseTimeoutRef.current = window.setTimeout(() => {
+        // 检查agent是否仍在typing状态
+        setAgentTyping((prev) => {
+          if (prev) {
+            setResponseTimeoutError('Agent 响应超时，可能正在处理中或遇到问题。请稍后刷新查看。');
+          }
+          return prev;
+        });
+      }, 30000);
 
       // 后端响应异步落盘，短暂延迟后刷新一次。
       setTimeout(() => {
-        void refreshTape(currentAgentId, currentSessionId);
+        void refreshTape(currentAgentId, targetSessionId);
       }, 1200);
     } catch (err) {
       const message = err instanceof Error ? err.message : '发送失败';
       setError(message);
       setAgentTyping(false);
+      // 清除超时检测
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current);
+        responseTimeoutRef.current = null;
+      }
     } finally {
       setSending(false);
     }
@@ -960,23 +1035,39 @@ export default function App() {
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="min-w-0">
               <p className="truncate text-xl font-semibold">
-                {currentSession?.title ?? `${currentAgentId} - 对话`}
+                {pendingSession
+                  ? `新建会话 - ${pendingSession.agentId}`
+                  : (currentSession?.title ?? `${currentAgentId} - 对话`)
+                }
               </p>
             </div>
-            <div className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-              Online
+            <div className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              isValidSession ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+            }`}>
+              {isValidSession ? 'Online' : '未选择会话'}
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5">
-            {chatMessages.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-                当前会话暂无消息，输入内容即可开始对话。
+            {!isValidSession ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
+                  <MessageSquare className="mx-auto mb-4 h-12 w-12 text-amber-500" />
+                  <h3 className="mb-2 text-lg font-semibold text-amber-800">请先选择或创建会话</h3>
+                  <p className="text-sm text-amber-700">
+                    在左侧列表中选择一个现有会话，或点击 <Plus className="inline h-4 w-4" /> 按钮创建新会话。
+                  </p>
+                </div>
               </div>
-            )}
+            ) : chatMessages.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+                {pendingSession ? '输入内容即可创建新会话并开始对话。' : '当前会话暂无消息，输入内容即可开始对话。'}
+              </div>
+            ) : null}
 
-            <div className="space-y-3">
-              {chatMessages.map((event) => {
+            {isValidSession && (
+              <div className="space-y-3">
+                {chatMessages.map((event) => {
                 const isPlayer = event.src === 'player:web';
                 return (
                   <div key={event.event_id} className={`flex ${isPlayer ? 'justify-end' : 'justify-start'}`}>
@@ -994,25 +1085,43 @@ export default function App() {
                 );
               })}
 
-              {agentTyping && (
-                <div className="flex justify-start">
-                  <div className="max-w-[55%] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700">
-                    <p className="text-xs text-slate-500">{currentAgentName} · 输入中...</p>
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                      <span
-                        className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
-                        style={{ animationDelay: '120ms' }}
-                      />
-                      <span
-                        className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
-                        style={{ animationDelay: '240ms' }}
-                      />
+                {agentTyping && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[55%] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700">
+                      <p className="text-xs text-slate-500">{currentAgentName} · 输入中...</p>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+                        <span
+                          className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
+                          style={{ animationDelay: '120ms' }}
+                        />
+                        <span
+                          className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
+                          style={{ animationDelay: '240ms' }}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+
+                {/* 超时错误提示 */}
+                {responseTimeoutError && (
+                  <div className="flex justify-center">
+                    <div className="max-w-[80%] rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+                      <div className="flex items-start gap-2">
+                        <span className="text-lg">⚠️</span>
+                        <div>
+                          <p className="text-sm font-medium">Agent 响应超时</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            {responseTimeoutError}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="border-t border-slate-200 p-4">
@@ -1035,9 +1144,17 @@ export default function App() {
                     }
                   }
                 }}
-                placeholder={currentGroupId ? "输入群聊消息，Enter 发送..." : "输入消息，Enter 发送..."}
-                disabled={sending || (!currentGroupId && (!currentAgentId || !currentSessionId))}
-                className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-300"
+                placeholder={
+                  !isValidSession
+                    ? "请先选择或创建会话..."
+                    : currentGroupId
+                      ? "输入群聊消息，Enter 发送..."
+                      : pendingSession
+                        ? "输入消息即可创建新会话，Enter 发送..."
+                        : "输入消息，Enter 发送..."
+                }
+                disabled={sending || !currentGroupId && !isValidSession}
+                className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-300 disabled:opacity-60"
               />
               <button
                 type="button"
@@ -1048,7 +1165,7 @@ export default function App() {
                     void handleSend();
                   }
                 }}
-                disabled={sending || !inputText.trim() || (!currentGroupId && (!currentAgentId || !currentSessionId))}
+                disabled={sending || !inputText.trim() || !currentGroupId && !isValidSession}
                 className={`rounded-xl px-3 py-2 text-white hover:opacity-90 disabled:opacity-60 ${
                   currentGroupId ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
                 }`}

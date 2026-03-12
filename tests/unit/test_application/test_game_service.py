@@ -74,6 +74,7 @@ class TestGameService:
             mock_engine = MagicMock()
             mock_engine_cls.return_value = mock_engine
             mock_tick_coord = MagicMock()
+            mock_tick_coord.start = AsyncMock()
             mock_tick_coord_cls.return_value = mock_tick_coord
             mock_file_helper.read_json_file = AsyncMock(return_value=None)
 
@@ -104,6 +105,7 @@ class TestGameService:
 
         # Mock tick coordinator
         mock_tick_coord = MagicMock()
+        mock_tick_coord.stop = AsyncMock()
         service._tick_coordinator = mock_tick_coord
         service._running = True
 

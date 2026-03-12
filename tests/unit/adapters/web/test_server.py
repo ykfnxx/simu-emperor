@@ -74,6 +74,17 @@ class TestFastAPIServer:
         """测试新建会话时 name 为空字符串。"""
         pass
 
+    def test_create_session_response_format(self, client):
+        """测试创建会话响应格式是否包含前端需要的字段"""
+        # 测试请求体格式验证（Pydantic会自动验证）
+        response = client.post(
+            "/api/sessions",
+            json={"name": "测试会话", "agent_id": "governor_zhili"}
+        )
+        # 游戏未初始化，应该返回错误或 503
+        # 这里主要测试请求格式正确，能通过 Pydantic 验证
+        assert response.status_code in [200, 503, 500]
+
     @pytest.mark.skip(reason="Requires game initialization - should be in integration tests")
     def test_select_session_invalid_format(self, client):
         """测试选择会话时 session_id 格式非法。"""

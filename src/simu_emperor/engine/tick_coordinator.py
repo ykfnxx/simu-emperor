@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.engine.engine import Engine
-from simu_emperor.persistence.repositories import GameRepository
+from simu_emperor.engine.protocols import GameStateRepository
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class TickCoordinator:
         self,
         event_bus: EventBus,
         engine: Engine,
-        game_repo: GameRepository,
+        game_repo: GameStateRepository,
         tick_interval_seconds: int = 5,
     ):
         """初始化 TickCoordinator
@@ -45,7 +45,7 @@ class TickCoordinator:
         Args:
             event_bus: EventBus 实例，用于发布 tick_completed 事件
             engine: Engine 实例，用于执行 tick 计算
-            game_repo: GameRepository 实例，用于持久化游戏状态
+            game_repo: GameStateRepository 实例，用于持久化游戏状态
             tick_interval_seconds: 每个 tick 间隔秒数（默认 5 秒）
 
         Note:
