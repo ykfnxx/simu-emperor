@@ -144,10 +144,9 @@ class GameService:
 
         def _get_provinces(state_dict: dict) -> list[dict]:
             provinces = state_dict.get("provinces")
-            provinces = state.get("provinces")
             if isinstance(provinces, list):
                 return provinces
-            base_data = state.get("base_data", {})
+            base_data = state_dict.get("base_data", {})
             if isinstance(base_data, dict):
                 provinces = base_data.get("provinces")
                 if isinstance(provinces, list):

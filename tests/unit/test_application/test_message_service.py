@@ -20,7 +20,6 @@ def mock_session_manager():
     return MagicMock()
 
 
-@pytest.mark.asyncio
 class TestMessageService:
     """Test MessageService."""
 
@@ -34,6 +33,7 @@ class TestMessageService:
         assert service.event_bus == mock_event_bus
         assert service.session_manager == mock_session_manager
 
+    @pytest.mark.asyncio
     async def test_send_command(self, mock_event_bus, mock_session_manager):
         """Test sending command to agent."""
         service = MessageService(
@@ -53,6 +53,7 @@ class TestMessageService:
         assert "agent:governor_zhili" in event.dst
         assert event.payload["query"] == "查看直隶情况"
 
+    @pytest.mark.asyncio
     async def test_send_command_with_agent_prefix(self, mock_event_bus, mock_session_manager):
         """Test sending command with agent: prefix."""
         service = MessageService(
@@ -70,6 +71,7 @@ class TestMessageService:
         event = call_args[0][0]
         assert event.dst == ["agent:governor_zhili"]
 
+    @pytest.mark.asyncio
     async def test_send_chat(self, mock_event_bus, mock_session_manager):
         """Test sending chat to agent."""
         service = MessageService(
@@ -89,6 +91,7 @@ class TestMessageService:
         assert "agent:governor_zhili" in event.dst
         assert event.payload["message"] == "你好"
 
+    @pytest.mark.asyncio
     async def test_broadcast(self, mock_event_bus, mock_session_manager):
         """Test broadcasting message to all agents."""
         service = MessageService(
@@ -105,6 +108,7 @@ class TestMessageService:
         event = call_args[0][0]
         assert event.dst == ["*"]
 
+    @pytest.mark.asyncio
     async def test_broadcast_to_specific_agents(self, mock_event_bus, mock_session_manager):
         """Test broadcasting to specific agents."""
         service = MessageService(
@@ -123,6 +127,7 @@ class TestMessageService:
         assert "agent:governor_zhili" in event.dst
         assert "agent:minister_of_revenue" in event.dst
 
+    @pytest.mark.asyncio
     async def test_send_to_group(self, mock_event_bus, mock_session_manager):
         """Test sending to group chat."""
         service = MessageService(
@@ -139,6 +144,7 @@ class TestMessageService:
 
         assert result == []
 
+    @pytest.mark.asyncio
     async def test_parse_message_command(self, mock_event_bus, mock_session_manager):
         """Test parsing command message."""
         service = MessageService(
@@ -152,6 +158,7 @@ class TestMessageService:
         assert result["command"] == "help"
         assert result["args"] == ""
 
+    @pytest.mark.asyncio
     async def test_parse_message_command_with_args(self, mock_event_bus, mock_session_manager):
         """Test parsing command with arguments."""
         service = MessageService(
@@ -165,6 +172,7 @@ class TestMessageService:
         assert result["command"] == "create_session"
         assert result["args"] == "Test Session"
 
+    @pytest.mark.asyncio
     async def test_parse_message_chat(self, mock_event_bus, mock_session_manager):
         """Test parsing chat message."""
         service = MessageService(
@@ -177,6 +185,7 @@ class TestMessageService:
         assert result["type"] == "chat"
         assert result["text"] == "你好，你好吗？"
 
+    @pytest.mark.asyncio
     async def test_parse_message_whitespace(self, mock_event_bus, mock_session_manager):
         """Test parsing message with whitespace."""
         service = MessageService(
