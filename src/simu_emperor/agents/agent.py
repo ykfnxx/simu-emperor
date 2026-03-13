@@ -842,16 +842,41 @@ class Agent:
                 f"⚙️  [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
             )
 
+            result_str = await self._call_function_with_result(function_name, function_args, event)
+
+            # 检查函数是否成功执行
             if function_name == "finish_loop":
-                has_finish_loop = True
+                # finish_loop 成功时返回 "✅ finish_loop 已执行..."
+                if result_str.startswith("✅"):
+                    has_finish_loop = True
+                else:
+                    logger.warning(
+                        f"⚠️ [Agent:{self.agent_id}:{session_id}] finish_loop 执行失败: {result_str}"
+                    )
 
             if function_name == "respond_to_player":
-                has_respond_to_player = True
+                # respond_to_player 成功时返回 "✅ 响应已发送"
+                if result_str == "✅ 响应已发送":
+                    has_respond_to_player = True
+                else:
+                    logger.warning(
+                        f"⚠️ [Agent:{self.agent_id}:{session_id}] respond_to_player 执行失败: {result_str}"
+                    )
 
             if function_name == "create_task_session":
-                has_create_task_session = True
-
-            result_str = await self._call_function_with_result(function_name, function_args, event)
+                # create_task_session 返回 JSON，需要解析检查 success 字段
+                try:
+                    result_data = json.loads(result_str)
+                    if result_data.get("success") is True:
+                        has_create_task_session = True
+                    else:
+                        logger.warning(
+                            f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 执行失败: {result_str}"
+                        )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 返回无效 JSON: {result_str}"
+                    )
 
             # Fix: Ensure tool_result timestamps come AFTER assistant_response
             # Parse base timestamp and increment microseconds to maintain ordering

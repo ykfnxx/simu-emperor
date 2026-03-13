@@ -10,7 +10,7 @@ export default defineConfig({
       // 代理 API 请求到后端
       '/api': 'http://localhost:8000',
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'http://localhost:8000',
         ws: true
       }
     }

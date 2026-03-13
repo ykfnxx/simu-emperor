@@ -42,7 +42,11 @@ const DEFAULT_OVERVIEW: EmpireOverview = {
 
 function buildWsUrl(): string {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsProtocol}://${window.location.host}/ws`;
+  // In development (Vite dev server on port 5173), connect directly to backend WebSocket on port 8000
+  // In production, use the same host as the frontend
+  const isDev = window.location.port === '5173' || window.location.hostname === 'localhost';
+  const wsHost = isDev ? `${window.location.hostname}:8000` : window.location.host;
+  return `${wsProtocol}://${wsHost}/ws`;
 }
 
 function formatNumber(value: number): string {
@@ -558,7 +562,8 @@ export default function App() {
       clearInterval(timer);
       client.current.disconnect();
     };
-  }, [refreshData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     currentAgentRef.current = currentAgentId;

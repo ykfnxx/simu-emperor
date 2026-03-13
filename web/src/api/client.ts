@@ -36,6 +36,8 @@ export class GameClient {
   private maxReconnectAttempts: number;
   private reconnectAttempts: number = 0;
   private reconnectTimer: number | null = null;
+  private intentionallyDisconnected: boolean = false;
+  private connectRequested: boolean = false;
 
   private messageHandlers: Map<WSMessageKind, Set<MessageHandler<unknown>>>;
   private connectionStateListeners: Set<(state: ConnectionState) => void>;
@@ -66,10 +68,24 @@ export class GameClient {
   }
 
   connect() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
+    // Close any existing WebSocket in CLOSING or CLOSED state before creating a new one
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      }
+      this.ws = null;
+    }
+
+    this.intentionallyDisconnected = false;
+    this.connectRequested = true;
     this.setConnectionState('connecting');
 
     try {
@@ -89,11 +105,12 @@ export class GameClient {
 
       this.ws.onclose = () => {
         this.setConnectionState('disconnected');
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        // Only reconnect if the disconnection was not intentional and connect was requested
+        if (!this.intentionallyDisconnected && this.connectRequested && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts += 1;
           this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectInterval);
         } else {
-          this.setConnectionState('error');
+          this.connectRequested = false;
         }
       };
 
@@ -106,13 +123,25 @@ export class GameClient {
   }
 
   disconnect() {
+    this.intentionallyDisconnected = true;
+    this.connectRequested = false;
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
 
     if (this.ws) {
-      this.ws.close();
+      // Only close if the connection is actually established
+      // Don't close if still connecting to avoid "closed before connection established" error
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close();
+      }
+      // Clear event handlers to prevent any callbacks after disconnect
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
       this.ws = null;
     }
 
