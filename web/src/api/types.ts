@@ -94,6 +94,7 @@ export interface GameStateResponse {
   turn: number;
   imperial_treasury?: number;
   base_tax_rate?: number;
+  base_tax_rate_delta?: number;  // 基础税率变化量
   tribute_rate?: number;
   fixed_expenditure?: number;
   provinces?: Record<string, ProvinceData>;
@@ -111,6 +112,16 @@ export interface ProvinceData {
   base_production_growth?: number;  // 产值增长率 0.01
   base_population_growth?: number;  // 人口增长率 0.005
   tax_modifier?: number;      // 税率修正
+  actual_tax_rate?: number;   // 实际税率 (base_tax_rate + tax_modifier)
+  // 核心数值变化量（相较上一tick）
+  production_value_delta?: number;
+  population_delta?: number;
+  stockpile_delta?: number;
+  fixed_expenditure_delta?: number;
+  // 事件叠加影响
+  tax_modifier_incident?: number;   // 事件对税率的影响
+  production_growth_incident?: number;  // 事件对产值增长率的影响
+  population_growth_incident?: number;  // 事件对人口增长率的影响
 }
 
 // V4 帝国概况（只包含 V4 设计中的字段）

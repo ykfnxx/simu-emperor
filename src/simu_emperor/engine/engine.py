@@ -31,6 +31,9 @@ class Engine:
         self.state = initial_state
         self.active_incidents: List[Incident] = []
         self.event_bus = event_bus
+        # 存储上一tick的数值，用于计算变化量
+        # 格式: {province_id: {field: value}}
+        self._previous_tick_values: dict[str, dict[str, Decimal]] = {}
 
         if event_bus:
             event_bus.subscribe("system:engine", self._on_incident_created)
@@ -39,6 +42,7 @@ class Engine:
         """应用一个 tick，返回新状态
 
         Tick 计算流程：
+        0. 保存当前状态用于计算变化量
         1. 应用基础增长率（所有省份）
         2. 应用所有活跃 Effect（按 target_path 叠加）
         3. 计算税收和国库更新
@@ -47,6 +51,9 @@ class Engine:
         Returns:
             新的 NationData 状态
         """
+        # 0. 保存当前状态用于计算变化量
+        self._save_previous_values()
+
         # 1. 应用基础增长率
         self._apply_base_growth()
 
@@ -239,6 +246,60 @@ class Engine:
         # 移除已到期的 Incident
         self.active_incidents = [inc for inc in self.active_incidents if inc.remaining_ticks > 0]
 
+    def _save_previous_values(self) -> None:
+        """保存当前省份数值，用于计算变化量"""
+        self._previous_tick_values = {}
+        for province_id, province in self.state.provinces.items():
+            self._previous_tick_values[province_id] = {
+                "production_value": province.production_value,
+                "population": province.population,
+                "stockpile": province.stockpile,
+                "fixed_expenditure": province.fixed_expenditure,
+                "base_production_growth": province.base_production_growth,
+                "base_population_growth": province.base_population_growth,
+                "tax_modifier": province.tax_modifier,
+            }
+        # 保存国家层面税率
+        self._previous_tick_values["_nation"] = {
+            "base_tax_rate": self.state.base_tax_rate,
+        }
+
+    def get_province_delta(self, province_id: str, field: str) -> Decimal:
+        """获取省份字段相较上一tick的变化量
+
+        Args:
+            province_id: 省份ID，或 "_nation" 获取国家层面数据
+            field: 字段名 (production_value, population, stockpile, fixed_expenditure,
+                          base_production_growth, base_population_growth, tax_modifier,
+                          base_tax_rate)
+
+        Returns:
+            变化量 (当前值 - 上一tick值)，如果无历史记录则返回 0
+        """
+        # 特殊处理国家层面数据
+        if province_id == "_nation":
+            if "_nation" not in self._previous_tick_values:
+                return Decimal("0")
+            previous_values = self._previous_tick_values["_nation"]
+            if field not in previous_values:
+                return Decimal("0")
+            current_value = getattr(self.state, field, Decimal("0"))
+            return current_value - previous_values[field]
+        if province_id not in self._previous_tick_values:
+            return Decimal("0")
+
+        previous_values = self._previous_tick_values[province_id]
+        if field not in previous_values:
+            return Decimal("0")
+
+        if province_id not in self.state.provinces:
+            return Decimal("0")
+
+        current_value = getattr(self.state.provinces[province_id], field, Decimal("0"))
+        previous_value = previous_values[field]
+
+        return current_value - previous_value
+
     def add_incident(self, incident: Incident) -> None:
         """添加新的 Incident
 
@@ -268,6 +329,50 @@ class Engine:
             Copy of active incidents list
         """
         return self.active_incidents.copy()
+
+    def get_province_incident_effects(self, province_id: str) -> dict[str, Decimal]:
+        """获取省份的事件影响（incident叠加效果）
+
+        返回格式：
+        {
+            "tax_modifier": 事件对税率的叠加影响（如 0.02 表示 +2%）
+            "production_growth_factor": 事件对产值增长率的叠加影响
+            "population_growth_factor": 事件对人口增长率的叠加影响
+        }
+
+        Args:
+            province_id: 省份ID
+
+        Returns:
+            事件影响的字典
+        """
+        effects = {
+            "tax_modifier": Decimal("0"),
+            "production_growth_factor": Decimal("0"),
+            "population_growth_factor": Decimal("0"),
+        }
+
+        for incident in self.active_incidents:
+            for effect in incident.effects:
+                # 解析目标路径
+                path = effect.target_path
+                if not path.startswith(f"provinces.{province_id}."):
+                    continue
+
+                field = path.split(".")[-1]
+
+                # 处理 factor 类型的影响
+                if effect.factor is not None:
+                    if field == "production_value":
+                        effects["production_growth_factor"] += effect.factor
+                    elif field == "population":
+                        effects["population_growth_factor"] += effect.factor
+
+                # 处理 tax_modifier（通过 add 效果）
+                if field == "tax_modifier" and effect.add is not None:
+                    effects["tax_modifier"] += effect.add
+
+        return effects
 
     def get_state(self) -> NationData:
         """获取当前状态

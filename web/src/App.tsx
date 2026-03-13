@@ -395,6 +395,66 @@ function mergeAgentGroups(groups: AgentSessionGroup[], agents: AgentInfo[]): Age
   return Array.from(merged.values()).sort((a, b) => a.agent_id.localeCompare(b.agent_id));
 }
 
+// 显示数值和变化量的组件
+interface DeltaValueProps {
+  value: number;
+  delta?: number;
+  format?: boolean;
+}
+
+function DeltaValue({ value, delta, format = true }: DeltaValueProps) {
+  const deltaNum = delta ?? 0;
+
+  // 格式化数值
+  const displayValue = format ? formatNumber(Math.round(value)) : String(value);
+
+  // 无变化量时只显示数值
+  if (delta === undefined) {
+    return <span>{displayValue}</span>;
+  }
+
+  // 变化量为0时显示0，正常颜色（使用 epsilon 避免浮点数精度问题）
+  if (Math.abs(deltaNum) < 0.01) {
+    return <span>{displayValue} (0)</span>;
+  }
+
+  // 正变化：绿色，带+号
+  if (deltaNum > 0) {
+    const formattedDelta = format ? formatNumber(Math.round(deltaNum)) : String(deltaNum);
+    return <span>{displayValue} <span className="text-green-600">(+{formattedDelta})</span></span>;
+  }
+
+  // 负变化：红色
+  const formattedDelta = format ? formatNumber(Math.round(Math.abs(deltaNum))) : String(Math.abs(deltaNum));
+  return <span>{displayValue} <span className="text-red-600">(-{formattedDelta})</span></span>;
+}
+
+// 显示百分比和事件影响的组件
+interface IncidentEffectProps {
+  value: number;  // 当前值（百分比形式，如 10 表示 10%）
+  incidentEffect?: number;  // 事件影响值（百分比形式）
+}
+
+function IncidentEffect({ value, incidentEffect }: IncidentEffectProps) {
+  // 无事件影响时只显示基础值（使用 epsilon 比较避免浮点数精度问题）
+  const effectNum = incidentEffect ?? 0;
+  if (Math.abs(effectNum) < 0.0001) {
+    return <span>{value.toFixed(2)}%</span>;
+  }
+
+  // 计算事件影响的显示值
+  const effectValue = effectNum * 100; // 转换为百分比
+  const absEffect = Math.abs(effectValue);
+
+  // 正影响：绿色 +号
+  if (effectValue > 0) {
+    return <span>{value.toFixed(2)}% <span className="text-green-600">+{absEffect.toFixed(2)}%</span></span>;
+  }
+
+  // 负影响：红色 -号
+  return <span>{value.toFixed(2)}% <span className="text-red-600">-{absEffect.toFixed(2)}%</span></span>;
+}
+
 export default function App() {
   const client = useRef(
     createGameClient({
@@ -1440,7 +1500,9 @@ export default function App() {
                             <Coins className="h-4 w-4" />
                             <span>产值</span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.production_value))}</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            <DeltaValue value={Number(p.production_value)} delta={p.production_value_delta} />
+                          </p>
                         </div>
 
                         <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
@@ -1448,7 +1510,9 @@ export default function App() {
                             <Users className="h-4 w-4" />
                             <span>人口</span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.population))} 人</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            <DeltaValue value={Number(p.population)} delta={p.population_delta} />
+                          </p>
                         </div>
 
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -1456,7 +1520,9 @@ export default function App() {
                             <Coins className="h-4 w-4" />
                             <span>库存</span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.stockpile))}</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            <DeltaValue value={Number(p.stockpile)} delta={p.stockpile_delta} />
+                          </p>
                         </div>
 
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -1464,26 +1530,43 @@ export default function App() {
                             <span className="font-mono">💰</span>
                             <span>固定支出</span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.fixed_expenditure))}</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            <DeltaValue value={Number(p.fixed_expenditure)} delta={p.fixed_expenditure_delta} />
+                          </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="rounded-xl border border-green-100 bg-green-50 p-3">
                             <div className="text-xs text-green-700">产值增长率</div>
-                            <p className="mt-1 text-sm font-semibold">{Number(p.base_production_growth) * 100}%</p>
+                            <p className="mt-1 text-sm font-semibold">
+                              <IncidentEffect
+                                value={Number(p.base_production_growth || 0) * 100}
+                                incidentEffect={p.production_growth_incident}
+                              />
+                            </p>
                           </div>
                           <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-3">
                             <div className="text-xs text-cyan-700">人口增长率</div>
-                            <p className="mt-1 text-sm font-semibold">{Number(p.base_population_growth) * 100}%</p>
+                            <p className="mt-1 text-sm font-semibold">
+                              <IncidentEffect
+                                value={Number(p.base_population_growth || 0) * 100}
+                                incidentEffect={p.population_growth_incident}
+                              />
+                            </p>
                           </div>
                         </div>
 
                         <div className="rounded-xl border border-orange-100 bg-orange-50 p-3">
                           <div className="flex items-center gap-2 text-xs text-orange-700">
                             <span className="font-mono">%</span>
-                            <span>税率修正</span>
+                            <span>税率</span>
                           </div>
-                          <p className="mt-2 text-lg font-semibold">{Number(p.tax_modifier) * 100}%</p>
+                          <p className="mt-2 text-lg font-semibold">
+                            <IncidentEffect
+                              value={Number(p.actual_tax_rate || 0.1) * 100}
+                              incidentEffect={p.tax_modifier_incident}
+                            />
+                          </p>
                         </div>
                       </>
                     );
