@@ -161,17 +161,24 @@ class Agent:
 
         # 常规日志（按天轮转，保留 7 天）
         self._agent_logger = logging.getLogger(f"agent.{self.agent_id}")
-        handler = logging.handlers.TimedRotatingFileHandler(
-            log_dir / f"{self.agent_id}.log",
-            when="midnight",
-            interval=1,
-            backupCount=7,
-            encoding="utf-8",
-        )
-        formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s")
-        handler.setFormatter(formatter)
-        self._agent_logger.addHandler(handler)
+
+        # 防止重复添加handler
+        if not self._agent_logger.handlers:
+            handler = logging.handlers.TimedRotatingFileHandler(
+                log_dir / f"{self.agent_id}.log",
+                when="midnight",
+                interval=1,
+                backupCount=7,
+                encoding="utf-8",
+            )
+            formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s")
+            handler.setFormatter(formatter)
+            self._agent_logger.addHandler(handler)
+
+        # 确保日志级别设置正确
         self._agent_logger.setLevel(logging.INFO)
+        # 确保不传播到父logger，避免重复日志
+        self._agent_logger.propagate = False
 
         # LLM 日志文件路径
         self._llm_log_path = log_dir / f"{self.agent_id}_llm.jsonl"
@@ -533,6 +540,11 @@ class Agent:
         if not self.session_manager:
             return True
 
+        # 获取 session 状态
+        session = await self.session_manager.get_session(event.session_id)
+        if not session:
+            return True  # session 不存在，默认处理
+
         # 获取当前 agent 在此 session 中的状态
         agent_state = await self.session_manager.get_agent_state(event.session_id, self.agent_id)
 
@@ -820,6 +832,7 @@ class Agent:
         """
         has_finish_loop = False
         has_respond_to_player = False
+        has_create_task_session = False
 
         for idx, tool_call in enumerate(tool_calls, 1):
             function_name = tool_call["function"]["name"]
@@ -834,6 +847,9 @@ class Agent:
 
             if function_name == "respond_to_player":
                 has_respond_to_player = True
+
+            if function_name == "create_task_session":
+                has_create_task_session = True
 
             result_str = await self._call_function_with_result(function_name, function_args, event)
 
@@ -864,7 +880,16 @@ class Agent:
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )
 
-        # 检查退出条件（finish_loop 优先）
+        # 检查退出条件
+        # create_task_session 优先级最高，创建任务后应立即停止主session的LLM循环
+        if has_create_task_session:
+            logger.info(
+                f"📋 [Agent:{self.agent_id}:{session_id}] create_task_session called, task session created. "
+                f"Main session loop ending to wait for task completion."
+            )
+            return False
+
+        # finish_loop 其次
         if has_finish_loop:
             logger.info(
                 f"🔄 [Agent:{self.agent_id}:{session_id}] finish_loop called (priority check), ending loop"

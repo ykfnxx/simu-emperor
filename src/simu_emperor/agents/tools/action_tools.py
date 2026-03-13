@@ -57,13 +57,13 @@ class ActionTools:
         if not message:
             return "❌ 消息内容不能为空"
 
-        # Validate session type (only for task sessions)
+        # Validate session type for await_reply
         if self.session_manager:
             session = await self.session_manager.get_session(event.session_id)
             if not session:
                 return "❌ 会话不存在"
 
-            # If await_reply=true, only allow in task sessions
+            # await_reply=true should only be used in task sessions
             if await_reply and not session.is_task:
                 return (
                     "❌ await_reply=true 只能在任务会话中使用。\n"
@@ -84,7 +84,7 @@ class ActionTools:
         )
 
         # Design principle: AGENT_MESSAGE means "send to which agent in which session"
-        # Both agents share the same task session - no session switching needed
+        # Both agents share the same session
         new_event = Event(
             src=f"agent:{self.agent_id}",
             dst=[target_agent],
