@@ -484,14 +484,30 @@ function VerticalResizeHandle({ onDrag }: VerticalResizeHandleProps) {
 
   return (
     <div
-      className={`h-px border-t border-slate-300 hover:border-blue-400 cursor-row-resize transition-colors ${
-        isDragging ? 'border-b-2 border-blue-500' : ''
+      className={`flex items-center justify-center gap-1.5 py-1 cursor-row-resize select-none group relative z-10 ${
+        isDragging ? 'bg-slate-100' : ''
       }`}
       onMouseDown={(e) => {
         e.preventDefault();
         setIsDragging(true);
       }}
-    />
+    >
+      <span className={`w-1 h-1 rounded-full transition-all ${
+        isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+      }`} />
+      <span className={`w-1 h-1 rounded-full transition-all ${
+        isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+      }`} />
+      <span className={`w-1 h-1 rounded-full transition-all ${
+        isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+      }`} />
+      <span className={`w-1 h-1 rounded-full transition-all ${
+        isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+      }`} />
+      <span className={`w-1 h-1 rounded-full transition-all ${
+        isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+      }`} />
+    </div>
   );
 }
 
@@ -561,6 +577,7 @@ export default function App() {
   // 面板可拖动调整大小相关状态
   const [leftPanelSplit, setLeftPanelSplit] = useState(50); // 左侧栏上下分割比例（%）
   const [tapeContextHeight, setTapeContextHeight] = useState(300); // tape context高度（px）
+  const [tapeContextDragging, setTapeContextDragging] = useState(false); // tape context拖动状态
 
   const refreshTape = useCallback(
     async (agentId: string, sessionId: string, target: 'chat' | 'view' = 'chat') => {
@@ -1180,7 +1197,7 @@ export default function App() {
           />
 
           {/* 下半部分：群聊 */}
-          <div className="flex flex-col min-h-0" style={{ height: `${100 - leftPanelSplit}%` }}>
+          <div className="flex flex-col min-h-0 -mt-2" style={{ height: `${100 - leftPanelSplit}%` }}>
             <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
               <h2 className="text-base font-semibold">群聊</h2>
               <button
@@ -1445,9 +1462,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* 帝国概况 */}
-          {currentPanelTab === 'overview' && (
-            <div className="space-y-3 border-b border-slate-200 p-4">
+          {/* 标签内容区域 - 可弹性伸缩 */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {currentPanelTab === 'overview' && (
+              <div className="space-y-3 p-4 h-full overflow-y-auto">
               <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
                 <div className="flex items-center gap-2 text-xs text-amber-700">
                   <Coins className="h-4 w-4" />
@@ -1474,9 +1492,9 @@ export default function App() {
             </div>
           )}
 
-          {/* 天下大事 - Incidents */}
-          {currentPanelTab === 'incidents' && (
-            <div className="space-y-3 border-b border-slate-200 p-4">
+            {/* 天下大事 - Incidents */}
+            {currentPanelTab === 'incidents' && (
+              <div className="space-y-3 p-4 h-full overflow-y-auto">
               {incidents.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
                   <p>当前无大事发生</p>
@@ -1506,7 +1524,7 @@ export default function App() {
 
           {/* 省份概况 - Province Details */}
           {currentPanelTab === 'province' && (
-            <div className="space-y-3 border-b border-slate-200 p-4">
+              <div className="space-y-3 p-4 h-full overflow-y-auto">
               {/* 省份选择器 */}
               <div className="relative">
                 <select
@@ -1617,9 +1635,61 @@ export default function App() {
                 </div>
               )}
             </div>
-          )}
+            )}
+          </div>
+          {/* 标签内容区域结束 */}
 
-          <div className="min-h-0 flex-1 flex flex-col p-4" style={{ height: tapeContextHeight }}>
+          {/* TAPE CONTEXT 拖动条 */}
+          <div
+            className={`flex items-center justify-center gap-1.5 py-1 cursor-row-resize select-none group relative z-10 ${
+              tapeContextDragging ? 'bg-slate-100' : ''
+            }`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setTapeContextDragging(true);
+              const startY = e.clientY;
+              const startHeight = tapeContextHeight;
+
+              const handleMouseMove = (moveEvent: MouseEvent) => {
+                // delta > 0 表示向下拖动，delta < 0 表示向上拖动
+                const delta = moveEvent.clientY - startY;
+                const mainEl = document.querySelector('main');
+                const minHeight = 150;
+                const maxHeight = (mainEl?.clientHeight || 800) - 100;
+                // 向下拖动应该让面板变高，向上拖动应该让面板变矮
+                setTapeContextHeight(Math.max(minHeight, Math.min(maxHeight, startHeight - delta)));
+              };
+
+              const handleMouseUp = () => {
+                setTapeContextDragging(false);
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+              };
+
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            }}
+          >
+            {/* 拖动手柄点 */}
+            <span className={`w-1 h-1 rounded-full transition-all ${
+              tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+            }`} />
+            <span className={`w-1 h-1 rounded-full transition-all ${
+              tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+            }`} />
+            <span className={`w-1 h-1 rounded-full transition-all ${
+              tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+            }`} />
+            <span className={`w-1 h-1 rounded-full transition-all ${
+              tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+            }`} />
+            <span className={`w-1 h-1 rounded-full transition-all ${
+              tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
+            }`} />
+          </div>
+
+          {/* TAPE CONTEXT 容器 */}
+          <div className="flex flex-col p-4 overflow-hidden flex-shrink-0 -mt-3" style={{ height: tapeContextHeight }}>
             {/* 固定标题栏 */}
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-base font-semibold">TAPE CONTEXT</h4>
@@ -1739,35 +1809,6 @@ export default function App() {
                 );
               })}
             </div>
-
-            {/* 底部拖动条 */}
-            <div
-              className="h-px border-t border-slate-300 hover:border-blue-400 cursor-row-resize transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                const startY = e.clientY;
-                const startHeight = tapeContextHeight;
-                const mainEl = document.querySelector('main');
-
-                const handleMouseMove = (moveEvent: MouseEvent) => {
-                  // 向下拖动增加高度
-                  const delta = moveEvent.clientY - startY;
-                  const newHeight = startHeight + delta;
-                  // 限制高度范围
-                  const minHeight = 150;
-                  const maxHeight = (mainEl?.clientHeight || 800) - 100;
-                  setTapeContextHeight(Math.max(minHeight, Math.min(maxHeight, newHeight)));
-                };
-
-                const handleMouseUp = () => {
-                  document.removeEventListener('mousemove', handleMouseMove);
-                  document.removeEventListener('mouseup', handleMouseUp);
-                };
-
-                document.addEventListener('mousemove', handleMouseMove);
-                document.addEventListener('mouseup', handleMouseUp);
-              }}
-            />
           </div>
         </aside>
       </div>
