@@ -439,6 +439,42 @@ async def list_agents():
 
 
 # ============================================================================
+# Incident API
+# ============================================================================
+
+
+@app.get("/api/incidents")
+async def list_incidents():
+    """列出所有活跃的 incidents"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    engine = game_instance.game_service.engine
+    if not engine:
+        return []
+
+    incidents = engine.get_active_incidents()
+    return [
+        {
+            "incident_id": inc.incident_id,
+            "title": inc.title,
+            "description": inc.description,
+            "source": inc.source,
+            "remaining_ticks": inc.remaining_ticks,
+            "effects": [
+                {
+                    "target_path": eff.target_path,
+                    "add": str(eff.add) if eff.add is not None else None,
+                    "factor": str(eff.factor) if eff.factor is not None else None,
+                }
+                for eff in inc.effects
+            ],
+        }
+        for inc in incidents
+    ]
+
+
+# ============================================================================
 # Group Chat API
 # ============================================================================
 

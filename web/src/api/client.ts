@@ -20,6 +20,7 @@ import type {
   SubSession,
   SessionStateData,
   GroupChat,
+  Incident,
 } from './types';
 
 export interface GameClientConfig {
@@ -325,6 +326,10 @@ export class GameClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ group_id: groupId, agent_id: agentId }),
     });
+  }
+
+  async getIncidents(): Promise<Incident[]> {
+    return this.request<Incident[]>('/incidents');
   }
 }
 

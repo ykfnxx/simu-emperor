@@ -201,3 +201,18 @@ export interface GroupChat {
   session_id: string;
   message_count: number;
 }
+
+export interface Incident {
+  incident_id: string;
+  title: string;
+  description: string;
+  source: string;
+  remaining_ticks: number;
+  effects: IncidentEffect[];
+}
+
+export interface IncidentEffect {
+  target_path: string;
+  add: string | null;
+  factor: string | null;
+}

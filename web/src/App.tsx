@@ -23,6 +23,7 @@ import type {
   CurrentTapeResponse,
   EmpireOverview,
   GroupChat,
+  Incident,
   SessionInfo,
   SessionStateData,
   StateData,
@@ -437,6 +438,10 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupAgents, setSelectedGroupAgents] = useState<Set<string>>(new Set());
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+  // 面板 Tab 切换: 'overview' | 'incidents' | 'actions'
+  const [currentPanelTab, setCurrentPanelTab] = useState<'overview' | 'incidents' | 'actions'>('overview');
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   // 待创建的session信息（延迟创建模式）
   const [pendingSession, setPendingSession] = useState<{ agentId: string; name?: string } | null>(null);
   const currentAgentRef = useRef(currentAgentId);
@@ -522,6 +527,16 @@ export default function App() {
       setSubSessions([]);
     } finally {
       setLoadingSubSessions(false);
+    }
+  }, []);
+
+  const fetchIncidents = useCallback(async () => {
+    try {
+      const data = await client.current.getIncidents();
+      setIncidents(data);
+    } catch (err) {
+      console.error('Failed to load incidents:', err);
+      setIncidents([]);
     }
   }, []);
 
@@ -1258,39 +1273,100 @@ export default function App() {
               </button>
             </div>
             <div className="mt-3 flex items-center gap-2 text-sm">
-              <button type="button" className="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPanelTab('overview');
+                }}
+                className={`rounded-md px-2 py-1 font-medium ${
+                  currentPanelTab === 'overview'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
                 帝国概况
               </button>
-              <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-400">天下大事（留白）</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPanelTab('incidents');
+                  fetchIncidents();
+                }}
+                className={`rounded-md px-2 py-1 font-medium ${
+                  currentPanelTab === 'incidents'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                天下大事
+                {incidents.length > 0 && (
+                  <span className="ml-1 rounded-full bg-red-500 px-1.5 py-0.5 text-xs text-white">
+                    {incidents.length}
+                  </span>
+                )}
+              </button>
               <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-400">官员行动（留白）</span>
             </div>
           </div>
 
-          <div className="space-y-3 border-b border-slate-200 p-4">
-            <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
-              <div className="flex items-center gap-2 text-xs text-amber-700">
-                <Coins className="h-4 w-4" />
-                <span>国库资金</span>
+          {/* 帝国概况 */}
+          {currentPanelTab === 'overview' && (
+            <div className="space-y-3 border-b border-slate-200 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+                <div className="flex items-center gap-2 text-xs text-amber-700">
+                  <Coins className="h-4 w-4" />
+                  <span>国库资金</span>
+                </div>
+                <p className="mt-2 text-xl font-semibold">{formatNumber(overview.treasury)} 两</p>
               </div>
-              <p className="mt-2 text-xl font-semibold">{formatNumber(overview.treasury)} 两</p>
-            </div>
 
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-              <div className="flex items-center gap-2 text-xs text-blue-700">
-                <Users className="h-4 w-4" />
-                <span>全国人口</span>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                <div className="flex items-center gap-2 text-xs text-blue-700">
+                  <Users className="h-4 w-4" />
+                  <span>全国人口</span>
+                </div>
+                <p className="mt-2 text-xl font-semibold">{formatNumber(overview.population)} 人</p>
               </div>
-              <p className="mt-2 text-xl font-semibold">{formatNumber(overview.population)} 人</p>
-            </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <MapPin className="h-4 w-4" />
-                <span>省份数量</span>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <MapPin className="h-4 w-4" />
+                  <span>省份数量</span>
+                </div>
+                <p className="mt-2 text-xl font-semibold">{overview.province_count} 个</p>
               </div>
-              <p className="mt-2 text-xl font-semibold">{overview.province_count} 个</p>
             </div>
-          </div>
+          )}
+
+          {/* 天下大事 - Incidents */}
+          {currentPanelTab === 'incidents' && (
+            <div className="space-y-3 border-b border-slate-200 p-4">
+              {incidents.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
+                  <p>当前无大事发生</p>
+                </div>
+              ) : (
+                incidents.map((incident) => (
+                  <div
+                    key={incident.incident_id}
+                    onClick={() => setSelectedIncident(incident)}
+                    className="cursor-pointer rounded-xl border border-red-100 bg-red-50 p-3 transition-colors hover:border-red-200 hover:bg-red-100"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ClipboardList className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-red-900">{incident.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <span>{incident.remaining_ticks} 周</span>
+                        <span>→</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           <div className="min-h-0 flex-1 flex flex-col p-4">
             {/* 固定标题栏 */}
@@ -1488,6 +1564,58 @@ export default function App() {
               >
                 创建
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Incident 详情弹窗 */}
+      {selectedIncident && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setSelectedIncident(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">{selectedIncident.title}</h3>
+              <button
+                type="button"
+                onClick={() => setSelectedIncident(null)}
+                className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="text-slate-500">来源：</span>
+                <span className="text-slate-900">{selectedIncident.source}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">剩余时间：</span>
+                <span className="text-slate-900">{selectedIncident.remaining_ticks} 周</span>
+              </div>
+              <div>
+                <span className="text-slate-500">描述：</span>
+                <p className="mt-1 text-slate-900">{selectedIncident.description}</p>
+              </div>
+              {selectedIncident.effects.length > 0 && (
+                <div>
+                  <span className="text-slate-500">影响：</span>
+                  <div className="mt-2 space-y-1">
+                    {selectedIncident.effects.map((effect, idx) => (
+                      <div key={idx} className="rounded bg-slate-50 p-2 text-xs">
+                        <div className="font-mono text-slate-700">{effect.target_path}</div>
+                        {effect.add && <div className="text-blue-600">+{effect.add}</div>}
+                        {effect.factor && <div className="text-green-600">×{effect.factor}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
