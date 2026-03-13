@@ -69,13 +69,6 @@ export function isErrorData(data: unknown): data is ErrorData {
   return typeof data === 'object' && data !== null && 'message' in data;
 }
 
-export interface AgentInfo {
-  id: string;
-  name: string;
-  status: 'online' | 'offline';
-  description?: string;
-}
-
 export interface CommandRequest {
   agent: string;
   command: string;

@@ -13,6 +13,7 @@ import type {
   ChatData,
   StateData,
   EventData,
+  AgentsResponse,
 } from '../api/types';
 
 /**
@@ -221,7 +222,7 @@ export function useGameState(client: GameClient, refreshInterval: number = 0) {
  * @returns Agent 列表和加载状态
  */
 export function useAgents(client: GameClient) {
-  const [agents, setAgents] = useState<string[]>([]);
+  const [agents, setAgents] = useState<AgentsResponse>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

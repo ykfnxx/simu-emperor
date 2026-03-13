@@ -220,6 +220,7 @@ function extractEventText(event: TapeEvent): string {
   const narrative = payload.narrative;
   const message = payload.message;
   const command = payload.command;
+  const description = payload.description;
   const tool = payload.tool;
   const result = payload.result;
   const assistantReply = extractRespondToPlayerContent(payload);
@@ -230,6 +231,7 @@ function extractEventText(event: TapeEvent): string {
   if (typeof response === 'string' && response.trim()) return response;
   if (typeof message === 'string' && message.trim()) return message;
   if (typeof command === 'string' && command.trim()) return command;
+  if (typeof description === 'string' && description.trim()) return description;
   if (typeof result === 'string' && result.trim()) {
     return typeof tool === 'string' && tool.trim() ? `${tool}: ${result}` : result;
   }
@@ -248,8 +250,7 @@ function toChatMessages(events: TapeEvent[]): TapeEvent[] {
 
 function toTapeContextEvents(events: TapeEvent[]): TapeEvent[] {
   return events
-    .filter((event) => !isRespondToPlayerToolResult(event))
-    .filter((event) => extractEventText(event).trim().length > 0);
+    .filter((event) => !isRespondToPlayerToolResult(event));
 }
 
 function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {
@@ -390,7 +391,15 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [currentAgentId, setCurrentAgentId] = useState<string>('governor_zhili');
   const [currentSessionId, setCurrentSessionId] = useState<string>('session:web:main');
-  const [tape, setTape] = useState<CurrentTapeResponse>({
+  // chatTape: 聊天框使用的tape，始终显示currentSessionId的数据
+  const [chatTape, setChatTape] = useState<CurrentTapeResponse>({
+    agent_id: null,
+    session_id: '',
+    events: [],
+    total: 0,
+  });
+  // viewTape: TAPE CONTEXT使用的tape，显示selectedViewSessionId的数据
+  const [viewTape, setViewTape] = useState<CurrentTapeResponse>({
     agent_id: null,
     session_id: '',
     events: [],
@@ -405,7 +414,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
   const [subSessions, setSubSessions] = useState<SubSession[]>([]);
-  const [selectedSubSessions, setSelectedSubSessions] = useState<Set<string>>(new Set());
+  const [selectedViewSessionId, setSelectedViewSessionId] = useState<string | null>(null); // 当前查看的session ID
   const [showSubSessions, setShowSubSessions] = useState(false);
   const [loadingSubSessions, setLoadingSubSessions] = useState(false);
   // 群聊相关状态
@@ -418,25 +427,38 @@ export default function App() {
   const [pendingSession, setPendingSession] = useState<{ agentId: string; name?: string } | null>(null);
   const currentAgentRef = useRef(currentAgentId);
   const currentSessionRef = useRef(currentSessionId);
-  const tapeRef = useRef(tape);
+  const selectedViewSessionIdRef = useRef(selectedViewSessionId);
+  const chatTapeRef = useRef(chatTape);
+  const viewTapeRef = useRef(viewTape);
   // 超时检测相关
   const responseTimeoutRef = useRef<number | null>(null);
   const [responseTimeoutError, setResponseTimeoutError] = useState<string | null>(null);
 
   const refreshTape = useCallback(
-    async (agentId: string, sessionId: string, includeSubs?: string[]) => {
+    async (agentId: string, sessionId: string, target: 'chat' | 'view' = 'chat') => {
       try {
-        const selectedSubs = includeSubs || Array.from(selectedSubSessions);
+        // 对于 viewTape，不传 agent_id 以显示所有 agent 的事件
+        const agentIdParam = target === 'view' ? undefined : agentId;
         const tapeData = await client.current.getCurrentTape(
           120,
-          agentId,
+          agentIdParam,
           sessionId,
-          selectedSubs.length > 0 ? selectedSubs : undefined
+          undefined // 不再使用include_sub_sessions
         );
-        const merged = mergeTapeResponse(tapeRef.current, tapeData, sessionId);
-        tapeRef.current = merged;
-        setTape(merged);
-        if (sessionId === currentSessionRef.current && agentId === currentAgentRef.current) {
+        const isChat = target === 'chat';
+        const currentRef = isChat ? chatTapeRef.current : viewTapeRef.current;
+        const merged = mergeTapeResponse(currentRef, tapeData, sessionId);
+
+        if (isChat) {
+          chatTapeRef.current = merged;
+          setChatTape(merged);
+        } else {
+          viewTapeRef.current = merged;
+          setViewTape(merged);
+        }
+
+        // 只有chatTape的更新才检查agentTyping
+        if (isChat && sessionId === currentSessionRef.current && agentId === currentAgentRef.current) {
           setAgentTyping(hasPendingReply(merged.events, sessionId));
         }
       } catch (err) {
@@ -448,18 +470,33 @@ export default function App() {
             events: [],
             total: 0,
           };
-          tapeRef.current = emptyTape;
-          setTape(emptyTape);
-          if (sessionId === currentSessionRef.current && agentId === currentAgentRef.current) {
-            setAgentTyping(false);
+          if (target === 'chat') {
+            chatTapeRef.current = emptyTape;
+            setChatTape(emptyTape);
+            if (sessionId === currentSessionRef.current && agentId === currentAgentRef.current) {
+              setAgentTyping(false);
+            }
+          } else {
+            viewTapeRef.current = emptyTape;
+            setViewTape(emptyTape);
           }
           return;
         }
         throw err;
       }
     },
-    [selectedSubSessions]
+    []
   );
+
+  // 辅助函数：刷新聊天框的tape（使用currentSessionId）
+  const refreshChatTape = useCallback(async (agentId: string, sessionId: string) => {
+    return refreshTape(agentId, sessionId, 'chat');
+  }, [refreshTape]);
+
+  // 辅助函数：刷新TAPE CONTEXT的tape（使用selectedViewSessionId）
+  const refreshViewTape = useCallback(async (agentId: string, sessionId: string) => {
+    return refreshTape(agentId, sessionId, 'view');
+  }, [refreshTape]);
 
   const loadSubSessions = useCallback(async (sessionId: string, agentId: string) => {
     setLoadingSubSessions(true);
@@ -474,21 +511,10 @@ export default function App() {
     }
   }, []);
 
-  const toggleSubSession = (sessionId: string) => {
-    setSelectedSubSessions((prev) => {
-      const next = new Set(prev);
-      if (next.has(sessionId)) {
-        next.delete(sessionId);
-      } else {
-        next.add(sessionId);
-      }
-      return next;
-    });
-  };
-
-  const handleApplySubSessions = async () => {
-    if (currentAgentRef.current && currentSessionRef.current) {
-      await refreshTape(currentAgentRef.current, currentSessionRef.current);
+  const handleSwitchSession = async (sessionId: string) => {
+    if (currentAgentRef.current) {
+      setSelectedViewSessionId(sessionId);
+      await refreshViewTape(currentAgentRef.current, sessionId);
     }
   };
 
@@ -543,7 +569,14 @@ export default function App() {
       setCurrentAgentId(resolvedAgentId);
       setCurrentSessionId(resolvedSessionId);
 
-      await refreshTape(resolvedAgentId, resolvedSessionId);
+      await refreshChatTape(resolvedAgentId, resolvedSessionId);
+      // 只有当用户没有手动切换view session时，才自动刷新viewTape为主session
+      if (!selectedViewSessionIdRef.current) {
+        await refreshViewTape(resolvedAgentId, resolvedSessionId);
+      } else {
+        // 如果用户已选择子session，刷新该子session的tape
+        await refreshViewTape(resolvedAgentId, selectedViewSessionIdRef.current);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : '加载失败';
       setError(message);
@@ -551,7 +584,7 @@ export default function App() {
       setRefreshing(false);
       setLoading(false);
     }
-  }, [refreshTape]);
+  }, [refreshChatTape, refreshViewTape]);
 
   useEffect(() => {
     client.current.connect();
@@ -575,8 +608,16 @@ export default function App() {
   }, [currentSessionId]);
 
   useEffect(() => {
-    tapeRef.current = tape;
-  }, [tape]);
+    selectedViewSessionIdRef.current = selectedViewSessionId;
+  }, [selectedViewSessionId]);
+
+  useEffect(() => {
+    chatTapeRef.current = chatTape;
+  }, [chatTape]);
+
+  useEffect(() => {
+    viewTapeRef.current = viewTape;
+  }, [viewTape]);
 
   // 加载群聊列表
   useEffect(() => {
@@ -609,7 +650,7 @@ export default function App() {
       }
       setResponseTimeoutError(null);
       setAgentTyping(false);
-      void refreshTape(currentAgentRef.current, currentSessionRef.current);
+      void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
     });
 
     const offState = client.current.on<StateData>('state', (data) => {
@@ -649,7 +690,7 @@ export default function App() {
       offState();
       offSessionState();
     };
-  }, [refreshTape]);
+  }, [refreshChatTape]);
 
   useEffect(() => {
     setExpandedAgents((prev) => {
@@ -674,8 +715,8 @@ export default function App() {
   // 检查当前session是否有效（存在或在pending状态）
   const isValidSession = currentSession !== undefined || pendingSession !== null;
 
-  const chatMessages = useMemo(() => toChatMessages(tape.events), [tape.events]);
-  const tapeContextEvents = useMemo(() => toTapeContextEvents(tape.events), [tape.events]);
+  const chatMessages = useMemo(() => toChatMessages(chatTape.events), [chatTape.events]);
+  const tapeContextEvents = useMemo(() => toTapeContextEvents(viewTape.events), [viewTape.events]);
   const currentAgentName = useMemo(
     () => agentSessions.find((group) => group.agent_id === currentAgentId)?.agent_name || currentAgentId,
     [agentSessions, currentAgentId]
@@ -690,8 +731,14 @@ export default function App() {
       setPendingSession({ agentId });
       // 切换当前agent，但保持当前sessionId不变（会在发送消息时更新）
       setCurrentAgentId(agentId);
-      // 清空tape显示
-      setTape({
+      // 清空chatTape和viewTape显示
+      setChatTape({
+        agent_id: agentId,
+        session_id: '',
+        events: [],
+        total: 0,
+      });
+      setViewTape({
         agent_id: agentId,
         session_id: '',
         events: [],
@@ -721,7 +768,10 @@ export default function App() {
       }
       setCurrentAgentId(agentId);
       setCurrentSessionId(sessionId);
-      await refreshTape(agentId, sessionId);
+      await refreshChatTape(agentId, sessionId);
+      // 重置viewTape到新选择的session
+      setSelectedViewSessionId(null);
+      await refreshViewTape(agentId, sessionId);
       await refreshData();
     } catch (err) {
       const message = err instanceof Error ? err.message : '切换会话失败';
@@ -777,10 +827,10 @@ export default function App() {
     try {
       const result = await client.current.sendGroupMessage(currentGroupId, content);
       setInputText('');
-      // 刷新tape显示
+      // 刷新chatTape显示
       if (currentSessionId) {
         setTimeout(() => {
-          void refreshTape(currentAgentId || '', currentSessionId);
+          void refreshChatTape(currentAgentId || '', currentSessionId);
         }, 1000);
       }
     } catch (err) {
@@ -836,13 +886,13 @@ export default function App() {
       session_id: targetSessionId,
       agent_id: currentAgentId,
     };
-    setTape((prev) => {
+    setChatTape((prev) => {
       const next = {
         ...prev,
         events: [...prev.events, optimisticEvent],
         total: prev.total + 1,
       };
-      tapeRef.current = next;
+      chatTapeRef.current = next;
       return next;
     });
 
@@ -868,9 +918,9 @@ export default function App() {
         });
       }, 30000);
 
-      // 后端响应异步落盘，短暂延迟后刷新一次。
+      // 后端响应异步落盘，短暂延迟后刷新一次chatTape。
       setTimeout(() => {
-        void refreshTape(currentAgentId, targetSessionId);
+        void refreshChatTape(currentAgentId, targetSessionId);
       }, 1200);
     } catch (err) {
       const message = err instanceof Error ? err.message : '发送失败';
@@ -1240,19 +1290,22 @@ export default function App() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 flex flex-col p-4">
+            {/* 固定标题栏 */}
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-base font-semibold">TAPE CONTEXT</h4>
               <span className="text-xs text-slate-500">{tapeContextEvents.length} 条</span>
             </div>
+
+            {/* 固定会话信息 */}
             <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
               <div className="flex items-center gap-2">
                 <CalendarClock className="h-4 w-4 text-slate-500" />
-                <span className="truncate">{currentAgentId} · {currentSessionId}</span>
+                <span className="truncate">{viewTape.agent_id || currentAgentId} · {viewTape.session_id ? viewTape.session_id.slice(-20) : currentSessionId.slice(-20)}</span>
               </div>
             </div>
 
-            {/* 子Session选择器 */}
+            {/* 固定子Session选择器 */}
             <div className="mb-3 rounded-lg border border-slate-200 bg-white">
               <button
                 type="button"
@@ -1264,10 +1317,10 @@ export default function App() {
                 }}
                 className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50"
               >
-                <span className="font-medium text-slate-700">子Session（可选）</span>
-                {selectedSubSessions.size > 0 && (
+                <span className="font-medium text-slate-700">切换Session</span>
+                {selectedViewSessionId && selectedViewSessionId !== currentSessionId && (
                   <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                    已选 {selectedSubSessions.size}
+                    已切换
                   </span>
                 )}
                 {showSubSessions ? (
@@ -1281,39 +1334,52 @@ export default function App() {
                 <div className="border-t border-slate-200 p-3">
                   {loadingSubSessions ? (
                     <div className="py-2 text-center text-sm text-slate-500">加载中...</div>
-                  ) : subSessions.length === 0 ? (
-                    <div className="py-2 text-center text-sm text-slate-500">暂无子Session</div>
                   ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-500">选择要包含的子Session</span>
+                    <div className="space-y-1">
+                      <span className="text-xs text-slate-500">选择要查看的Session</span>
+                      <div className="max-h-40 space-y-1 overflow-y-auto mt-2">
+                        {/* 主会话选项 */}
                         <button
                           type="button"
-                          onClick={handleApplySubSessions}
-                          disabled={selectedSubSessions.size === 0}
-                          className="rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+                          onClick={() => handleSwitchSession(currentSessionId)}
+                          className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm text-left ${
+                            selectedViewSessionId === currentSessionId || (!selectedViewSessionId && currentSessionId === currentSessionId)
+                              ? 'border-blue-300 bg-blue-50'
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}
                         >
-                          应用
+                          <span className="flex-1 truncate text-slate-700">
+                            主会话 ({currentSessionId.slice(-12)})
+                          </span>
+                          {selectedViewSessionId === currentSessionId || (!selectedViewSessionId && currentSessionId === currentSessionId) ? (
+                            <span className="text-xs text-blue-600">● 当前</span>
+                          ) : null}
                         </button>
-                      </div>
-                      <div className="max-h-40 space-y-1 overflow-y-auto">
-                        {subSessions.map((sub) => (
-                          <label
-                            key={sub.session_id}
-                            className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-sm hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedSubSessions.has(sub.session_id)}
-                              onChange={() => toggleSubSession(sub.session_id)}
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="flex-1 truncate text-slate-700">
-                              {sub.session_id}
-                            </span>
-                            <span className="text-xs text-slate-400">{sub.event_count} 事件</span>
-                          </label>
-                        ))}
+                        {/* 子会话选项 */}
+                        {subSessions.length === 0 ? (
+                          <div className="py-2 text-center text-sm text-slate-500">暂无子Session</div>
+                        ) : (
+                          subSessions.map((sub) => (
+                            <button
+                              key={sub.session_id}
+                              type="button"
+                              onClick={() => handleSwitchSession(sub.session_id)}
+                              className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm text-left ${
+                                selectedViewSessionId === sub.session_id
+                                  ? 'border-blue-300 bg-blue-50'
+                                  : 'border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <span className="flex-1 truncate text-slate-700">
+                                {sub.session_id.slice(-20)}
+                              </span>
+                              <span className="text-xs text-slate-400">{sub.event_count} 事件</span>
+                              {selectedViewSessionId === sub.session_id ? (
+                                <span className="text-xs text-blue-600">● 当前</span>
+                              ) : null}
+                            </button>
+                          ))
+                        )}
                       </div>
                     </div>
                   )}
@@ -1321,7 +1387,8 @@ export default function App() {
               )}
             </div>
 
-            <div className="space-y-2">
+            {/* 可滚动的tape事件列表 */}
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-2">
               {tapeContextEvents.length === 0 && (
                 <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
                   当前 session 暂无 tape 事件。

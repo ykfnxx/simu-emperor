@@ -309,7 +309,28 @@ async def list_sessions_api():
 
     sessions = await game_instance.session_service.list_sessions()
     agent_sessions = await game_instance.session_service.list_agent_sessions()
+
+    # 找到标记为 is_current 的session作为当前session
+    current_session_id = None
+    current_agent_id = None
+
+    for group in agent_sessions:
+        for session in group["sessions"]:
+            if session.get("is_current"):
+                current_session_id = session["session_id"]
+                current_agent_id = group["agent_id"]
+                break
+        if current_session_id:
+            break
+
+    # 如果没有找到is_current的session，使用main session
+    if not current_session_id:
+        from simu_emperor.common import DEFAULT_WEB_SESSION_ID
+        current_session_id = DEFAULT_WEB_SESSION_ID
+
     return {
+        "current_session_id": current_session_id,
+        "current_agent_id": current_agent_id,
         "sessions": sessions,
         "agent_sessions": agent_sessions,
     }
