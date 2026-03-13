@@ -116,7 +116,7 @@ class GameService:
         """Get empire overview summary (V4 design).
 
         Returns:
-            Dict with turn, treasury, population, province_count
+            Dict with turn, treasury, population, province_count, treasury_delta, population_delta
         """
         if not self.repository:
             return {
@@ -124,6 +124,8 @@ class GameService:
                 "treasury": 0,
                 "population": 0,
                 "province_count": 0,
+                "treasury_delta": 0,
+                "population_delta": 0,
             }
 
         state = await self.repository.load_state()
@@ -178,11 +180,23 @@ class GameService:
             # V4: province.population 直接是数字，不是嵌套对象
             population_total += _to_number(province.get("population", 0))
 
+        # Calculate deltas using engine
+        treasury_delta = 0
+        population_delta = 0
+        if self._engine:
+            try:
+                treasury_delta = float(self._engine.get_province_delta("_nation", "imperial_treasury"))
+                population_delta = float(self._engine.get_province_delta("_nation", "population"))
+            except Exception as e:
+                logger.debug(f"Failed to get deltas from engine: {e}")
+
         return {
             "turn": turn,
             "treasury": int(treasury),
             "population": int(population_total),
             "province_count": len(provinces_dict),
+            "treasury_delta": treasury_delta,
+            "population_delta": population_delta,
         }
 
     async def _load_initial_state(self) -> "NationData":

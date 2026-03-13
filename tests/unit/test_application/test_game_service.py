@@ -294,3 +294,31 @@ class TestGameService:
         assert overview["population"] == 500000
         assert overview["province_count"] == 1
         # V4: no military or happiness fields
+
+    async def test_get_overview_with_deltas(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+        """Test getting empire overview with delta values."""
+        service = GameService(
+            settings=mock_settings,
+            repository=mock_repository,
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm_provider,
+            memory_dir=memory_dir,
+        )
+
+        # Mock engine with delta values
+        from decimal import Decimal
+        mock_engine = MagicMock()
+        mock_engine.get_province_delta = MagicMock(side_effect=lambda province_id, field: {
+            ("_nation", "imperial_treasury"): Decimal("5000"),
+            ("_nation", "population"): Decimal("50000"),
+        }.get((province_id, field), Decimal("0")))
+        service._engine = mock_engine
+
+        overview = await service.get_overview()
+
+        assert overview["turn"] == 5
+        assert overview["treasury"] == 100000
+        assert overview["population"] == 1000000
+        assert overview["province_count"] == 1
+        assert overview["treasury_delta"] == 5000
+        assert overview["population_delta"] == 50000

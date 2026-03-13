@@ -1471,7 +1471,9 @@ export default function App() {
                   <Coins className="h-4 w-4" />
                   <span>国库资金</span>
                 </div>
-                <p className="mt-2 text-xl font-semibold">{formatNumber(overview.treasury)} 两</p>
+                <p className="mt-2 text-xl font-semibold">
+                  <DeltaValue value={overview.treasury} delta={overview.treasury_delta} format={true} /> 两
+                </p>
               </div>
 
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
@@ -1479,7 +1481,9 @@ export default function App() {
                   <Users className="h-4 w-4" />
                   <span>全国人口</span>
                 </div>
-                <p className="mt-2 text-xl font-semibold">{formatNumber(overview.population)} 人</p>
+                <p className="mt-2 text-xl font-semibold">
+                  <DeltaValue value={overview.population} delta={overview.population_delta} format={true} /> 人
+                </p>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">

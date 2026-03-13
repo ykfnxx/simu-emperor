@@ -130,6 +130,8 @@ export interface EmpireOverview {
   treasury: number;
   population: number;
   province_count: number;
+  treasury_delta?: number;
+  population_delta?: number;
 }
 
 export interface SessionInfo {

@@ -259,9 +259,12 @@ class Engine:
                 "base_population_growth": province.base_population_growth,
                 "tax_modifier": province.tax_modifier,
             }
-        # 保存国家层面税率
+        # 保存国家层面数据（税率、国库、总人口）
+        total_population = sum(p.population for p in self.state.provinces.values())
         self._previous_tick_values["_nation"] = {
             "base_tax_rate": self.state.base_tax_rate,
+            "imperial_treasury": self.state.imperial_treasury,
+            "population": total_population,
         }
 
     def get_province_delta(self, province_id: str, field: str) -> Decimal:
@@ -271,7 +274,7 @@ class Engine:
             province_id: 省份ID，或 "_nation" 获取国家层面数据
             field: 字段名 (production_value, population, stockpile, fixed_expenditure,
                           base_production_growth, base_population_growth, tax_modifier,
-                          base_tax_rate)
+                          base_tax_rate, imperial_treasury)
 
         Returns:
             变化量 (当前值 - 上一tick值)，如果无历史记录则返回 0
@@ -283,7 +286,11 @@ class Engine:
             previous_values = self._previous_tick_values["_nation"]
             if field not in previous_values:
                 return Decimal("0")
-            current_value = getattr(self.state, field, Decimal("0"))
+            # population 是计算值（所有省份人口之和）
+            if field == "population":
+                current_value = sum(p.population for p in self.state.provinces.values())
+            else:
+                current_value = getattr(self.state, field, Decimal("0"))
             return current_value - previous_values[field]
         if province_id not in self._previous_tick_values:
             return Decimal("0")
