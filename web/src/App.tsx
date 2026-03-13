@@ -5,13 +5,11 @@ import {
   ChevronRight,
   ClipboardList,
   Coins,
-  Crown,
-  Heart,
+  MapPin,
   MessageSquare,
   Plus,
   RefreshCw,
   Send,
-  Shield,
   Users,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -36,8 +34,6 @@ const DEFAULT_OVERVIEW: EmpireOverview = {
   turn: 0,
   treasury: 0,
   population: 0,
-  military: 0,
-  happiness: 0,
   province_count: 0,
 };
 
@@ -59,6 +55,24 @@ function formatDate(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+// V4: 1 tick = 1 周, 4 ticks = 1 月, 48 ticks = 1 年
+// 雍正元年 = 1723年
+const TICKS_PER_YEAR = 48;  // 48 周 = 1 年
+const TICKS_PER_MONTH = 4;  // 4 周 = 1 月
+
+function formatTurn(turn: number): string {
+  if (turn === 0) return '雍正1年 1月 第1周';
+
+  const totalYears = Math.floor(turn / TICKS_PER_YEAR);
+  const remainingTicks = turn % TICKS_PER_YEAR;
+  const month = Math.floor(remainingTicks / TICKS_PER_MONTH) + 1;  // 1-12
+  const week = (remainingTicks % TICKS_PER_MONTH) + 1;  // 1-4
+
+  const year = totalYears + 1;  // 雍正元年 = 第1年
+
+  return `雍正${year}年${month}月 第${week}周`;
 }
 
 function getSenderName(event: TapeEvent): string {
@@ -660,8 +674,6 @@ export default function App() {
         turn: typeof data.turn === 'number' ? data.turn : prev.turn,
         treasury: typeof data.treasury === 'number' ? data.treasury : prev.treasury,
         population: typeof data.population === 'number' ? data.population : prev.population,
-        military: typeof data.military === 'number' ? data.military : prev.military,
-        happiness: typeof data.happiness === 'number' ? data.happiness : prev.happiness,
       }));
     });
 
@@ -1233,8 +1245,7 @@ export default function App() {
           <div className="border-b border-slate-200 px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Crown className="h-5 w-5 text-amber-600" />
-                <h3 className="text-lg font-semibold">国家状态面板</h3>
+                <h3 className="text-lg font-semibold">{formatTurn(overview.turn)}</h3>
               </div>
               <button
                 type="button"
@@ -1272,21 +1283,12 @@ export default function App() {
               <p className="mt-2 text-xl font-semibold">{formatNumber(overview.population)} 人</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Shield className="h-4 w-4" />
-                  <span>军队</span>
-                </div>
-                <p className="mt-1 text-lg font-semibold">{formatNumber(overview.military)}</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <MapPin className="h-4 w-4" />
+                <span>省份数量</span>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Heart className="h-4 w-4" />
-                  <span>民心</span>
-                </div>
-                <p className="mt-1 text-lg font-semibold">{overview.happiness}%</p>
-              </div>
+              <p className="mt-2 text-xl font-semibold">{overview.province_count} 个</p>
             </div>
           </div>
 

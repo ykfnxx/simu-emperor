@@ -28,14 +28,11 @@ export interface ChatData {
   session_id?: string;
 }
 
+// V4 状态数据（通过 WebSocket 推送）
 export interface StateData {
   turn: number;
   treasury: number;
   population: number;
-  military: number;
-  happiness: number;
-  agriculture: string;
-  corruption: number;
 }
 
 export interface EventData {
@@ -92,46 +89,35 @@ export interface AgentInfo {
 
 export type AgentsResponse = AgentInfo[];
 
+// V4 游戏状态响应（扁平结构）
 export interface GameStateResponse {
   turn: number;
   imperial_treasury?: number;
-  population?: number;
-  military?: number;
-  happiness?: number;
-  provinces?: ProvinceData[];
+  base_tax_rate?: number;
+  tribute_rate?: number;
+  fixed_expenditure?: number;
+  provinces?: Record<string, ProvinceData>;
   [key: string]: unknown;
 }
 
+// V4 省份数据（扁平结构，4核心字段）
 export interface ProvinceData {
-  id?: string;
-  province_id?: string;
+  province_id: string;
   name: string;
-  population: PopulationData;
-  military: MilitaryData;
-  treasury?: number;
-  local_treasury?: number;
-  happiness?: number;
-  [key: string]: unknown;
+  production_value: number;  // 产值
+  population: number;         // 人口（直接是数字，不是嵌套对象）
+  fixed_expenditure: number;  // 固定支出
+  stockpile: number;          // 库存
+  base_production_growth?: number;  // 产值增长率 0.01
+  base_population_growth?: number;  // 人口增长率 0.005
+  tax_modifier?: number;      // 税率修正
 }
 
-export interface PopulationData {
-  total: number;
-  happiness: number;
-  growth_rate?: number;
-}
-
-export interface MilitaryData {
-  soldiers: number;
-  morale?: number;
-  upkeep_per_soldier?: number;
-}
-
+// V4 帝国概况（只包含 V4 设计中的字段）
 export interface EmpireOverview {
   turn: number;
   treasury: number;
   population: number;
-  military: number;
-  happiness: number;
   province_count: number;
 }
 

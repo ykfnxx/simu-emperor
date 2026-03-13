@@ -26,17 +26,21 @@ def mock_settings(tmp_path: Path) -> GameConfig:
 
 @pytest.fixture
 def mock_repository():
-    """Create mock repository."""
+    """Create mock repository with V4 flat structure."""
     repo = AsyncMock()
     repo.load_state = AsyncMock(return_value={
         "turn": 5,
         "imperial_treasury": 100000,
-        "provinces": [
-            {
-                "population": {"total": 1000000, "happiness": 0.8},
-                "military": {"soldiers": 5000},
+        "provinces": {
+            "zhili": {
+                "province_id": "zhili",
+                "name": "直隶",
+                "production_value": 100000,
+                "population": 1000000,
+                "fixed_expenditure": 50000,
+                "stockpile": 1200000,
             }
-        ],
+        },
     })
     repo.get_current_turn = AsyncMock(return_value=5)
     return repo
@@ -115,7 +119,7 @@ class TestGameService:
         mock_tick_coord.stop.assert_called_once()
 
     async def test_get_overview(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
-        """Test getting empire overview."""
+        """Test getting empire overview (V4 format)."""
         service = GameService(
             settings=mock_settings,
             repository=mock_repository,
@@ -129,12 +133,11 @@ class TestGameService:
         assert overview["turn"] == 5
         assert overview["treasury"] == 100000
         assert overview["population"] == 1000000
-        assert overview["military"] == 5000
-        assert overview["happiness"] == 80.0  # 0.8 * 100
         assert overview["province_count"] == 1
+        # V4: no military or happiness fields
 
     async def test_get_overview_empty_state(self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir):
-        """Test getting overview with empty state."""
+        """Test getting overview with empty state (V4 format)."""
         mock_repo = AsyncMock()
         mock_repo.load_state = AsyncMock(return_value={})
 
@@ -151,9 +154,8 @@ class TestGameService:
         assert overview["turn"] == 0
         assert overview["treasury"] == 0
         assert overview["population"] == 0
-        assert overview["military"] == 0
-        assert overview["happiness"] == 0.0
         assert overview["province_count"] == 0
+        # V4: no military or happiness fields
 
     async def test_get_overview_no_repository(self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir):
         """Test getting overview when repository is None."""
@@ -258,18 +260,22 @@ class TestGameService:
         mock_engine.get_state.assert_called_once()
 
     async def test_calculate_overview_with_nested_base_data(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
-        """Test overview calculation with nested base_data structure."""
+        """Test overview calculation with nested base_data structure (V4 format)."""
         mock_repo = AsyncMock()
         mock_repo.load_state = AsyncMock(return_value={
             "base_data": {
                 "turn": 8,
                 "imperial_treasury": 200000,
-                "provinces": [
-                    {
-                        "population": {"total": 500000, "happiness": 0.9},
-                        "military": {"soldiers": 2000},
+                "provinces": {
+                    "zhejiang": {
+                        "province_id": "zhejiang",
+                        "name": "浙江",
+                        "production_value": 150000,
+                        "population": 500000,
+                        "fixed_expenditure": 40000,
+                        "stockpile": 800000,
                     }
-                ],
+                },
             }
         })
 
@@ -286,4 +292,5 @@ class TestGameService:
         assert overview["turn"] == 8
         assert overview["treasury"] == 200000
         assert overview["population"] == 500000
-        assert overview["happiness"] == 90.0
+        assert overview["province_count"] == 1
+        # V4: no military or happiness fields

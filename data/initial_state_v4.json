@@ -18,6 +18,116 @@
       "base_production_growth": "0.01",
       "base_population_growth": "0.005",
       "tax_modifier": "0.0"
+    },
+    "jiangnan": {
+      "province_id": "jiangnan",
+      "name": "江南",
+      "production_value": "200000",
+      "population": "5000000",
+      "fixed_expenditure": "80000",
+      "stockpile": "2000000",
+      "base_production_growth": "0.012",
+      "base_population_growth": "0.006",
+      "tax_modifier": "0.0"
+    },
+    "zhejiang": {
+      "province_id": "zhejiang",
+      "name": "浙江",
+      "production_value": "150000",
+      "population": "3000000",
+      "fixed_expenditure": "60000",
+      "stockpile": "1500000",
+      "base_production_growth": "0.011",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    },
+    "fujian": {
+      "province_id": "fujian",
+      "name": "福建",
+      "production_value": "120000",
+      "population": "2000000",
+      "fixed_expenditure": "50000",
+      "stockpile": "1000000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    },
+    "shandong": {
+      "province_id": "shandong",
+      "name": "山东",
+      "production_value": "130000",
+      "population": "2800000",
+      "fixed_expenditure": "55000",
+      "stockpile": "1100000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    },
+    "henan": {
+      "province_id": "henan",
+      "name": "河南",
+      "production_value": "110000",
+      "population": "2500000",
+      "fixed_expenditure": "50000",
+      "stockpile": "1000000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    },
+    "shanxi": {
+      "province_id": "shanxi",
+      "name": "山西",
+      "production_value": "90000",
+      "population": "1800000",
+      "fixed_expenditure": "40000",
+      "stockpile": "800000",
+      "base_production_growth": "0.009",
+      "base_population_growth": "0.004",
+      "tax_modifier": "0.0"
+    },
+    "shaanxi": {
+      "province_id": "shaanxi",
+      "name": "陕西",
+      "production_value": "80000",
+      "population": "1500000",
+      "fixed_expenditure": "40000",
+      "stockpile": "700000",
+      "base_production_growth": "0.008",
+      "base_population_growth": "0.004",
+      "tax_modifier": "0.0"
+    },
+    "sichuan": {
+      "province_id": "sichuan",
+      "name": "四川",
+      "production_value": "140000",
+      "population": "3500000",
+      "fixed_expenditure": "60000",
+      "stockpile": "1400000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
+    },
+    "guangdong": {
+      "province_id": "guangdong",
+      "name": "广东",
+      "production_value": "160000",
+      "population": "3200000",
+      "fixed_expenditure": "65000",
+      "stockpile": "1600000",
+      "base_production_growth": "0.011",
+      "base_population_growth": "0.006",
+      "tax_modifier": "0.0"
+    },
+    "huguang": {
+      "province_id": "huguang",
+      "name": "湖广",
+      "production_value": "170000",
+      "population": "4000000",
+      "fixed_expenditure": "70000",
+      "stockpile": "1700000",
+      "base_production_growth": "0.01",
+      "base_population_growth": "0.005",
+      "tax_modifier": "0.0"
     }
   }
 }

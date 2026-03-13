@@ -47,6 +47,9 @@ class MessageConverter:
             "data": {...}
         }
         """
+        if event.type == EventType.TICK_COMPLETED:
+            return await self._convert_tick_completed(event)
+
         if event.type == EventType.SESSION_STATE:
             return self._convert_session_state(event)
 
@@ -92,6 +95,71 @@ class MessageConverter:
                 "agent_id": payload.get("agent_id", ""),
                 "event_count": payload.get("event_count", 0),
                 "last_update": payload.get("last_update", datetime.now(timezone.utc).isoformat()),
+            },
+        }
+
+    async def _convert_tick_completed(self, event: Event) -> dict[str, Any]:
+        """转换 tick 完成事件为 state 消息（V4 格式）"""
+        # 从 repository 获取最新状态
+        if not self._repository:
+            return {
+                "kind": "state",
+                "data": {
+                    "turn": event.payload.get("tick", 0),
+                    "treasury": 0,
+                    "population": 0,
+                },
+            }
+
+        state = await self._repository.load_state()
+        if not state:
+            return {
+                "kind": "state",
+                "data": {
+                    "turn": event.payload.get("tick", 0),
+                    "treasury": 0,
+                    "population": 0,
+                },
+            }
+
+        # 计算 V4 格式的 overview 数据
+        def _to_number(value, default: float = 0.0) -> float:
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return float(value)
+            try:
+                return float(str(value))
+            except (TypeError, ValueError):
+                return default
+
+        def _get_provinces_dict(state_dict: dict) -> dict:
+            provinces = state_dict.get("provinces")
+            if isinstance(provinces, dict):
+                return provinces
+            base_data = state_dict.get("base_data", {})
+            if isinstance(base_data, dict):
+                provinces = base_data.get("provinces")
+                if isinstance(provinces, dict):
+                    return provinces
+            return {}
+
+        turn = int(_to_number(state.get("turn", 0)))
+        treasury = _to_number(state.get("imperial_treasury", 0))
+
+        # 计算总人口
+        provinces_dict = _get_provinces_dict(state)
+        population_total = 0.0
+        for province in provinces_dict.values():
+            if isinstance(province, dict):
+                population_total += _to_number(province.get("population", 0))
+
+        return {
+            "kind": "state",
+            "data": {
+                "turn": turn,
+                "treasury": int(treasury),
+                "population": int(population_total),
             },
         }
 

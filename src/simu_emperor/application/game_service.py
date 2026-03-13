@@ -113,18 +113,16 @@ class GameService:
         return await self._load_state_from_repository()
 
     async def get_overview(self) -> dict:
-        """Get empire overview summary.
+        """Get empire overview summary (V4 design).
 
         Returns:
-            Dict with turn, treasury, population, military, happiness, province_count
+            Dict with turn, treasury, population, province_count
         """
         if not self.repository:
             return {
                 "turn": 0,
                 "treasury": 0,
                 "population": 0,
-                "military": 0,
-                "happiness": 0.0,
                 "province_count": 0,
             }
 
@@ -132,7 +130,7 @@ class GameService:
         return self._calculate_overview(state)
 
     def _calculate_overview(self, state: dict) -> dict:
-        """Calculate overview from state dict."""
+        """Calculate overview from state dict (V4 format)."""
 
         def _to_number(value, default: float = 0.0) -> float:
             if value is None:
@@ -144,16 +142,17 @@ class GameService:
             except (TypeError, ValueError):
                 return default
 
-        def _get_provinces(state_dict: dict) -> list[dict]:
+        def _get_provinces_dict(state_dict: dict) -> dict:
+            """获取 provinces 字典（V4 格式）"""
             provinces = state_dict.get("provinces")
-            if isinstance(provinces, list):
+            if isinstance(provinces, dict):
                 return provinces
             base_data = state_dict.get("base_data", {})
             if isinstance(base_data, dict):
                 provinces = base_data.get("provinces")
-                if isinstance(provinces, list):
+                if isinstance(provinces, dict):
                     return provinces
-            return []
+            return {}
 
         # Get turn
         turn = int(_to_number(state.get("turn", 0)))
@@ -169,36 +168,21 @@ class GameService:
             if isinstance(base_data, dict):
                 treasury = _to_number(base_data.get("imperial_treasury", 0))
 
-        # Calculate totals from provinces
-        provinces = _get_provinces(state)
+        # Calculate totals from provinces (V4 扁平结构)
+        provinces_dict = _get_provinces_dict(state)
         population_total = 0.0
-        military_total = 0.0
-        happiness_values: list[float] = []
 
-        for province in provinces:
+        for province_id, province in provinces_dict.items():
             if not isinstance(province, dict):
                 continue
-            population = province.get("population", {})
-            military = province.get("military", {})
-            if isinstance(population, dict):
-                population_total += _to_number(population.get("total", 0))
-                happiness = _to_number(population.get("happiness", 0))
-                if 0 < happiness <= 1:
-                    happiness *= 100
-                if happiness > 0:
-                    happiness_values.append(happiness)
-            if isinstance(military, dict):
-                military_total += _to_number(military.get("soldiers", 0))
-
-        avg_happiness = sum(happiness_values) / len(happiness_values) if happiness_values else 0.0
+            # V4: province.population 直接是数字，不是嵌套对象
+            population_total += _to_number(province.get("population", 0))
 
         return {
             "turn": turn,
             "treasury": int(treasury),
             "population": int(population_total),
-            "military": int(military_total),
-            "happiness": round(avg_happiness, 1),
-            "province_count": len(provinces),
+            "province_count": len(provinces_dict),
         }
 
     async def _load_initial_state(self) -> "NationData":
