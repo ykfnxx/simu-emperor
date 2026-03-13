@@ -22,8 +22,10 @@ import type {
   ChatData,
   CurrentTapeResponse,
   EmpireOverview,
+  GameStateResponse,
   GroupChat,
   Incident,
+  ProvinceData,
   SessionInfo,
   SessionStateData,
   StateData,
@@ -438,10 +440,13 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupAgents, setSelectedGroupAgents] = useState<Set<string>>(new Set());
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
-  // 面板 Tab 切换: 'overview' | 'incidents' | 'actions'
-  const [currentPanelTab, setCurrentPanelTab] = useState<'overview' | 'incidents' | 'actions'>('overview');
+  // 面板 Tab 切换: 'overview' | 'incidents' | 'province'
+  const [currentPanelTab, setCurrentPanelTab] = useState<'overview' | 'incidents' | 'province'>('overview');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  // 省份概况相关
+  const [fullState, setFullState] = useState<GameStateResponse | null>(null);
+  const [selectedProvinceId, setSelectedProvinceId] = useState<string>('zhili');
   // 待创建的session信息（延迟创建模式）
   const [pendingSession, setPendingSession] = useState<{ agentId: string; name?: string } | null>(null);
   const currentAgentRef = useRef(currentAgentId);
@@ -540,6 +545,15 @@ export default function App() {
     }
   }, []);
 
+  const fetchFullState = useCallback(async () => {
+    try {
+      const data = await client.current.getState();
+      setFullState(data);
+    } catch (err) {
+      console.error('Failed to load state:', err);
+    }
+  }, []);
+
   const handleSwitchSession = async (sessionId: string) => {
     if (currentAgentRef.current) {
       setSelectedViewSessionId(sessionId);
@@ -589,6 +603,7 @@ export default function App() {
       const resolvedSessionId = sessionsData.current_session_id || currentSessionRef.current;
 
       setOverview(overviewData);
+      await fetchFullState();
       // 过滤task子会话，仅显示主会话
       const mainSessions = (sessionsData.sessions || []).filter((s: SessionInfo) =>
         isMainSession(s.session_id)
@@ -733,6 +748,11 @@ export default function App() {
       return next;
     });
   }, [agentSessions, currentAgentId]);
+
+  // 初始加载完整状态数据
+  useEffect(() => {
+    fetchFullState();
+  }, [fetchFullState]);
 
   const currentSession = useMemo(
     () => sessions.find((item) => item.session_id === currentSessionId),
@@ -1305,7 +1325,20 @@ export default function App() {
                   </span>
                 )}
               </button>
-              <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-400">官员行动（留白）</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPanelTab('province');
+                  fetchFullState();
+                }}
+                className={`rounded-md px-2 py-1 font-medium ${
+                  currentPanelTab === 'province'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                省份概况
+              </button>
             </div>
           </div>
 
@@ -1364,6 +1397,90 @@ export default function App() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* 省份概况 - Province Details */}
+          {currentPanelTab === 'province' && (
+            <div className="space-y-3 border-b border-slate-200 p-4">
+              {/* 省份选择器 */}
+              <div className="relative">
+                <select
+                  value={selectedProvinceId}
+                  onChange={(e) => setSelectedProvinceId(e.target.value)}
+                  className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm focus:border-blue-300 focus:outline-none"
+                >
+                  {fullState?.provinces && Object.entries(fullState.provinces).map(([id, province]) => (
+                    <option key={id} value={id}>
+                      {province.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              </div>
+
+              {/* 省份详情卡片 */}
+              {fullState?.provinces && fullState.provinces[selectedProvinceId] && (
+                <div className="space-y-3">
+                  {(() => {
+                    const p = fullState.provinces![selectedProvinceId] as ProvinceData;
+                    return (
+                      <>
+                        <div className="rounded-xl border border-purple-100 bg-purple-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-purple-700">
+                            <MapPin className="h-4 w-4" />
+                            <span>省份名称</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{p.name}</p>
+                        </div>
+
+                        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-amber-700">
+                            <Coins className="h-4 w-4" />
+                            <span>产值</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.production_value))}</p>
+                        </div>
+
+                        <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-blue-700">
+                            <Users className="h-4 w-4" />
+                            <span>人口</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.population))} 人</p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <Coins className="h-4 w-4" />
+                            <span>库存</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.stockpile))}</p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <span className="font-mono">💰</span>
+                            <span>固定支出</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{formatNumber(Number(p.fixed_expenditure))}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-xl border border-green-100 bg-green-50 p-3">
+                            <div className="text-xs text-green-700">产值增长率</div>
+                            <p className="mt-1 text-sm font-semibold">{Number(p.base_production_growth) * 100}%</p>
+                          </div>
+                          <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-3">
+                            <div className="text-xs text-cyan-700">人口增长率</div>
+                            <p className="mt-1 text-sm font-semibold">{Number(p.base_population_growth) * 100}%</p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               )}
             </div>
           )}
