@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
+from simu_emperor.common import get_agent_display_name
 
 
 class MessageConverter:
@@ -61,7 +62,7 @@ class MessageConverter:
             "kind": "chat",
             "data": {
                 "agent": self._extract_agent_name(event.src),
-                "agentDisplayName": self._get_agent_display_name(event.src),
+                "agentDisplayName": get_agent_display_name(event.src),
                 "text": event.payload.get("narrative", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
@@ -112,32 +113,6 @@ class MessageConverter:
             "player:web"
         """
         return src.replace("agent:", "")
-
-    @staticmethod
-    def _get_agent_display_name(src: str) -> str:
-        """
-        获取 agent 显示名称
-
-        Args:
-            src: 事件源 ID
-
-        Returns:
-            Agent 显示名称（中文名）
-
-        Examples:
-            >>> MessageConverter._get_agent_display_name("agent:governor_zhili")
-            "直隶巡抚"
-        """
-        agent_name = MessageConverter._extract_agent_name(src)
-
-        # Agent ID 到显示名称的映射
-        display_names = {
-            "governor_zhili": "直隶巡抚",
-            "minister_of_revenue": "户部尚书",
-            "player:web": "皇帝",
-        }
-
-        return display_names.get(agent_name, agent_name)
 
     @staticmethod
     def _describe_agriculture(metrics: dict) -> str:

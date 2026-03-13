@@ -236,6 +236,7 @@ class SessionService:
         for agent_id, sessions in sorted(agent_sessions.items()):
             result.append({
                 "agent_id": agent_id,
+                "agent_name": get_agent_display_name(agent_id),
                 "sessions": sorted(sessions, key=lambda s: s["created_at"], reverse=True),
             })
 

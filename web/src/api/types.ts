@@ -92,7 +92,12 @@ export interface HealthResponse {
   connections: number;
 }
 
-export type AgentsResponse = string[];
+export interface AgentInfo {
+  agent_id: string;
+  agent_name: string;
+}
+
+export type AgentsResponse = AgentInfo[];
 
 export interface GameStateResponse {
   turn: number;

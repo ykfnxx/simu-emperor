@@ -10,6 +10,7 @@ import type {
   ConnectionState,
   HealthResponse,
   AgentsResponse,
+  AgentInfo,
   GameStateResponse,
   EmpireOverview,
   SessionsResponse,
@@ -211,27 +212,31 @@ export class GameClient {
   async getAgents(): Promise<AgentsResponse> {
     const raw = await this.request<unknown>('/agents');
 
-    const normalize = (value: unknown): string[] => {
+    // Handle new format: [{agent_id, agent_name}, ...]
+    if (Array.isArray(raw) && raw.length > 0) {
+      const first = raw[0] as Record<string, unknown>;
+      if (first && typeof first === 'object' && 'agent_id' in first && 'agent_name' in first) {
+        return raw as AgentInfo[];
+      }
+    }
+
+    // Handle legacy format: string[] or {agents: string[]}
+    const normalize = (value: unknown): AgentInfo[] => {
+      let agentIds: string[] = [];
       if (Array.isArray(value)) {
-        return value.filter((item): item is string => typeof item === 'string');
+        agentIds = value.filter((item): item is string => typeof item === 'string');
+      } else if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        if (Array.isArray(record.agents)) {
+          agentIds = record.agents.filter((item): item is string => typeof item === 'string');
+        } else if (Array.isArray(record.data)) {
+          agentIds = record.data.filter((item): item is string => typeof item === 'string');
+        } else {
+          agentIds = Object.keys(record);
+        }
       }
-      if (!value || typeof value !== 'object') {
-        return [];
-      }
-
-      const record = value as Record<string, unknown>;
-      if (Array.isArray(record.agents)) {
-        return record.agents.filter((item): item is string => typeof item === 'string');
-      }
-      if (Array.isArray(record.data)) {
-        return record.data.filter((item): item is string => typeof item === 'string');
-      }
-
-      const keys = Object.keys(record);
-      if (keys.length > 0 && keys.every((key) => typeof key === 'string')) {
-        return keys;
-      }
-      return [];
+      // Convert legacy format to new format
+      return agentIds.map((id) => ({ agent_id: id, agent_name: id }));
     };
 
     return normalize(raw);

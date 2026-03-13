@@ -212,6 +212,10 @@ class TestSessionService:
             agent_ids = {group["agent_id"] for group in result}
             assert "governor_zhili" in agent_ids
             assert "minister_of_revenue" in agent_ids
+            # Verify agent_name is included
+            agent_names = {group["agent_name"] for group in result}
+            assert "直隶巡抚" in agent_names
+            assert "户部尚书" in agent_names
 
     async def test_set_current_context(self, mock_session_manager, mock_manifest_index, memory_dir):
         """Test setting current context."""

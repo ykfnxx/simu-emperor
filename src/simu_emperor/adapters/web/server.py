@@ -412,7 +412,9 @@ async def list_agents():
     if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    return await game_instance.agent_service.get_available_agents()
+    agent_ids = await game_instance.agent_service.get_available_agents()
+    from simu_emperor.common import get_agent_display_name
+    return [{"agent_id": aid, "agent_name": get_agent_display_name(aid)} for aid in agent_ids]
 
 
 # ============================================================================

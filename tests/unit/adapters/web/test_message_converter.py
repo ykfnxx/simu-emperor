@@ -8,6 +8,7 @@ from datetime import datetime
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.adapters.web.message_converter import MessageConverter
+from simu_emperor.common import get_agent_display_name
 
 
 class TestMessageConverter:
@@ -85,11 +86,11 @@ class TestMessageConverter:
 
     def test_get_agent_display_name(self):
         """测试获取 agent 显示名称"""
-        assert MessageConverter._get_agent_display_name("agent:governor_zhili") == "直隶巡抚"
-        assert MessageConverter._get_agent_display_name("agent:minister_of_revenue") == "户部尚书"
-        assert MessageConverter._get_agent_display_name("player:web") == "皇帝"
+        assert get_agent_display_name("agent:governor_zhili") == "直隶巡抚"
+        assert get_agent_display_name("agent:minister_of_revenue") == "户部尚书"
+        assert get_agent_display_name("player:web") == "player:web"  # player:web 不是agent
         # 未知 agent 返回原名称
-        assert MessageConverter._get_agent_display_name("agent:unknown") == "unknown"
+        assert get_agent_display_name("agent:unknown") == "unknown"
 
     def test_describe_agriculture(self):
         """测试描述农业产量"""

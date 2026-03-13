@@ -19,6 +19,7 @@ import remarkGfm from 'remark-gfm';
 
 import { createGameClient } from './api/client';
 import type {
+  AgentInfo,
   AgentSessionGroup,
   ChatData,
   CurrentTapeResponse,
@@ -359,16 +360,16 @@ function buildGroupsFromFlatSessions(sessions: SessionInfo[]): AgentSessionGroup
   return Array.from(grouped.values());
 }
 
-function mergeAgentGroups(groups: AgentSessionGroup[], agents: string[]): AgentSessionGroup[] {
+function mergeAgentGroups(groups: AgentSessionGroup[], agents: AgentInfo[]): AgentSessionGroup[] {
   const merged = new Map<string, AgentSessionGroup>();
   for (const group of groups) {
     merged.set(group.agent_id, group);
   }
-  for (const agentId of agents) {
-    if (!merged.has(agentId)) {
-      merged.set(agentId, {
-        agent_id: agentId,
-        agent_name: agentId,
+  for (const agent of agents) {
+    if (!merged.has(agent.agent_id)) {
+      merged.set(agent.agent_id, {
+        agent_id: agent.agent_id,
+        agent_name: agent.agent_name,
         sessions: [],
       });
     }
@@ -507,9 +508,9 @@ export default function App() {
         sessionsData = await client.current.getSessions();
       } catch {
         const agents = await client.current.getAgents().catch(() => []);
-        const fallbackGroups = agents.map((agentId) => ({
-          agent_id: agentId,
-          agent_name: agentId,
+        const fallbackGroups = agents.map((agent) => ({
+          agent_id: agent.agent_id,
+          agent_name: agent.agent_name,
           sessions: [],
         }));
         sessionsData = {
@@ -890,10 +891,7 @@ export default function App() {
       <div className="flex h-[calc(100vh-1.5rem)] flex-col gap-3 overflow-hidden rounded-3xl bg-[#e4e5e9] p-3 lg:flex-row">
         <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[320px]">
           <div className="border-b border-slate-200 px-4 py-4">
-            <div className="flex items-center gap-2">
-              <Crown className="h-5 w-5 text-amber-600" />
-              <h2 className="text-lg font-semibold">大明司南（导航）</h2>
-            </div>
+            <h2 className="text-lg font-semibold">百官行述</h2>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-3">
