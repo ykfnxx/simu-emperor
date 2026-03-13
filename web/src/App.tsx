@@ -455,6 +455,46 @@ function IncidentEffect({ value, incidentEffect }: IncidentEffectProps) {
   return <span>{value.toFixed(2)}% <span className="text-red-600">-{absEffect.toFixed(2)}%</span></span>;
 }
 
+// 垂直分割条（用于上下拖动调整高度）
+interface VerticalResizeHandleProps {
+  onDrag: (deltaY: number) => void;
+}
+
+function VerticalResizeHandle({ onDrag }: VerticalResizeHandleProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      onDrag(e.movementY);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, onDrag]);
+
+  return (
+    <div
+      className={`h-px border-t border-slate-300 hover:border-blue-400 cursor-row-resize transition-colors ${
+        isDragging ? 'border-b-2 border-blue-500' : ''
+      }`}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+    />
+  );
+}
+
 export default function App() {
   const client = useRef(
     createGameClient({
@@ -517,6 +557,10 @@ export default function App() {
   // 超时检测相关
   const responseTimeoutRef = useRef<number | null>(null);
   const [responseTimeoutError, setResponseTimeoutError] = useState<string | null>(null);
+
+  // 面板可拖动调整大小相关状态
+  const [leftPanelSplit, setLeftPanelSplit] = useState(50); // 左侧栏上下分割比例（%）
+  const [tapeContextHeight, setTapeContextHeight] = useState(300); // tape context高度（px）
 
   const refreshTape = useCallback(
     async (agentId: string, sessionId: string, target: 'chat' | 'view' = 'chat') => {
@@ -1047,27 +1091,28 @@ export default function App() {
     <div className="min-h-screen bg-[#ededf0] p-3 text-slate-800">
       <div className="flex h-[calc(100vh-1.5rem)] flex-col gap-3 overflow-hidden rounded-3xl bg-[#e4e5e9] p-3 lg:flex-row">
         <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[320px]">
-          <div className="border-b border-slate-200 px-4 py-4">
-            <h2 className="text-lg font-semibold">百官行述</h2>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 py-3">
-            <div className="space-y-3">
+          {/* 上半部分：百官行述 */}
+          <div className="flex flex-col min-h-0" style={{ height: `${leftPanelSplit}%` }}>
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h2 className="text-base font-semibold">百官行述</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-2">
+              <div className="space-y-2">
               {agentSessions.map((group) => (
-                <div key={group.agent_id} className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                  <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div key={group.agent_id} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <div className="mb-1 flex items-center justify-between gap-2 px-1">
                     <button
                       type="button"
                       onClick={() => toggleAgent(group.agent_id)}
                       className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left hover:bg-slate-100"
                     >
                       {expandedAgents[group.agent_id] ? (
-                        <ChevronDown className="h-4 w-4 text-slate-500" />
+                        <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
                       ) : (
-                        <ChevronRight className="h-4 w-4 text-slate-500" />
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                       )}
-                      <p className="truncate text-sm font-semibold text-slate-700">{group.agent_name}</p>
-                      <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-[11px] text-slate-600">
+                      <p className="truncate text-xs font-semibold text-slate-700">{group.agent_name}</p>
+                      <span className="rounded-md bg-slate-200 px-1 py-0.5 text-[10px] text-slate-600">
                         {group.sessions.length}
                       </span>
                     </button>
@@ -1075,10 +1120,10 @@ export default function App() {
                       type="button"
                       onClick={() => handleCreateSession(group.agent_id)}
                       disabled={creatingAgentId === group.agent_id}
-                      className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100 disabled:opacity-60"
+                      className="rounded-md border border-slate-200 bg-white p-0.5 hover:bg-slate-100 disabled:opacity-60"
                       title={`为 ${group.agent_name} 新建会话`}
                     >
-                      <Plus className="h-4 w-4" />
+                      <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
@@ -1090,23 +1135,23 @@ export default function App() {
                             key={`${group.agent_id}-${session.session_id}`}
                             type="button"
                             onClick={() => handleSelectSession(group.agent_id, session.session_id)}
-                            className={`w-full rounded-lg border px-2 py-2 text-left text-sm ${
+                            className={`w-full rounded-lg border px-2 py-1.5 text-left text-xs ${
                               group.agent_id === currentAgentId && session.session_id === currentSessionId
                                 ? 'border-blue-300 bg-blue-50'
                                 : 'border-slate-200 bg-white hover:bg-slate-50'
                             }`}
                           >
-                            <div className="flex items-center gap-2">
-                              <MessageSquare className="h-3.5 w-3.5 text-slate-400" />
+                            <div className="flex items-center gap-1.5">
+                              <MessageSquare className="h-3 w-3 text-slate-400" />
                               <p className="truncate font-medium">{session.title}</p>
                             </div>
-                            <p className="mt-1 text-xs text-slate-500">{session.event_count} 条事件</p>
+                            <p className="mt-0.5 text-[10px] text-slate-500">{session.event_count} 条</p>
                           </button>
                         ))}
                       </div>
                       {group.sessions.length === 0 && (
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-2 py-2 text-xs text-slate-500">
-                          暂无会话，点击右上角 + 新建。
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-2 py-1.5 text-[10px] text-slate-500">
+                          暂无会话
                         </div>
                       )}
                     </div>
@@ -1114,80 +1159,78 @@ export default function App() {
                 </div>
               ))}
 
-              {/* 群聊分组 */}
-              {groupChats.length > 0 && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-                  <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Toggle group expansion
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left hover:bg-slate-100"
-                    >
-                      <Users className="h-4 w-4 text-purple-500" />
-                      <p className="truncate text-sm font-semibold text-slate-700">群聊</p>
-                      <span className="rounded-md bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-600">
-                        {groupChats.length}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateGroupDialog(true)}
-                      className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
-                      title="创建群聊"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
+              {/* 上半部分结束 */}
+              </div>
 
-                  <div className="ml-2 border-l border-slate-300 pl-2">
-                    <div className="space-y-1">
-                      {groupChats.map((group) => (
-                        <button
-                          key={group.group_id}
-                          type="button"
-                          onClick={() => handleSelectGroup(group)}
-                          className={`w-full rounded-lg border px-2 py-2 text-left text-sm ${
-                            currentGroupId === group.group_id
-                              ? 'border-purple-300 bg-purple-50'
-                              : 'border-slate-200 bg-white hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3.5 w-3.5 text-purple-400" />
-                            <p className="truncate font-medium">{group.name}</p>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {group.agent_ids.length} 成员 · {group.message_count} 消息
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              {agentSessions.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                  暂无可用 agent 会话
                 </div>
               )}
+            </div>
+          </div>
 
-              {/* 创建群聊按钮（如果没有群聊时显示） */}
-              {groupChats.length === 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowCreateGroupDialog(true)}
-                  className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-500 hover:bg-slate-100"
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>创建群聊</span>
-                  </div>
-                </button>
+          {/* 垂直分割条 */}
+          <VerticalResizeHandle
+            onDrag={(deltaY) => {
+              const container = document.querySelector('aside')?.clientHeight || 600;
+              const deltaPercent = (deltaY / container) * 100;
+              setLeftPanelSplit(prev => Math.max(20, Math.min(80, prev + deltaPercent)));
+            }}
+          />
+
+          {/* 下半部分：群聊 */}
+          <div className="flex flex-col min-h-0" style={{ height: `${100 - leftPanelSplit}%` }}>
+            <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">群聊</h2>
+              <button
+                type="button"
+                onClick={() => setShowCreateGroupDialog(true)}
+                className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
+                title="创建群聊"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-2">
+              {groupChats.length > 0 ? (
+                <div className="space-y-2">
+                  {groupChats.map((group) => (
+                    <button
+                      key={group.group_id}
+                      type="button"
+                      onClick={() => handleSelectGroup(group)}
+                      className={`w-full rounded-lg border px-2 py-2 text-left text-xs ${
+                        currentGroupId === group.group_id
+                          ? 'border-purple-300 bg-purple-50'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Users className="h-3 w-3 text-purple-400" />
+                        <p className="truncate font-medium">{group.name}</p>
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        {group.agent_ids.length} 成员 · {group.message_count} 消息
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateGroupDialog(true)}
+                    className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-xs text-slate-500 hover:bg-slate-100"
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      <span>创建群聊</span>
+                    </div>
+                  </button>
+                </div>
               )}
             </div>
-
-            {agentSessions.length === 0 && groupChats.length === 0 && (
-              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
-                暂无可用 agent 会话或群聊。
-              </div>
-            )}
           </div>
         </aside>
 
@@ -1576,7 +1619,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 flex flex-col p-4">
+          <div className="min-h-0 flex-1 flex flex-col p-4" style={{ height: tapeContextHeight }}>
             {/* 固定标题栏 */}
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-base font-semibold">TAPE CONTEXT</h4>
@@ -1696,6 +1739,35 @@ export default function App() {
                 );
               })}
             </div>
+
+            {/* 底部拖动条 */}
+            <div
+              className="h-px border-t border-slate-300 hover:border-blue-400 cursor-row-resize transition-colors"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startY = e.clientY;
+                const startHeight = tapeContextHeight;
+                const mainEl = document.querySelector('main');
+
+                const handleMouseMove = (moveEvent: MouseEvent) => {
+                  // 向下拖动增加高度
+                  const delta = moveEvent.clientY - startY;
+                  const newHeight = startHeight + delta;
+                  // 限制高度范围
+                  const minHeight = 150;
+                  const maxHeight = (mainEl?.clientHeight || 800) - 100;
+                  setTapeContextHeight(Math.max(minHeight, Math.min(maxHeight, newHeight)));
+                };
+
+                const handleMouseUp = () => {
+                  document.removeEventListener('mousemove', handleMouseMove);
+                  document.removeEventListener('mouseup', handleMouseUp);
+                };
+
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+              }}
+            />
           </div>
         </aside>
       </div>
