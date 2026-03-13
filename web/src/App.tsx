@@ -1477,6 +1477,14 @@ export default function App() {
                             <p className="mt-1 text-sm font-semibold">{Number(p.base_population_growth) * 100}%</p>
                           </div>
                         </div>
+
+                        <div className="rounded-xl border border-orange-100 bg-orange-50 p-3">
+                          <div className="flex items-center gap-2 text-xs text-orange-700">
+                            <span className="font-mono">%</span>
+                            <span>税率修正</span>
+                          </div>
+                          <p className="mt-2 text-lg font-semibold">{Number(p.tax_modifier) * 100}%</p>
+                        </div>
                       </>
                     );
                   })()}
