@@ -44,8 +44,11 @@ logs/
 
 # Database
 *.db
+*.db-journal
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 
 # Environment
 .env
@@ -76,7 +79,9 @@ htmlcov/
 
 # Config
 config.yaml
-prometheus.ymlfrontend/
+prometheus.yml
+
+# Frontend
 logs/agents/
 *.log
 *_llm.jsonl
