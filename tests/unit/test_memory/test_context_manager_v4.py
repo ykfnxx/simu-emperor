@@ -60,7 +60,6 @@ def context_manager(
         tape_path=tape_path,
         config=context_config,
         llm_provider=mock_llm,
-        manifest_index=None,
         session_manager=None,
         tape_metadata_mgr=mock_tape_metadata_mgr,
     )
@@ -109,7 +108,6 @@ class TestContextManagerV4:
             tape_path=tape_path,
             config=context_config,
             llm_provider=mock_llm,
-            manifest_index=None,
             session_manager=None,
             tape_metadata_mgr=None,  # No metadata manager
         )

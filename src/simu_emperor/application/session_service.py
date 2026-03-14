@@ -11,7 +11,6 @@ from simu_emperor.common.utils import FileOperationsHelper
 
 if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
-    from simu_emperor.memory.manifest_index import ManifestIndex
     from simu_emperor.application.agent_service import AgentService
 
 
@@ -34,7 +33,6 @@ class SessionService:
     def __init__(
         self,
         session_manager: "SessionManager",
-        manifest_index: "ManifestIndex",
         memory_dir: Path,
         agent_service: "AgentService | None" = None,
     ) -> None:
@@ -42,12 +40,10 @@ class SessionService:
 
         Args:
             session_manager: Session lifecycle manager
-            manifest_index: Session metadata index
             memory_dir: Memory storage directory
             agent_service: Agent service for availability checks
         """
         self.session_manager = session_manager
-        self.manifest_index = manifest_index
         self.memory_dir = memory_dir
         self.agent_service = agent_service
 
@@ -81,7 +77,7 @@ class SessionService:
         self._session_titles[session_id] = title
 
         # Create session in manager
-        session = await self.session_manager.create_session(
+        await self.session_manager.create_session(
             session_id=session_id,
             created_by="player:web",
             status="ACTIVE",
@@ -182,7 +178,8 @@ class SessionService:
             List of dicts with agent_id and sessions list
         """
 
-        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+        # V4: Read from session_manifest.json instead of manifest.json
+        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "session_manifest.json") or {}
         sessions_data = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
 
         # Group sessions by agent

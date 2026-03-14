@@ -18,12 +18,6 @@ def mock_session_manager():
 
 
 @pytest.fixture
-def mock_manifest_index():
-    """Create mock manifest index."""
-    return MagicMock()
-
-
-@pytest.fixture
 def memory_dir(tmp_path: Path) -> Path:
     """Create memory directory."""
     return tmp_path / "memory"
@@ -40,20 +34,18 @@ def mock_agent_service():
 class TestSessionService:
     """Test SessionService."""
 
-    def test_init(self, mock_session_manager, mock_manifest_index, memory_dir):
+    def test_init(self, mock_session_manager, memory_dir):
         """Test session service initialization."""
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
         assert service.session_manager == mock_session_manager
-        assert service.manifest_index == mock_manifest_index
         assert service.memory_dir == memory_dir
         assert service.main_session_id == "session:web:main"
 
-    async def test_create_session(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_create_session(self, mock_session_manager, memory_dir):
         """Test creating a new session."""
         mock_session_manager.create_session = AsyncMock(return_value=MagicMock(
             session_id="session:web:governor_zhili:20260301120000:abc123",
@@ -61,7 +53,6 @@ class TestSessionService:
 
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -73,13 +64,12 @@ class TestSessionService:
         assert result["is_current"] is True
         mock_session_manager.create_session.assert_called_once()
 
-    async def test_create_session_default_title(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_create_session_default_title(self, mock_session_manager, memory_dir):
         """Test creating session with default title."""
         mock_session_manager.create_session = AsyncMock()
 
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -88,7 +78,7 @@ class TestSessionService:
         assert "title" in result
         assert "会话" in result["title"] or "直隶巡抚" in result["title"]
 
-    async def test_select_session(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_select_session(self, mock_session_manager, memory_dir):
         """Test selecting an existing session."""
         # Setup mock to return session
         mock_session = MagicMock()
@@ -97,7 +87,6 @@ class TestSessionService:
 
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -118,14 +107,13 @@ class TestSessionService:
             assert result["agent_id"] == "governor_zhili"
             assert result["is_current"] is True
 
-    async def test_select_session_auto_detect_agent(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_select_session_auto_detect_agent(self, mock_session_manager, memory_dir):
         """Test selecting session with auto-detected agent."""
         mock_session = MagicMock()
         mock_session_manager.get_session = AsyncMock(return_value=mock_session)
 
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -141,13 +129,12 @@ class TestSessionService:
 
             assert result["agent_id"] == "minister_of_revenue"
 
-    async def test_select_session_not_found(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_select_session_not_found(self, mock_session_manager, memory_dir):
         """Test selecting non-existent session raises error."""
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -155,11 +142,10 @@ class TestSessionService:
             with pytest.raises(ValueError, match="Session not found"):
                 await service.select_session("session:web:nonexistent", None)
 
-    async def test_get_session_for_agent(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_get_session_for_agent(self, mock_session_manager, memory_dir):
         """Test getting current session for agent."""
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -170,11 +156,10 @@ class TestSessionService:
 
         assert result == "session:web:custom"
 
-    async def test_get_session_for_agent_default(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_get_session_for_agent_default(self, mock_session_manager, memory_dir):
         """Test getting session returns default for unknown agent."""
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -182,7 +167,7 @@ class TestSessionService:
 
         assert result == "session:web:main"
 
-    async def test_list_agent_sessions(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_list_agent_sessions(self, mock_session_manager, memory_dir):
         """Test listing sessions grouped by agent."""
         with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
@@ -202,7 +187,6 @@ class TestSessionService:
 
             service = SessionService(
                 session_manager=mock_session_manager,
-                manifest_index=mock_manifest_index,
                 memory_dir=memory_dir,
             )
 
@@ -217,11 +201,10 @@ class TestSessionService:
             assert "直隶巡抚" in agent_names
             assert "户部尚书" in agent_names
 
-    async def test_set_current_context(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_set_current_context(self, mock_session_manager, memory_dir):
         """Test setting current context."""
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
@@ -229,18 +212,17 @@ class TestSessionService:
 
         assert service._current_session_by_agent["governor_zhili"] == "session:web:new_context"
 
-    def test_extract_title_from_id(self, mock_session_manager, mock_manifest_index, memory_dir):
+    def test_extract_title_from_id(self, mock_session_manager, memory_dir):
         """Test extracting title from session ID."""
         service = SessionService(
             session_manager=mock_session_manager,
-            manifest_index=mock_manifest_index,
             memory_dir=memory_dir,
         )
 
         assert service._extract_title_from_id("session:web:main") == "主会话"
         assert "session:web:custom" in service._extract_title_from_id("session:web:custom:123456")
 
-    async def test_list_sessions_all(self, mock_session_manager, mock_manifest_index, memory_dir):
+    async def test_list_sessions_all(self, mock_session_manager, memory_dir):
         """Test listing all sessions."""
         with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value={
@@ -255,7 +237,6 @@ class TestSessionService:
 
             service = SessionService(
                 session_manager=mock_session_manager,
-                manifest_index=mock_manifest_index,
                 memory_dir=memory_dir,
             )
 

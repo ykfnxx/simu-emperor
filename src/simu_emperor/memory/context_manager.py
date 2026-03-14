@@ -65,8 +65,6 @@ class ContextManager:
         tape_path: Path,
         config: ContextConfig,
         llm_provider: "LLMProvider",
-        # V4: 保留向后兼容的参数（标记为可选）
-        manifest_index=None,
         session_manager=None,
         # V4: 新增参数
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
@@ -82,7 +80,6 @@ class ContextManager:
             tape_path: Path to tape.jsonl file
             config: Context configuration
             llm_provider: LLM provider for summarization
-            manifest_index: Optional ManifestIndex for summary storage（V4 保留向后兼容）
             session_manager: Optional SessionManager for ancestor loading
             tape_metadata_mgr: V4 TapeMetadataManager for segment_index updates
             tape_writer: V4 TapeWriter for synchronous tape writing
@@ -92,7 +89,6 @@ class ContextManager:
         self.agent_id = agent_id
         self.tape_path = tape_path
         self.llm = llm_provider
-        self.manifest = manifest_index
         self.config = config
         self.session_manager = session_manager
         self.tape_metadata_mgr = tape_metadata_mgr  # V4
@@ -194,7 +190,9 @@ class ContextManager:
                 return []
 
             # 旧格式（没有 dst 字段或 dst 为空）且 src 是当前 agent → 转换为 assistant
-            if (not dst or (isinstance(dst, list) and len(dst) == 0)) and src == f"agent:{self.agent_id}":
+            if (
+                not dst or (isinstance(dst, list) and len(dst) == 0)
+            ) and src == f"agent:{self.agent_id}":
                 return [{"role": "assistant", "content": str(narrative)}]
 
             # 其他 agent 的响应 → user (格式化为来自其他 agent 的消息)
@@ -437,7 +435,9 @@ class ContextManager:
                         pending_tool_call_ids.remove(tool_call_id)
                     else:
                         # 跳过孤立的 tool 消息（没有匹配的 tool_calls）
-                        logger.debug(f"Skipping orphaned tool message with tool_call_id: {tool_call_id}")
+                        logger.debug(
+                            f"Skipping orphaned tool message with tool_call_id: {tool_call_id}"
+                        )
                 else:
                     messages.append(msg)
 
@@ -451,10 +451,10 @@ class ContextManager:
         1. 识别窗口内所有锚点
         2. 保留最近 N 个事件
         3. 额外保留锚点附近 ±K 个事件
-        4. 刷新被丢弃事件的摘要
+        4. 更新 tape_meta.jsonl 的 segment_index
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
-        V4: Updates tape_meta.jsonl segment_index
+        V4: Updates tape_meta.jsonl segment_index only (removed manifest.summary)
         """
         keep_recent = self.config.keep_recent_events
         anchor_buffer = self.config.anchor_buffer
@@ -465,32 +465,15 @@ class ContextManager:
         # Track dropped events for V4 segment_index update
         original_count = len(self.events)
 
-        # Step 1: 刷新session总结（基于完整tape）
-        if self.manifest:
-            try:
-                # 调用 ManifestIndex 的 refresh_session_summary 方法
-                await self.manifest.refresh_session_summary(
-                    session_id=self.session_id,
-                    agent_id=self.agent_id,
-                    llm_provider=self.llm,
-                    tape_path=self.tape_path,
-                )
-
-                # Step 2: 从manifest读取最新summary
-                summary = await self.manifest.get_session_summary(self.session_id, self.agent_id)
-                self.summary = summary or ""
-            except Exception as e:
-                print(f"Warning: Failed to refresh summary: {e}")
-
-        # Step 3: 如果未启用锚点感知，直接保留最近N条事件
+        # Step 1: 如果未启用锚点感知，直接保留最近N条事件
         if not self.config.enable_anchor_aware:
             dropped_events = self.events[:-keep_recent]
             self.events = self.events[-keep_recent:]
             await self._update_segment_index_for_dropped(dropped_events)
             return
 
-        # Step 4: 锚点感知的滑动窗口
-        # 4a. 识别锚点位置
+        # Step 2: 锚点感知的滑动窗口
+        # 2a. 识别锚点位置
         anchor_positions = [
             i for i, event in enumerate(self.events) if self._is_anchor_event(event)
         ]

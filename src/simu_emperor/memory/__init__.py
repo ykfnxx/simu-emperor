@@ -18,7 +18,7 @@ from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
 # V3 Components (still used)
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig, count_tokens
 from simu_emperor.memory.exceptions import ParseError, RetrievalError
-from simu_emperor.memory.manifest_index import ManifestIndex
+# V4: ManifestIndex is deprecated, use TapeMetadataManager instead
 from simu_emperor.memory.models import StructuredQuery, ParseResult, RetrievalResult
 from simu_emperor.memory.query_parser import QueryParser
 from simu_emperor.memory.structured_retriever import StructuredRetriever
@@ -46,7 +46,6 @@ __all__ = [
     "count_tokens",
     "ParseError",
     "RetrievalError",
-    "ManifestIndex",
     "StructuredQuery",
     "ParseResult",
     "RetrievalResult",

@@ -11,7 +11,7 @@ from simu_emperor.session.models import Session
 
 if TYPE_CHECKING:
     from simu_emperor.llm.base import LLMProvider
-    from simu_emperor.memory.manifest_index import ManifestIndex
+    from simu_emperor.memory.tape_metadata import TapeMetadataManager
     from simu_emperor.memory.tape_writer import TapeWriter
     from simu_emperor.memory.context_manager import ContextManager
 
@@ -27,15 +27,16 @@ class SessionManager:
         self,
         memory_dir: Path,
         llm_provider: "LLMProvider",
-        manifest_index: "ManifestIndex",
+        tape_metadata_mgr: "TapeMetadataManager",
         tape_writer: "TapeWriter",
     ):
         self.memory_dir = memory_dir
         self.llm_provider = llm_provider
-        self.manifest_index = manifest_index
+        self.tape_metadata_mgr = tape_metadata_mgr
         self.tape_writer = tape_writer
 
-        self.manifest_path = memory_dir / "manifest.json"
+        # V4: Session 状态持久化到 session_manifest.json（与 tape_meta.jsonl 分离）
+        self.session_manifest_path = memory_dir / "session_manifest.json"
         self._sessions: dict[str, Session] = {}
         self._context_managers: dict[str, "ContextManager"] = {}
 
@@ -180,9 +181,7 @@ class SessionManager:
     def get_waiting_sessions(self) -> list[Session]:
         return [s for s in self._sessions.values() if s.status == "WAITING_REPLY"]
 
-    async def increment_async_replies(
-        self, session_id: str, agent_id: str, count: int = 1
-    ) -> None:
+    async def increment_async_replies(self, session_id: str, agent_id: str, count: int = 1) -> None:
         """增加异步响应计数，并设置调用者 agent 的状态为 WAITING_REPLY
 
         Args:
@@ -251,8 +250,10 @@ class SessionManager:
                 tape_path=tape_path,
                 config=ContextConfig(),
                 llm_provider=self.llm_provider,
-                manifest_index=self.manifest_index,
                 session_manager=self,
+                # V4: 传递 tape_metadata_mgr 和 tape_writer
+                tape_metadata_mgr=self.tape_metadata_mgr,
+                tape_writer=self.tape_writer,
             )
             await cm.load_from_tape(include_ancestors=include_ancestors)
             self._context_managers[cache_key] = cm
@@ -275,7 +276,8 @@ class SessionManager:
         return (len(parent.waiting_for_tasks) == 0, parent.waiting_for_tasks)
 
     async def save_manifest(self) -> None:
-        manifest = await FileOperationsHelper.read_json_file(self.manifest_path)
+        """V4: 保存 Session 状态到 session_manifest.json"""
+        manifest = await FileOperationsHelper.read_json_file(self.session_manifest_path)
         if manifest is None:
             manifest = {
                 "version": "2.0",
@@ -283,7 +285,7 @@ class SessionManager:
                 "sessions": {},
             }
 
-        # Ensure "sessions" key exists (for compatibility with V3 manifests)
+        # Ensure "sessions" key exists
         if "sessions" not in manifest:
             manifest["sessions"] = {}
 
@@ -292,10 +294,11 @@ class SessionManager:
         for session_id, session in self._sessions.items():
             manifest["sessions"][session_id] = session.to_dict()
 
-        await FileOperationsHelper.write_json_file(self.manifest_path, manifest)
+        await FileOperationsHelper.write_json_file(self.session_manifest_path, manifest)
 
     async def load_manifest(self) -> None:
-        manifest = await FileOperationsHelper.read_json_file(self.manifest_path)
+        """V4: 从 session_manifest.json 加载 Session 状态"""
+        manifest = await FileOperationsHelper.read_json_file(self.session_manifest_path)
         if manifest is None:
             return
 

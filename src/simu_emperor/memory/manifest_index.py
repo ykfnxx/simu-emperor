@@ -1,4 +1,12 @@
-"""ManifestIndex for managing session metadata in manifest.json."""
+"""
+ManifestIndex for managing session metadata in manifest.json.
+
+⚠️ **DEPRECATED (V4)**: This module is deprecated.
+- Use TapeMetadataManager for tape-level metadata (tape_meta.jsonl)
+- Use SessionManager for session lifecycle state (session_manifest.json)
+
+This module is kept for backward compatibility and will be removed in a future release.
+"""
 
 from datetime import datetime, timezone
 from pathlib import Path

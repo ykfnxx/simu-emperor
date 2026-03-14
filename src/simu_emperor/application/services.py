@@ -61,7 +61,7 @@ class ApplicationServices:
         from simu_emperor.llm.anthropic import AnthropicProvider
         from simu_emperor.llm.openai import OpenAIProvider
         from simu_emperor.llm.mock import MockProvider
-        from simu_emperor.memory.manifest_index import ManifestIndex
+        from simu_emperor.memory.tape_metadata import TapeMetadataManager
         from simu_emperor.memory.tape_writer import TapeWriter
         from simu_emperor.session.manager import SessionManager
 
@@ -109,14 +109,14 @@ class ApplicationServices:
         event_bus = EventBus(file_logger=file_logger, db_logger=db_logger)
 
         # 4. Initialize memory components
-        manifest_index = ManifestIndex(memory_dir)
+        tape_metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
         tape_writer = TapeWriter(memory_dir=memory_dir)
 
         # 5. Initialize SessionManager
         session_manager = SessionManager(
             memory_dir=memory_dir,
             llm_provider=llm_provider,
-            manifest_index=manifest_index,
+            tape_metadata_mgr=tape_metadata_mgr,
             tape_writer=tape_writer,
         )
 
@@ -150,7 +150,6 @@ class ApplicationServices:
 
         session_service = SessionService(
             session_manager=session_manager,
-            manifest_index=manifest_index,
             memory_dir=memory_dir,
             agent_service=agent_service,
         )
