@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from simu_emperor.persistence.repositories import GameRepository
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.agents.manager import AgentManager
+    from simu_emperor.agents.agent_generator import AgentGenerator
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class AgentService:
         repository: "GameRepository",
         session_manager: "SessionManager",
         session_id: str = DEFAULT_WEB_SESSION_ID,
+        agent_generator: "AgentGenerator | None" = None,
     ) -> None:
         """Initialize AgentService.
 
@@ -58,6 +60,7 @@ class AgentService:
             repository: Game state repository
             session_manager: Session lifecycle manager
             session_id: Main session ID
+            agent_generator: Optional agent generator for dynamic agent creation
         """
         self.settings = settings
         self.event_bus = event_bus
@@ -68,6 +71,8 @@ class AgentService:
 
         # Agent manager (lazy initialized)
         self.agent_manager: "AgentManager | None" = None
+        # Agent generator (optional)
+        self._agent_generator: "AgentGenerator | None" = agent_generator
 
     async def initialize_agents(self, agent_ids: list[str] | None = None) -> None:
         """Initialize and start agents.
@@ -159,3 +164,178 @@ class AgentService:
     def is_initialized(self) -> bool:
         """Check if agent manager is initialized."""
         return self.agent_manager is not None
+
+    # ========================================================================
+    # Dynamic Agent Generation (NEW)
+    # ========================================================================
+
+    async def generate_agent(
+        self,
+        agent_id: str,
+        title: str,
+        name: str,
+        duty: str,
+        personality: str,
+        province: str | None = None,
+    ) -> dict:
+        """LLM 生成 agent 配置并创建文件
+
+        Args:
+            agent_id: Agent 唯一标识符（如 governor_zhili）
+            title: 官职（如 "直隶巡抚"）
+            name: 姓名（如 "蔡珽"）
+            duty: 职责描述（如 "直隶省民政、农桑、商贸、治安"）
+            personality: 为人描述（如 "行事果断，忠心耿耿"）
+            province: 管辖省份（可选，如 "zhili"）
+
+        Returns:
+            {
+                "success": bool,
+                "agent_id": str,
+                "soul_md": str,
+                "data_scope": str,
+                "role_map_entry": str,
+            }
+
+        Raises:
+            RuntimeError: AgentGenerator not initialized
+        """
+        from simu_emperor.agents.agent_generator import AgentConfig
+
+        if not self._agent_generator:
+            raise RuntimeError("AgentGenerator not initialized")
+
+        config = AgentConfig(
+            agent_id=agent_id,
+            title=title,
+            name=name,
+            duty=duty,
+            personality=personality,
+            province=province,
+        )
+
+        # LLM 生成配置
+        generated = await self._agent_generator.generate_config(config)
+
+        # 创建 agent 目录
+        agent_dir = self.settings.data_dir / "default_agents" / agent_id
+        agent_dir.mkdir(parents=True, exist_ok=True)
+
+        # 写入 soul.md
+        (agent_dir / "soul.md").write_text(generated.soul_md, encoding="utf-8")
+
+        # 写入 data_scope.yaml
+        (agent_dir / "data_scope.yaml").write_text(generated.data_scope, encoding="utf-8")
+
+        # 追加到 role_map.md
+        self._append_to_role_map(generated.role_map_entry)
+
+        logger.info(f"Agent {agent_id} config generated and files written")
+
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "soul_md": generated.soul_md,
+            "data_scope": generated.data_scope,
+            "role_map_entry": generated.role_map_entry,
+        }
+
+    async def add_generated_agent(
+        self,
+        agent_id: str,
+        title: str,
+        name: str,
+        duty: str,
+        personality: str,
+        province: str | None = None,
+    ) -> dict:
+        """生成配置并启动 agent（完整流程）
+
+        Args:
+            agent_id: Agent 唯一标识符
+            title: 官职
+            name: 姓名
+            duty: 职责描述
+            personality: 为人描述
+            province: 管辖省份（可选）
+
+        Returns:
+            {
+                "success": bool,
+                "agent_id": str,
+                "message": str,
+                "soul_md": str,
+                "data_scope": str,
+                "role_map_entry": str,
+            }
+        """
+        # 1. 生成配置文件
+        result = await self.generate_agent(
+            agent_id=agent_id,
+            title=title,
+            name=name,
+            duty=duty,
+            personality=personality,
+            province=province,
+        )
+
+        # 2. 初始化并启动
+        if self.agent_manager:
+            if self.agent_manager.initialize_agent(agent_id):
+                self.agent_manager.add_agent(agent_id)
+                result["message"] = f"Agent {agent_id} 生成并启动成功"
+            else:
+                result["message"] = f"Agent {agent_id} 配置已生成，但初始化失败"
+                result["success"] = False
+        else:
+            result["message"] = f"Agent {agent_id} 配置已生成，但 AgentManager 未初始化"
+            result["success"] = False
+
+        return result
+
+    def _append_to_role_map(self, entry: str) -> None:
+        """追加条目到 role_map.md
+
+        Args:
+            entry: 要追加的条目内容
+        """
+        role_map_path = self.settings.data_dir / "role_map.md"
+
+        # 如果文件不存在，从默认备份恢复
+        if not role_map_path.exists():
+            self._restore_role_map_from_default()
+
+        # 追加条目
+        with open(role_map_path, "a", encoding="utf-8") as f:
+            f.write("\n" + entry + "\n")
+
+        logger.info("Appended entry to role_map.md")
+
+    def _restore_role_map_from_default(self) -> None:
+        """从默认备份恢复 role_map.md"""
+        role_map_path = self.settings.data_dir / "role_map.md"
+        default_role_map = self.settings.data_dir / "default_agents" / "role_map.md"
+
+        role_map_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if default_role_map.exists():
+            # 从默认备份复制
+            import shutil
+
+            shutil.copy(default_role_map, role_map_path)
+            logger.info("Restored role_map.md from default backup")
+        else:
+            # 创建最小默认文件
+            role_map_path.write_text(
+                "# 大清帝国官员职责表\n\n",
+                encoding="utf-8",
+            )
+            logger.warning("Default role_map.md not found, created minimal file")
+
+    def set_agent_generator(self, agent_generator: "AgentGenerator") -> None:
+        """设置 AgentGenerator（用于依赖注入）
+
+        Args:
+            agent_generator: AgentGenerator 实例
+        """
+        self._agent_generator = agent_generator

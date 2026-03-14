@@ -71,6 +71,7 @@ class ApplicationServices:
         from simu_emperor.application.group_chat_service import GroupChatService
         from simu_emperor.application.message_service import MessageService
         from simu_emperor.application.tape_service import TapeService
+        from simu_emperor.agents.agent_generator import AgentGenerator
 
         # Resolve memory directory
         memory_dir = cls._resolve_memory_dir(settings)
@@ -87,6 +88,12 @@ class ApplicationServices:
             )
         else:
             llm_provider = MockProvider()
+
+        # Initialize AgentGenerator (for dynamic agent creation)
+        agent_generator = AgentGenerator(
+            llm_provider=llm_provider,
+            data_dir=settings.data_dir,
+        )
 
         # 2. Initialize Database
         db_path = str(settings.data_dir / "game.db")
@@ -138,6 +145,7 @@ class ApplicationServices:
             repository=repository,
             session_manager=session_manager,
             session_id=main_session_id,
+            agent_generator=agent_generator,
         )
 
         session_service = SessionService(

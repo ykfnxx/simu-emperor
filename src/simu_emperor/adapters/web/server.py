@@ -194,7 +194,9 @@ async def handle_client_message(data: dict, websocket: WebSocket) -> None:
                     session_id=target_session_id,
                 )
 
-            logger.info(f"[WS] Message published to event bus: agent={agent}, session={target_session_id}")
+            logger.info(
+                f"[WS] Message published to event bus: agent={agent}, session={target_session_id}"
+            )
 
         except ValueError as exc:
             logger.warning("Invalid message payload: %s", exc)
@@ -221,40 +223,58 @@ async def _on_event(event: Event) -> None:
 # REST API (协议转换层 - 委托给ApplicationServices)
 # ============================================================================
 
+
 class CommandRequest(BaseModel):
     """命令请求"""
+
     agent: str
     command: str
 
 
 class SessionCreateRequest(BaseModel):
     """新建 session 请求"""
+
     name: str | None = None
     agent_id: str | None = None
 
 
 class SessionSelectRequest(BaseModel):
     """选择 session 请求"""
+
     session_id: str
     agent_id: str | None = None
 
 
 class GroupChatCreateRequest(BaseModel):
     """创建群聊请求"""
+
     name: str
     agent_ids: list[str]
 
 
 class GroupChatMessageRequest(BaseModel):
     """群聊消息请求"""
+
     group_id: str
     message: str
 
 
 class GroupChatAgentRequest(BaseModel):
     """群聊agent操作请求"""
+
     group_id: str
     agent_id: str
+
+
+class AgentGenerateRequest(BaseModel):
+    """生成 agent 请求"""
+
+    agent_id: str
+    title: str  # 官职
+    name: str  # 姓名
+    duty: str  # 职责
+    personality: str  # 为人描述
+    province: str | None = None  # 管辖省份
 
 
 # ============================================================================
@@ -311,8 +331,12 @@ async def get_state():
                 # 添加事件影响（用于税率、增长率显示）
                 incident_effects = engine.get_province_incident_effects(province_id)
                 province["tax_modifier_incident"] = str(incident_effects["tax_modifier"])
-                province["production_growth_incident"] = str(incident_effects["production_growth_factor"])
-                province["population_growth_incident"] = str(incident_effects["population_growth_factor"])
+                province["production_growth_incident"] = str(
+                    incident_effects["production_growth_factor"]
+                )
+                province["population_growth_incident"] = str(
+                    incident_effects["population_growth_factor"]
+                )
 
     return state_dict
 
@@ -353,6 +377,7 @@ async def list_sessions_api():
     # 如果没有找到is_current的session，使用main session
     if not current_session_id:
         from simu_emperor.common import DEFAULT_WEB_SESSION_ID
+
         current_session_id = DEFAULT_WEB_SESSION_ID
 
     return {
@@ -462,7 +487,52 @@ async def list_agents():
 
     agent_ids = await game_instance.agent_service.get_available_agents()
     from simu_emperor.common import get_agent_display_name
+
     return [{"agent_id": aid, "agent_name": get_agent_display_name(aid)} for aid in agent_ids]
+
+
+@app.post("/api/agents/generate")
+async def generate_agent(request: AgentGenerateRequest):
+    """LLM 生成 agent 配置并创建文件"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    try:
+        result = await game_instance.agent_service.generate_agent(
+            agent_id=request.agent_id,
+            title=request.title,
+            name=request.name,
+            duty=request.duty,
+            personality=request.personality,
+            province=request.province,
+        )
+        return result
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/agents/add-generated")
+async def add_generated_agent(request: AgentGenerateRequest):
+    """生成配置并启动 agent（完整流程）"""
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    try:
+        result = await game_instance.agent_service.add_generated_agent(
+            agent_id=request.agent_id,
+            title=request.title,
+            name=request.name,
+            duty=request.duty,
+            personality=request.personality,
+            province=request.province,
+        )
+        return result
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ============================================================================
