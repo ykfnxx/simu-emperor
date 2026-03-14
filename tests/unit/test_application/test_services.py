@@ -41,11 +41,11 @@ class TestApplicationServices:
         assert result == mock_settings.data_dir / "memory"
 
     @patch("simu_emperor.persistence.init_database")
-    @patch("simu_emperor.memory.manifest_index.ManifestIndex")
+    @patch("simu_emperor.memory.tape_metadata.TapeMetadataManager")
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_create_initializes_all_services(
-        self, mock_session_mgr, mock_tape_writer, mock_manifest_idx, mock_init_db, mock_settings
+        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_init_db, mock_settings
     ):
         """Test create() factory initializes all services."""
         from simu_emperor.application.services import ApplicationServices
@@ -71,11 +71,11 @@ class TestApplicationServices:
 
     @patch("simu_emperor.persistence.init_database")
     @patch("simu_emperor.persistence.close_database")
-    @patch("simu_emperor.memory.manifest_index.ManifestIndex")
+    @patch("simu_emperor.memory.tape_metadata.TapeMetadataManager")
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_start_and_shutdown(
-        self, mock_session_mgr, mock_tape_writer, mock_manifest_idx, mock_close_db, mock_init_db, mock_settings
+        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_close_db, mock_init_db, mock_settings
     ):
         """Test start() and shutdown() lifecycle methods."""
         from simu_emperor.application.services import ApplicationServices
@@ -100,11 +100,11 @@ class TestApplicationServices:
         services.game_service.shutdown.assert_called_once()
 
     @patch("simu_emperor.persistence.init_database")
-    @patch("simu_emperor.memory.manifest_index.ManifestIndex")
+    @patch("simu_emperor.memory.tape_metadata.TapeMetadataManager")
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_property_accessors(
-        self, mock_session_mgr, mock_tape_writer, mock_manifest_idx, mock_init_db, mock_settings
+        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_init_db, mock_settings
     ):
         """Test property accessors for infrastructure components."""
         from simu_emperor.application.services import ApplicationServices

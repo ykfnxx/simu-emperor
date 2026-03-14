@@ -13,7 +13,7 @@ from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.mock import MockProvider
 from simu_emperor.session.manager import SessionManager
-from simu_emperor.memory.manifest_index import ManifestIndex
+from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.tape_writer import TapeWriter
 
 
@@ -32,13 +32,13 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
         event_bus = EventBus()
 
         mock_llm = MockProvider(response="Test response", tool_calls=None)
-        manifest_index = ManifestIndex(memory_dir=memory_dir)
+        tape_metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
         tape_writer = TapeWriter(memory_dir=memory_dir)
 
         session_manager = SessionManager(
             memory_dir=memory_dir,
             llm_provider=mock_llm,
-            manifest_index=manifest_index,
+            tape_metadata_mgr=tape_metadata_mgr,
             tape_writer=tape_writer,
         )
 
@@ -53,6 +53,8 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
             llm_provider=agent_llm,
             data_dir=data_dir,
             session_manager=session_manager,
+            tape_writer=tape_writer,
+            tape_metadata_mgr=tape_metadata_mgr,
         )
 
         # Create a main session

@@ -315,8 +315,8 @@ class SessionService:
                 for entry in entries:
                     session_id = entry.get("session_id")
                     title = entry.get("title")
-                    if session_id and title and session_id not in self._session_titles:
-                        # Cache the title
+                    if session_id and title:
+                        # Always use tape_meta title as source of truth (overwrites default titles)
                         self._session_titles[session_id] = title
             except Exception as e:
                 logger.debug(f"Failed to preload titles for {agent_id}: {e}")

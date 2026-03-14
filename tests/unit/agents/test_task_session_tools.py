@@ -15,7 +15,7 @@ def mock_llm_provider():
 
 
 @pytest.fixture
-def mock_manifest_index():
+def mock_tape_metadata_mgr():
     return AsyncMock()
 
 
@@ -32,11 +32,11 @@ def mock_event_bus():
 
 
 @pytest.fixture
-async def session_manager(tmp_path, mock_llm_provider, mock_manifest_index, mock_tape_writer):
+async def session_manager(tmp_path, mock_llm_provider, mock_tape_metadata_mgr, mock_tape_writer):
     manager = SessionManager(
         memory_dir=tmp_path,
         llm_provider=mock_llm_provider,
-        manifest_index=mock_manifest_index,
+        tape_metadata_mgr=mock_tape_metadata_mgr,
         tape_writer=mock_tape_writer,
     )
     return manager

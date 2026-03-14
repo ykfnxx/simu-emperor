@@ -147,14 +147,14 @@ class TestRespondToPlayer:
     async def session_manager(self, tmp_path):
         """Create SessionManager for testing"""
         mock_llm = MagicMock()
-        mock_manifest = AsyncMock()
+        mock_tape_metadata_mgr = AsyncMock()
         mock_tape = MagicMock()
         mock_tape._get_tape_path = MagicMock(return_value=tmp_path / "tape.jsonl")
 
         manager = SessionManager(
             memory_dir=tmp_path,
             llm_provider=mock_llm,
-            manifest_index=mock_manifest,
+            tape_metadata_mgr=mock_tape_metadata_mgr,
             tape_writer=mock_tape,
         )
         return manager

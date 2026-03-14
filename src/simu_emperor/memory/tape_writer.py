@@ -93,17 +93,24 @@ class TapeWriter:
         async with aiofiles.open(tape_path, mode="a", encoding="utf-8") as f:
             await f.write(event.to_json() + "\n")
 
-        # V4: 异步生成标题（首事件，且不是 TICK_COMPLETED）
-        if is_first_event and self._tape_metadata_mgr and self._llm_provider:
-            # 排除 TICK_COMPLETED 事件，因为它不适合作为标题依据
-            if event.type != "tick_completed":
+        # V4: 同步生成标题（首事件，且不是 TICK_COMPLETED）
+        # 注意：必须在 increment_event_count 之前完成，否则会出现竞态条件
+        if is_first_event and event.type != "tick_completed":
+            if self._tape_metadata_mgr and self._llm_provider:
                 logger.info(f"[TapeWriter] First event for {agent_id}/{session_id}, generating title...")
-                asyncio.create_task(
-                    self._generate_title_async(agent_id, session_id, event)
-                )
-        else:
-            # Debug: log why title wasn't generated
-            if is_first_event and event.type != "tick_completed":
+                try:
+                    await self._tape_metadata_mgr.append_or_update_entry(
+                        agent_id=agent_id,
+                        session_id=session_id,
+                        first_event=event,
+                        llm=self._llm_provider,
+                        current_tick=None,  # 首事件时可能没有 tick
+                    )
+                    logger.debug(f"Generated title for {agent_id}/{session_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate title for {session_id}: {e}")
+            else:
+                # Debug: log why title wasn't generated
                 logger.warning(
                     f"[TapeWriter] Skipping title generation for {agent_id}/{session_id}: "
                     f"is_first={is_first_event}, "
@@ -112,7 +119,7 @@ class TapeWriter:
                     f"event_type={event.type}"
                 )
 
-        # V4: 触发回调更新 event_count（已废弃：直接调用 increment_event_count）
+        # V4: 更新 event_count（必须在 entry 创建之后）
         if self._tape_metadata_mgr and agent_id and session_id:
             try:
                 await self._tape_metadata_mgr.increment_event_count(agent_id, session_id)
@@ -121,29 +128,6 @@ class TapeWriter:
                 logger.debug(f"Failed to increment event count: {e}")
 
         return event.event_id
-
-    async def _generate_title_async(
-        self, agent_id: str, session_id: str, first_event: Event
-    ) -> None:
-        """
-        异步生成 session 标题（V4 新增）。
-
-        Args:
-            agent_id: Agent 标识符
-            session_id: Session 标识符
-            first_event: 首事件
-        """
-        try:
-            await self._tape_metadata_mgr.append_or_update_entry(
-                agent_id=agent_id,
-                session_id=session_id,
-                first_event=first_event,
-                llm=self._llm_provider,
-                current_tick=None,  # 首事件时可能没有 tick
-            )
-            logger.debug(f"Generated title for {agent_id}/{session_id}")
-        except Exception as e:
-            logger.warning(f"Failed to generate title for {session_id}: {e}")
 
     def _get_tape_path(self, session_id: str, agent_id: str) -> Path:
         """

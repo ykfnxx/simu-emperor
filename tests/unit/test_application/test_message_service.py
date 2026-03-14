@@ -11,6 +11,7 @@ def mock_event_bus():
     """Create mock event bus."""
     bus = MagicMock()
     bus.publish = AsyncMock()
+    bus.send_event = AsyncMock()
     return bus
 
 
@@ -47,8 +48,8 @@ class TestMessageService:
             session_id="session:web:main",
         )
 
-        mock_event_bus.publish.assert_called_once()
-        call_args = mock_event_bus.publish.call_args
+        mock_event_bus.send_event.assert_called_once()
+        call_args = mock_event_bus.send_event.call_args
         event = call_args[0][0]
         assert "agent:governor_zhili" in event.dst
         assert event.payload["query"] == "查看直隶情况"
@@ -67,7 +68,7 @@ class TestMessageService:
             session_id="session:web:main",
         )
 
-        call_args = mock_event_bus.publish.call_args
+        call_args = mock_event_bus.send_event.call_args
         event = call_args[0][0]
         assert event.dst == ["agent:governor_zhili"]
 
@@ -85,8 +86,8 @@ class TestMessageService:
             session_id="session:web:main",
         )
 
-        mock_event_bus.publish.assert_called_once()
-        call_args = mock_event_bus.publish.call_args
+        mock_event_bus.send_event.assert_called_once()
+        call_args = mock_event_bus.send_event.call_args
         event = call_args[0][0]
         assert "agent:governor_zhili" in event.dst
         assert event.payload["message"] == "你好"
@@ -104,7 +105,7 @@ class TestMessageService:
             session_id="session:web:main",
         )
 
-        call_args = mock_event_bus.publish.call_args
+        call_args = mock_event_bus.send_event.call_args
         event = call_args[0][0]
         assert event.dst == ["*"]
 
@@ -122,7 +123,7 @@ class TestMessageService:
             agent_ids=["governor_zhili", "minister_of_revenue"],
         )
 
-        call_args = mock_event_bus.publish.call_args
+        call_args = mock_event_bus.send_event.call_args
         event = call_args[0][0]
         assert "agent:governor_zhili" in event.dst
         assert "agent:minister_of_revenue" in event.dst
