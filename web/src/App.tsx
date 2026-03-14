@@ -79,7 +79,8 @@ function formatTurn(turn: number): string {
 }
 
 function getSenderName(event: TapeEvent): string {
-  if (event.src === 'player:web') return '皇帝';
+  // 所有 player: 开头的消息都显示为"皇帝"
+  if (event.src.startsWith('player:')) return '皇帝';
   if (event.src.startsWith('agent:')) {
     const agentId = event.src.replace('agent:', '');
     if (agentId === 'governor_zhili') return '直隶巡抚';
@@ -259,7 +260,10 @@ function extractEventText(event: TapeEvent): string {
 function toChatMessages(events: TapeEvent[]): TapeEvent[] {
   return events
     .filter((event) => {
-      if (event.src === 'player:web') return normalizeEventType(event.type) === 'chat';
+      // 显示玩家发送的消息（包括私聊 player:web 和群聊 player:web:group）
+      if (event.src === 'player:web' || event.src === 'player:web:group') {
+        return normalizeEventType(event.type) === 'chat';
+      }
       return isAgentReplyEvent(event);
     })
     .filter((event) => extractEventText(event).trim().length > 0);
@@ -275,7 +279,7 @@ function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {
   let lastPlayerMessageIndex = -1;
 
   for (let i = 0; i < scoped.length; i += 1) {
-    if (scoped[i].src === 'player:web' && normalizeEventType(scoped[i].type) === 'chat') {
+    if ((scoped[i].src === 'player:web' || scoped[i].src === 'player:web:group') && normalizeEventType(scoped[i].type) === 'chat') {
       lastPlayerMessageIndex = i;
     }
   }
@@ -354,6 +358,61 @@ function mergeTapeResponse(
     ...incoming,
     events: mergedEvents,
     total: Math.max(incoming.total, mergedEvents.length),
+  };
+}
+
+// 合并多个agents的tape（用于群聊模式）
+function mergeMultipleAgentTapes(
+  tapes: CurrentTapeResponse[],
+  sessionId: string
+): CurrentTapeResponse {
+  // 收集所有事件并去重
+  const eventMap = new Map<string, TapeEvent>();
+  const seenLocalEvents = new Set<string>();
+
+  for (const tape of tapes) {
+    for (const event of tape.events) {
+      // 使用 event_id 作为唯一标识（如果存在）
+      const key = event.event_id || `${event.src}-${event.type}-${event.timestamp}`;
+
+      // 对于本地事件（local_ 或 ws_ 前缀），只保留最新的
+      const isLocal = event.event_id?.startsWith('local_') || event.event_id?.startsWith('ws_');
+      if (isLocal) {
+        if (seenLocalEvents.has(key)) {
+          // 移除旧的
+          const oldEvent = eventMap.get(key);
+          const oldTime = getEventTimeMs(oldEvent!);
+          const newTime = getEventTimeMs(event);
+          if (newTime > oldTime) {
+            eventMap.set(key, event);
+          }
+        } else {
+          seenLocalEvents.add(key);
+          eventMap.set(key, event);
+        }
+      } else {
+        // 非本地事件，直接添加（如果不存在）
+        if (!eventMap.has(key)) {
+          eventMap.set(key, event);
+        }
+      }
+    }
+  }
+
+  // 转换为数组并按时间戳排序
+  const mergedEvents = Array.from(eventMap.values());
+  mergedEvents.sort((a, b) => {
+    const at = getEventTimeMs(a);
+    const bt = getEventTimeMs(b);
+    if (at !== bt) return at - bt;
+    return a.event_id.localeCompare(b.event_id);
+  });
+
+  return {
+    session_id: sessionId,
+    agent_id: null, // 群聊模式不属于单个agent
+    events: mergedEvents,
+    total: mergedEvents.length,
   };
 }
 
@@ -584,17 +643,30 @@ export default function App() {
   const refreshTape = useCallback(
     async (agentId: string, sessionId: string, target: 'chat' | 'view' = 'chat') => {
       try {
-        // 对于 viewTape，不传 agent_id 以显示所有 agent 的事件
-        const agentIdParam = target === 'view' ? undefined : agentId;
+        // 对于 viewTape，群聊模式使用指定agent（只显示该agent的tape），非群聊模式显示所有 agents
+        const isViewTape = target === 'view';
+        const agentIdParam = isViewTape ? agentId : agentId;
         const tapeData = await client.current.getCurrentTape(
           120,
           agentIdParam,
           sessionId,
           undefined // 不再使用include_sub_sessions
         );
+
+        // 去重：当agent_id为undefined时，后端返回所有agents的tape，可能包含相同event_id的事件
+        const seenEventIds = new Set<string>();
+        const dedupedEvents = tapeData.events.filter(event => {
+          if (seenEventIds.has(event.event_id)) {
+            return false;
+          }
+          seenEventIds.add(event.event_id);
+          return true;
+        });
+        const dedupedTapeData = { ...tapeData, events: dedupedEvents, total: dedupedEvents.length };
+
         const isChat = target === 'chat';
         const currentRef = isChat ? chatTapeRef.current : viewTapeRef.current;
-        const merged = mergeTapeResponse(currentRef, tapeData, sessionId);
+        const merged = mergeTapeResponse(currentRef, dedupedTapeData, sessionId);
 
         if (isChat) {
           chatTapeRef.current = merged;
@@ -731,10 +803,31 @@ export default function App() {
       );
       setSessions(mainSessions);
       setAgentSessions(groupedSessions);
-      setCurrentAgentId(resolvedAgentId);
-      setCurrentSessionId(resolvedSessionId);
 
-      await refreshChatTape(resolvedAgentId, resolvedSessionId);
+      // 群聊模式：不覆盖currentAgentId，重新加载群聊合并tape
+      if (currentGroupId) {
+        const group = groupChats.find(g => g.group_id === currentGroupId);
+        if (group) {
+          try {
+            const tapes = await Promise.all(
+              group.agent_ids.map(agentId =>
+                client.current.getCurrentTape(120, agentId, group.session_id)
+              )
+            );
+            const mergedTape = mergeMultipleAgentTapes(tapes, group.session_id);
+            setChatTape(mergedTape);
+            chatTapeRef.current = mergedTape;
+          } catch (err) {
+            console.error('Failed to refresh group chat tapes:', err);
+          }
+        }
+      } else {
+        // 非群聊模式：正常刷新
+        setCurrentAgentId(resolvedAgentId);
+        setCurrentSessionId(resolvedSessionId);
+        await refreshChatTape(resolvedAgentId, resolvedSessionId);
+      }
+
       // 只有当用户没有手动切换view session时，才自动刷新viewTape为主session
       if (!selectedViewSessionIdRef.current) {
         await refreshViewTape(viewAgentId, resolvedSessionId);
@@ -749,13 +842,17 @@ export default function App() {
       setRefreshing(false);
       setLoading(false);
     }
-  }, [refreshChatTape, refreshViewTape]);
+  }, [refreshChatTape, refreshViewTape, currentGroupId, selectedGroupAgentId, groupChats]);
+
+  // 修复stale closure：让setInterval总是调用最新的refreshData
+  const refreshDataRef = useRef(refreshData);
 
   useEffect(() => {
     client.current.connect();
+    client.current.connect();
     void refreshData();
     const timer = setInterval(() => {
-      void refreshData();
+      void refreshDataRef.current();
     }, 6000);
     return () => {
       clearInterval(timer);
@@ -779,6 +876,10 @@ export default function App() {
   useEffect(() => {
     chatTapeRef.current = chatTape;
   }, [chatTape]);
+
+  useEffect(() => {
+    refreshDataRef.current = refreshData;
+  }, [refreshData]);
 
   useEffect(() => {
     viewTapeRef.current = viewTape;
@@ -815,7 +916,26 @@ export default function App() {
       }
       setResponseTimeoutError(null);
       setAgentTyping(false);
-      void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
+
+      // 群聊模式：重新加载所有agents的合并tape
+      if (currentGroupId) {
+        const group = groupChats.find(g => g.group_id === currentGroupId);
+        if (group) {
+          Promise.all(
+            group.agent_ids.map(agentId =>
+              client.current.getCurrentTape(50, agentId, currentSessionRef.current)
+            )
+          ).then(tapes => {
+            const mergedTape = mergeMultipleAgentTapes(tapes, currentSessionRef.current);
+            setChatTape(mergedTape);
+            chatTapeRef.current = mergedTape;
+          }).catch(err => {
+            console.error('Failed to refresh group chat tapes after agent response:', err);
+          });
+        }
+      } else {
+        void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
+      }
     });
 
     const offState = client.current.on<StateData>('state', (data) => {
@@ -880,8 +1000,8 @@ export default function App() {
     [sessions, currentSessionId]
   );
 
-  // 检查当前session是否有效（存在或在pending状态）
-  const isValidSession = currentSession !== undefined || pendingSession !== null;
+  // 检查当前session是否有效（存在或在pending状态或群聊模式）
+  const isValidSession = currentSession !== undefined || pendingSession !== null || currentGroupId !== null;
 
   const chatMessages = useMemo(() => toChatMessages(chatTape.events), [chatTape.events]);
   const tapeContextEvents = useMemo(() => toTapeContextEvents(viewTape.events), [viewTape.events]);
@@ -982,7 +1102,7 @@ export default function App() {
     }
   };
 
-  const handleSelectGroup = (group: GroupChat) => {
+  const handleSelectGroup = async (group: GroupChat) => {
     setCurrentGroupId(group.group_id);
     setCurrentSessionId(group.session_id);
     // 使用群聊的第一个agent作为当前agent
@@ -991,7 +1111,22 @@ export default function App() {
       setCurrentAgentId(firstAgent);
       // 新增：设置TAPE CONTEXT的选中agent
       setSelectedGroupAgentId(firstAgent);
-      void refreshChatTape(firstAgent, group.session_id);
+
+      // 群聊模式：获取所有agents的tape并合并显示
+      try {
+        const tapes = await Promise.all(
+          group.agent_ids.map(agentId =>
+            client.current.getCurrentTape(120, agentId, group.session_id)
+          )
+        );
+        const mergedTape = mergeMultipleAgentTapes(tapes, group.session_id);
+        setChatTape(mergedTape);
+        chatTapeRef.current = mergedTape;
+      } catch (err) {
+        console.error('Failed to load group chat tapes:', err);
+        // 降级到单个agent
+        void refreshChatTape(firstAgent, group.session_id);
+      }
     }
   };
 
@@ -1004,16 +1139,7 @@ export default function App() {
     try {
       const result = await client.current.sendGroupMessage(currentGroupId, content);
       setInputText('');
-      // 刷新chatTape显示 - 使用所有agents刷新以确保显示所有响应
-      const group = groupChats.find(g => g.group_id === currentGroupId);
-      if (group) {
-        setTimeout(() => {
-          // 刷新群聊中所有agents的tape
-          for (const agentId of group.agent_ids) {
-            void refreshChatTape(agentId, currentSessionId);
-          }
-        }, 1000);
-      }
+      // 不需要手动刷新 - WebSocket 'chat' 监听器会自动处理群聊合并
     } catch (err) {
       const message = err instanceof Error ? err.message : '发送群消息失败';
       setError(message);
@@ -1270,6 +1396,8 @@ export default function App() {
               <p className="truncate text-xl font-semibold">
                 {pendingSession
                   ? `新建会话 - ${pendingSession.agentId}`
+                  : currentGroupId
+                  ? (groupChats.find(g => g.group_id === currentGroupId)?.name ?? currentGroupId) + ' - 群聊'
                   : (currentSession?.title ?? `${currentAgentId} - 对话`)
                 }
               </p>
@@ -1301,7 +1429,8 @@ export default function App() {
             {isValidSession && (
               <div className="space-y-3">
                 {chatMessages.map((event) => {
-                const isPlayer = event.src === 'player:web';
+                // 所有 player: 开头的消息都是玩家消息（包括私聊 player:web 和群聊 player:web:group）
+                const isPlayer = event.src.startsWith('player:');
                 return (
                   <div key={event.event_id} className={`flex ${isPlayer ? 'justify-end' : 'justify-start'}`}>
                     <div
