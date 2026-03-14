@@ -156,6 +156,7 @@ class TestTapeService:
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
         with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
+            # V4: Use session_manifest.json format with agent_states
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "session:web:main": {"parent_id": None},
@@ -163,8 +164,7 @@ class TestTapeService:
                         "parent_id": "session:web:main",
                         "status": "ACTIVE",
                         "created_at": "2026-03-01T12:00:00Z",
-                        "event_count": 5,
-                        "agents": {"governor_zhili": {"active": True}}
+                        "agent_states": {"agent:governor_zhili": "ACTIVE"}
                     },
                 }
             })
@@ -187,21 +187,20 @@ class TestTapeService:
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
         with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
+            # V4: Use session_manifest.json format with agent_states
             mock_file_helper.read_json_file = AsyncMock(return_value={
                 "sessions": {
                     "task:001": {
                         "parent_id": "session:web:main",
                         "status": "ACTIVE",
                         "created_at": "2026-03-01T12:00:00Z",
-                        "event_count": 5,
-                        "agents": {"governor_zhili": {"active": True}}
+                        "agent_states": {"agent:governor_zhili": "ACTIVE"}
                     },
                     "task:002": {
                         "parent_id": "session:web:main",
                         "status": "ACTIVE",
                         "created_at": "2026-03-01T13:00:00Z",
-                        "event_count": 3,
-                        "agents": {"minister_of_revenue": {"active": True}}
+                        "agent_states": {"agent:minister_of_revenue": "ACTIVE"}
                     },
                 }
             })

@@ -126,6 +126,8 @@ class TapeService:
     ) -> list[dict]:
         """Get all sub-sessions (task sessions) for a parent session.
 
+        V4: Reads from session_manifest.json (manifest.json is deprecated).
+
         Args:
             parent_session_id: Parent session ID
             agent_id: Optional agent filter
@@ -137,7 +139,9 @@ class TapeService:
             return []
 
         sub_sessions = []
-        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "manifest.json") or {}
+
+        # V4: Read from session_manifest.json instead of manifest.json
+        manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "session_manifest.json") or {}
         manifest_sessions = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
 
         for session_id, session_data in manifest_sessions.items():
@@ -150,21 +154,33 @@ class TapeService:
             if parent_id != parent_session_id:
                 continue
 
-            # Filter by agent if specified
+            # Filter by agent if specified (V4: use agent_states format)
             if agent_id:
-                agent_data = session_data.get("agents", {}).get(agent_id)
-                if not agent_data:
-                    continue
+                agent_states = session_data.get("agent_states", {})
+                # Check both formats: "agent:xxx" and "xxx"
+                agent_key = f"agent:{agent_id}" if not agent_id.startswith("agent:") else agent_id
+                if agent_key not in agent_states:
+                    # Try the other format
+                    alt_key = agent_id.replace("agent:", "") if agent_id.startswith("agent:") else f"agent:{agent_id}"
+                    if alt_key not in agent_states:
+                        continue
 
             # Calculate depth
             depth = self._calculate_depth(session_id, manifest_sessions)
+
+            # Get event count from tape file (V4: not stored in session_manifest.json)
+            event_count = 0
+            tape_paths = self._iter_session_tape_paths(session_id, agent_id)
+            for tape_path in tape_paths:
+                events = await FileOperationsHelper.read_jsonl_file(tape_path)
+                event_count += len(events)
 
             sub_sessions.append({
                 "session_id": session_id,
                 "parent_id": parent_id,
                 "status": session_data.get("status", "ACTIVE"),
                 "created_at": session_data.get("created_at", ""),
-                "event_count": session_data.get("event_count", 0),
+                "event_count": event_count,
                 "depth": depth,
             })
 
