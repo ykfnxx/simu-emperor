@@ -104,7 +104,7 @@ class Agent:
             memory_dir=self._memory_dir,
             on_event_written=self._on_event_written,
             tape_metadata_mgr=self._tape_metadata_mgr,
-            llm_provider=self._llm_provider,
+            llm_provider=self.llm_provider,
         )
 
         # 初始化工具类
@@ -665,7 +665,7 @@ class Agent:
 
         # 将当前事件转换为 message 并添加到 messages
         current_message = self.event_to_messages(event)
-        messages.extend(current_message)
+        messages.append(current_message)  # event_to_messages 返回 dict，不是 list
 
         # 多轮 function calling 循环
         max_iterations = 10  # 防止无限循环

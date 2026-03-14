@@ -370,7 +370,8 @@ class ContextManager:
 
         for event in events:
             converted = self.event_to_messages(event)
-            for msg in converted:
+            # event_to_messages() 返回单个 dict，需要包装成列表
+            for msg in [converted]:
                 # 追踪 assistant 消息中的 tool_calls
                 if msg.get("role") == "assistant" and msg.get("tool_calls"):
                     for tc in msg.get("tool_calls", []):
