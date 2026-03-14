@@ -38,13 +38,11 @@ class ActionTools:
         event_bus: EventBus,
         data_dir: Path,
         session_manager=None,
-        tape_writer=None,
     ):
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.data_dir = data_dir
         self.session_manager = session_manager
-        self._tape_writer = tape_writer
 
     async def send_message_to_agent(self, args: dict, event: Event) -> str:
         target_agent = args.get("target_agent", "")
@@ -117,8 +115,10 @@ class ActionTools:
         else:
             return "✅ 消息已发送"
 
-    async def respond_to_player(self, args: dict, event: Event) -> str:
+    async def respond_to_player(self, args: dict, event: Event) -> str | tuple:
         """Send responses to player
+
+        V4: 返回 (response_message, response_event) 元组，由 Agent 统一通过 ContextManager 管理。
 
         Always sends to the original player who created the main session,
         even when called from a nested task session.
@@ -155,12 +155,8 @@ class ActionTools:
         await self.event_bus.send_event(new_event)
         logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {player_src}")
 
-        # Write RESPONSE event to tape (for record-keeping)
-        # This ensures the response is preserved in the agent's memory tape
-        if self._tape_writer:
-            await self._tape_writer.write_event(new_event)
-
-        return "✅ 响应已发送"
+        # V4: 返回事件对象，由 Agent 统一通过 ContextManager 添加到上下文和 tape
+        return ("✅ 响应已发送", new_event)
 
     async def finish_loop(self, args: dict, event: Event) -> str:
         """结束 agent loop（仅在成员 > 2 时生效）"""

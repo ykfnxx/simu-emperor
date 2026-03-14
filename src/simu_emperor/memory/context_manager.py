@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """ContextManager for sliding window context management（V4 重构）."""
 
 import logging
@@ -8,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from simu_emperor.common import FileOperationsHelper
 
 if TYPE_CHECKING:
+    from simu_emperor.event_bus.event import Event
     from simu_emperor.llm.base import LLMProvider
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
     from simu_emperor.memory.tape_writer import TapeWriter
@@ -319,19 +322,57 @@ class ContextManager:
 
         return False
 
-    async def add_event_and_maybe_compact(self, event: dict, tokens: int) -> None:
+    async def add_event_and_maybe_compact(
+        self, event: dict | Event, tokens: int | None = None
+    ) -> None:
         """
-        添加事件并自动处理 compact（V4 新增）。
+        添加事件并自动处理 compact（V4 重构：同步写入 tape）。
 
-        封装 add_event + slide_window，简化 Agent 调用。
+        V4 架构：ContextManager 是事件写入的唯一入口。
+        - 添加事件到内存（events 列表）
+        - 写入 tape.jsonl（通过 TapeWriter）
+        - 必要时触发 compact（滑动窗口）
 
         Args:
-            event: 事件数据
-            tokens: 事件的token数
+            event: 事件数据（dict 或 Event 对象）
+            tokens: 事件的token数（可选，自动计算）
         """
-        needs_compact = self.add_event(event, tokens)
+        from simu_emperor.event_bus.event import Event
+
+        # 如果是 Event 对象，转换为 dict
+        if isinstance(event, Event):
+            event_dict = event.to_dict()
+            event_obj = event  # 保存原始 Event 对象用于 TapeWriter
+        else:
+            event_dict = event
+            event_obj = None
+
+        # 自动计算 tokens（如果未提供）
+        if tokens is None:
+            tokens = self._calc_event_tokens(event_dict)
+
+        # 添加到内存
+        needs_compact = self.add_event(event_dict, tokens)
+
+        # V4: 同步写入 tape.jsonl
+        if self._tape_writer:
+            if event_obj:
+                # 使用原始 Event 对象
+                await self._tape_writer.write_event(event_obj)
+            else:
+                # 从 dict 重建 Event 对象
+                await self._tape_writer.write_event(Event(**event_dict))
+
+        # 必要时触发 compact
         if needs_compact:
             await self.slide_window()
+
+    def _calc_event_tokens(self, event: dict) -> int:
+        """计算事件的 token 数"""
+        # 简单估算：event 的 JSON 字符串长度
+        import json
+
+        return len(json.dumps(event, ensure_ascii=False)) // 2
 
     async def get_llm_messages(self) -> list[dict]:
         """

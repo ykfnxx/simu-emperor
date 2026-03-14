@@ -182,7 +182,9 @@ class TestRespondToPlayer:
             event,
         )
 
-        assert result == "✅ 响应已发送"
+        # V4: respond_to_player 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert result[0] == "✅ 响应已发送"
         assert mock_event_bus.send_event.called
         sent_event = mock_event_bus.send_event.call_args[0][0]
         # Should send to default "player" since no session_manager
@@ -220,7 +222,9 @@ class TestRespondToPlayer:
             event,
         )
 
-        assert result == "✅ 响应已发送"
+        # V4: respond_to_player 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert result[0] == "✅ 响应已发送"
         assert mock_event_bus.send_event.called
         sent_event = mock_event_bus.send_event.call_args[0][0]
         # Should send to main session's creator ("player")
@@ -266,7 +270,9 @@ class TestRespondToPlayer:
             event,
         )
 
-        assert result == "✅ 响应已发送"
+        # V4: respond_to_player 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert result[0] == "✅ 响应已发送"
         assert mock_event_bus.send_event.called
         sent_event = mock_event_bus.send_event.call_args[0][0]
         # Should send to main session's creator ("player"), NOT to agent:agent_a
@@ -318,7 +324,9 @@ class TestRespondToPlayer:
             event,
         )
 
-        assert result == "✅ 响应已发送"
+        # V4: respond_to_player 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert result[0] == "✅ 响应已发送"
         assert mock_event_bus.send_event.called
         sent_event = mock_event_bus.send_event.call_args[0][0]
         # Should traverse all the way up to main session's creator
@@ -330,18 +338,13 @@ class TestRespondToPlayerTapeWriting:
 
     @pytest.mark.asyncio
     async def test_respond_to_player_writes_to_tape(self, mock_event_bus, tmp_path):
-        """Test that respond_to_player writes RESPONSE event to tape"""
-        # Create mock tape_writer
-        mock_tape_writer = AsyncMock()
-        mock_tape_writer.write_event = AsyncMock()
-
-        # Create ActionTools with tape_writer
+        """V4: respond_to_player 返回事件，由 Agent 统一通过 ContextManager 管理"""
+        # V4: ActionTools 不再需要 tape_writer 参数
         action_tools = ActionTools(
             agent_id="test_agent",
             event_bus=mock_event_bus,
             data_dir=tmp_path,
             session_manager=None,
-            tape_writer=mock_tape_writer,
         )
 
         event = Event(
@@ -357,29 +360,29 @@ class TestRespondToPlayerTapeWriting:
             event,
         )
 
-        # Verify response was sent
-        assert result == "✅ 响应已发送"
-        assert mock_event_bus.send_event.called
+        # V4: 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        message, response_event = result
+        assert message == "✅ 响应已发送"
+        assert response_event.type == "response"
+        assert response_event.payload["narrative"] == "Test response to player"
+        assert response_event.src == "agent:test_agent"
 
-        # Verify tape_writer.write_event was called with the RESPONSE event
-        assert mock_tape_writer.write_event.called
-        sent_event = mock_tape_writer.write_event.call_args[0][0]
-        assert sent_event.type == "response"
-        assert sent_event.payload["narrative"] == "Test response to player"
-        assert sent_event.src == "agent:test_agent"
+        # Verify event was sent to event_bus
+        assert mock_event_bus.send_event.called
 
     @pytest.mark.asyncio
     async def test_respond_to_player_without_tape_writer_still_works(
         self, mock_event_bus, tmp_path
     ):
-        """Test that respond_to_player works without tape_writer (backward compatibility)"""
-        # Create ActionTools without tape_writer
+        """V4: tape_writer 不再作为参数传递"""
+        # V4: ActionTools 不再需要 tape_writer 参数
         action_tools = ActionTools(
             agent_id="test_agent",
             event_bus=mock_event_bus,
             data_dir=tmp_path,
             session_manager=None,
-            tape_writer=None,  # No tape_writer
         )
 
         event = Event(
@@ -390,13 +393,16 @@ class TestRespondToPlayerTapeWriting:
             session_id="test_session",
         )
 
-        # Should not raise an error
         result = await action_tools.respond_to_player(
             {"content": "Test response"},
             event,
         )
 
-        assert result == "✅ 响应已发送"
+        # V4: 返回元组 (message, event)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        message, response_event = result
+        assert message == "✅ 响应已发送"
         assert mock_event_bus.send_event.called
 
 

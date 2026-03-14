@@ -118,7 +118,6 @@ class Agent:
             event_bus=self.event_bus,
             data_dir=self.data_dir,
             session_manager=self.session_manager,
-            tape_writer=self._tape_writer,
         )
 
         # ContextManager - 用于当前session的上下文管理
@@ -640,13 +639,14 @@ class Agent:
 
         V4 架构：
         - 所有事件通过 ContextManager.add_event_and_maybe_compact() 添加
+        - ContextManager 内部负责写入 tape.jsonl
         - 每次迭代调用 ContextManager.get_llm_messages() 获取最新消息
         - ContextManager 是 Single Source of Truth
 
         Args:
             event: 当前事件
             session_id: 会话 ID
-            tape_write_tasks: Tape 写入任务列表
+            tape_write_tasks: 保留兼容（V5 将移除）
         """
         # 检查是否有尚待完成的异步任务，如果有则跳过处理
         if not await self._check_and_restore_agent_state(event, session_id):
@@ -661,13 +661,8 @@ class Agent:
             system_prompt = self._get_system_prompt_for_event(root_event_type)
             self._context_manager._system_prompt = system_prompt
 
-        # V4: 将当前事件添加到 ContextManager
-        current_event_dict = event.to_dict()
-        tokens = self._count_tokens(current_event_dict)
-        await self._context_manager.add_event_and_maybe_compact(current_event_dict, tokens)
-
-        # 写入当前事件到 tape
-        tape_write_tasks.append(self._tape_writer.write_event(event))
+        # V4: 将当前事件添加到 ContextManager（内部自动写入 tape）
+        await self._context_manager.add_event_and_maybe_compact(event)
 
         # 多轮 function calling 循环
         max_iterations = 10  # 防止无限循环
@@ -696,7 +691,7 @@ class Agent:
                 f"💬 [Agent:{self.agent_id}:{session_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
             )
 
-            # TapeWriter: 构造并写入 ASSISTANT_RESPONSE Event（包含完整 tool_calls）
+            # V4: 构造 ASSISTANT_RESPONSE 事件并通过 ContextManager 添加
             assistant_response_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
                 dst=event.dst,
@@ -705,30 +700,25 @@ class Agent:
                     "response": response_text,
                     "iteration": iteration,
                     "has_tool_calls": len(tool_calls) > 0,
-                    "tool_calls": tool_calls if tool_calls else None,  # 完整的 tool_calls 数据
+                    "tool_calls": tool_calls if tool_calls else None,
                 },
                 session_id=event.session_id,
                 timestamp=turn_start_time,
             )
-            tape_write_tasks.append(self._tape_writer.write_event(assistant_response_event))
-
-            # V4: 将 ASSISTANT_RESPONSE 事件添加到 ContextManager
-            assistant_event_dict = assistant_response_event.to_dict()
-            tokens = self._count_tokens(assistant_event_dict)
-            await self._context_manager.add_event_and_maybe_compact(assistant_event_dict, tokens)
+            # V4: ContextManager 负责写入 tape
+            await self._context_manager.add_event_and_maybe_compact(assistant_response_event)
 
             # 处理响应
             if not tool_calls:
                 await self._handle_no_tool_calls(event, session_id, response_text, tape_write_tasks)
                 break
 
-            # 执行 tool calls（V4: 内部会添加 TOOL_RESULT 事件到 ContextManager）
+            # 执行 tool calls（V4: 内部会通过 ContextManager 添加 TOOL_RESULT 事件）
             should_continue = await self._process_tool_calls(
                 event,
                 session_id,
                 iteration,
                 tool_calls,
-                tape_write_tasks,
                 turn_start_time,
             )
 
@@ -795,18 +785,16 @@ class Agent:
         session_id: str,
         iteration: int,
         tool_calls: list,
-        tape_write_tasks: list,
         turn_start_time: str,
     ) -> bool:
         """
-        处理 tool calls（V4 重构：直接通过 ContextManager 添加事件）。
+        处理 tool calls（V4 重构：ContextManager 统一管理事件写入）。
 
         Args:
             event: 当前事件
             session_id: 会话 ID
             iteration: 迭代次数
             tool_calls: 工具调用列表
-            tape_write_tasks: Tape 写入任务列表
             turn_start_time: Turn开始时间戳（用于确保事件顺序）
 
         Returns:
@@ -824,7 +812,14 @@ class Agent:
                 f"⚙️  [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
             )
 
-            result_str = await self._call_function_with_result(function_name, function_args, event)
+            result = await self._call_function_with_result(function_name, function_args, event)
+
+            # V4: 处理 tool 返回值
+            # 如果返回元组 (message, event)，提取消息和事件
+            result_str = result
+            result_event = None
+            if isinstance(result, tuple):
+                result_str, result_event = result
 
             # 检查函数是否成功执行
             if function_name == "finish_loop":
@@ -837,13 +832,13 @@ class Agent:
                     )
 
             if function_name == "respond_to_player":
-                # respond_to_player 成功时返回 "✅ 响应已发送"
-                if result_str == "✅ 响应已发送":
+                # V4: respond_to_player 返回元组 (message, event)
+                # 只要消息以 ✅ 开头就认为成功
+                if result_str.startswith("✅"):
                     has_respond_to_player = True
-                else:
-                    logger.warning(
-                        f"⚠️ [Agent:{self.agent_id}:{session_id}] respond_to_player 执行失败: {result_str}"
-                    )
+                # V4: 将事件添加到 ContextManager
+                if result_event:
+                    await self._context_manager.add_event_and_maybe_compact(result_event)
 
             if function_name == "create_task_session":
                 # create_task_session 返回 JSON，需要解析检查 success 字段
@@ -866,6 +861,7 @@ class Agent:
             tool_result_dt = base_dt + timedelta(microseconds=idx)
             tool_result_timestamp = tool_result_dt.isoformat()
 
+            # V4: 构造 TOOL_RESULT 事件并通过 ContextManager 添加
             tool_result_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
                 dst=event.dst,
@@ -878,14 +874,8 @@ class Agent:
                 session_id=event.session_id,
                 timestamp=tool_result_timestamp,
             )
-
-            # 写入 tape
-            tape_write_tasks.append(self._tape_writer.write_event(tool_result_event))
-
-            # V4: 将 TOOL_RESULT 事件添加到 ContextManager
-            tool_result_dict = tool_result_event.to_dict()
-            tokens = self._count_tokens(tool_result_dict)
-            await self._context_manager.add_event_and_maybe_compact(tool_result_dict, tokens)
+            # V4: ContextManager 负责写入 tape 和添加到内存
+            await self._context_manager.add_event_and_maybe_compact(tool_result_event)
 
             logger.debug(
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
