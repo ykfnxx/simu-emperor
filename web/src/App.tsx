@@ -983,6 +983,8 @@ export default function App() {
     const firstAgent = group.agent_ids[0];
     if (firstAgent) {
       setCurrentAgentId(firstAgent);
+      // 新增：刷新chatTape
+      void refreshChatTape(firstAgent, group.session_id);
     }
   };
 
@@ -995,10 +997,14 @@ export default function App() {
     try {
       const result = await client.current.sendGroupMessage(currentGroupId, content);
       setInputText('');
-      // 刷新chatTape显示
-      if (currentSessionId) {
+      // 刷新chatTape显示 - 使用所有agents刷新以确保显示所有响应
+      const group = groupChats.find(g => g.group_id === currentGroupId);
+      if (group) {
         setTimeout(() => {
-          void refreshChatTape(currentAgentId || '', currentSessionId);
+          // 刷新群聊中所有agents的tape
+          for (const agentId of group.agent_ids) {
+            void refreshChatTape(agentId, currentSessionId);
+          }
         }, 1000);
       }
     } catch (err) {
