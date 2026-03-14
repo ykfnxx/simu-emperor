@@ -737,10 +737,10 @@ export default function App() {
       await refreshChatTape(resolvedAgentId, resolvedSessionId);
       // 只有当用户没有手动切换view session时，才自动刷新viewTape为主session
       if (!selectedViewSessionIdRef.current) {
-        await refreshViewTape(resolvedAgentId, resolvedSessionId);
+        await refreshViewTape(viewAgentId, resolvedSessionId);
       } else {
         // 如果用户已选择子session，刷新该子session的tape
-        await refreshViewTape(resolvedAgentId, selectedViewSessionIdRef.current);
+        await refreshViewTape(viewAgentId, selectedViewSessionIdRef.current);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '加载失败';
