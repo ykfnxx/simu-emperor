@@ -1,4 +1,4 @@
-"""ContextManager for sliding window context management."""
+"""ContextManager for sliding window context management（V4 重构）."""
 
 import logging
 from dataclasses import dataclass
@@ -10,6 +10,7 @@ from simu_emperor.common import FileOperationsHelper
 if TYPE_CHECKING:
     from simu_emperor.llm.base import LLMProvider
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
+    from simu_emperor.memory.tape_writer import TapeWriter
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class ContextManager:
     管理当前session上下文窗口，从tape加载历史并控制token数量
 
     SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
-    V4: Updates tape_meta.jsonl segment_index during compaction
+    V4: 完全接管上下文管理，同步写入 tape，更新 tape_meta.jsonl segment_index
     """
 
     def __init__(
@@ -61,12 +62,16 @@ class ContextManager:
         tape_path: Path,
         config: ContextConfig,
         llm_provider: "LLMProvider",
+        # V4: 保留向后兼容的参数（标记为可选）
         manifest_index=None,
         session_manager=None,
+        # V4: 新增参数
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
+        tape_writer: "TapeWriter | None" = None,
+        system_prompt: str | None = None,
     ):
         """
-        Initialize ContextManager.
+        Initialize ContextManager（V4 重构）。
 
         Args:
             session_id: Session identifier
@@ -74,9 +79,11 @@ class ContextManager:
             tape_path: Path to tape.jsonl file
             config: Context configuration
             llm_provider: LLM provider for summarization
-            manifest_index: Optional ManifestIndex for summary storage
+            manifest_index: Optional ManifestIndex for summary storage（V4 保留向后兼容）
             session_manager: Optional SessionManager for ancestor loading
             tape_metadata_mgr: V4 TapeMetadataManager for segment_index updates
+            tape_writer: V4 TapeWriter for synchronous tape writing
+            system_prompt: V4 System prompt to store
         """
         self.session_id = session_id
         self.agent_id = agent_id
@@ -86,6 +93,10 @@ class ContextManager:
         self.config = config
         self.session_manager = session_manager
         self.tape_metadata_mgr = tape_metadata_mgr  # V4
+
+        # V4: 新增属性
+        self._tape_writer = tape_writer
+        self._system_prompt = system_prompt
 
         # 初始化max_tokens（如果为None则查询LLM）
         self.max_tokens = config.max_tokens or self._query_llm_context_window()
@@ -284,7 +295,7 @@ class ContextManager:
 
     def add_event(self, event: dict, tokens: int) -> bool:
         """
-        添加事件到上下文
+        添加事件到上下文（V4 修改：同步写入 tape.jsonl）。
 
         Args:
             event: 事件数据
@@ -307,6 +318,77 @@ class ContextManager:
             return True  # 需要滑动
 
         return False
+
+    async def add_event_and_maybe_compact(self, event: dict, tokens: int) -> None:
+        """
+        添加事件并自动处理 compact（V4 新增）。
+
+        封装 add_event + slide_window，简化 Agent 调用。
+
+        Args:
+            event: 事件数据
+            tokens: 事件的token数
+        """
+        needs_compact = self.add_event(event, tokens)
+        if needs_compact:
+            await self.slide_window()
+
+    async def get_llm_messages(self) -> list[dict]:
+        """
+        获取 LLM-ready messages（V4 新增）。
+
+        Returns:
+            [{"role": "system", "content": "..."}, {"role": "user", ...}, ...]
+        """
+        messages = []
+
+        # V4: 添加 system_prompt
+        if self._system_prompt:
+            messages.append({"role": "system", "content": self._system_prompt})
+
+        # 添加历史摘要（如果有）
+        if self.summary:
+            messages.append({"role": "system", "content": f"[历史会话摘要] {self.summary}"})
+
+        # V4: 转换事件为消息
+        messages.extend(self._events_to_messages(self.events))
+
+        return messages
+
+    def _events_to_messages(self, events: list[dict]) -> list[dict]:
+        """
+        将事件列表转换为 LLM 消息格式（V4 从 Agent 移入）。
+
+        Args:
+            events: 事件列表
+
+        Returns:
+            LLM messages 列表
+        """
+        messages = []
+        pending_tool_call_ids = set()
+
+        for event in events:
+            converted = self.event_to_messages(event)
+            for msg in converted:
+                # 追踪 assistant 消息中的 tool_calls
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    for tc in msg.get("tool_calls", []):
+                        pending_tool_call_ids.add(tc.get("id", ""))
+
+                # 仅当 tool_call_id 在待处理列表中时才添加 tool 消息
+                if msg.get("role") == "tool":
+                    tool_call_id = msg.get("tool_call_id", "")
+                    if tool_call_id in pending_tool_call_ids:
+                        messages.append(msg)
+                        pending_tool_call_ids.remove(tool_call_id)
+                    else:
+                        # 跳过孤立的 tool 消息（没有匹配的 tool_calls）
+                        logger.debug(f"Skipping orphaned tool message with tool_call_id: {tool_call_id}")
+                else:
+                    messages.append(msg)
+
+        return messages
 
     async def slide_window(self) -> None:
         """

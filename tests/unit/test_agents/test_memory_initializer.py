@@ -1,4 +1,4 @@
-"""Tests for MemoryInitializer"""
+"""Tests for MemoryInitializer（V4 更新：移除 manifest 测试）"""
 
 import pytest
 from pathlib import Path
@@ -25,28 +25,43 @@ async def test_initialize_creates_components(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_initialize_registers_session(tmp_path):
-    """测试初始化注册session到manifest"""
+async def test_initialize_with_tape_metadata_mgr(tmp_path):
+    """测试初始化使用 TapeMetadataManager（V4 新测试）"""
+    from simu_emperor.memory.tape_metadata import TapeMetadataManager
+
     llm = MockProvider()
+    tape_metadata_mgr = TapeMetadataManager(memory_dir=tmp_path)
+
     initializer = MemoryInitializer(
         agent_id="test_agent",
         memory_dir=tmp_path,
         llm_provider=llm,
+        tape_metadata_mgr=tape_metadata_mgr,
     )
 
-    await initializer.initialize(session_id="test_session", turn=5)
+    context_manager, memory_tools = await initializer.initialize(session_id="test_session", turn=5)
 
-    # 验证manifest.json被创建
-    manifest_path = tmp_path / "manifest.json"
-    assert manifest_path.exists()
+    # V4: tape_meta.jsonl 不会在 initialize() 时自动创建
+    # 它会在首次事件写入时或 TICK_COMPLETED 时创建
+    metadata_path = tmp_path / "agents" / "test_agent" / "tape_meta.jsonl"
+    assert not metadata_path.exists()
 
-    # 验证session被注册
-    from simu_emperor.common import FileOperationsHelper
+    # 调用 append_or_update_entry 创建元数据条目（模拟 TICK_COMPLETED）
+    await tape_metadata_mgr.append_or_update_entry(
+        agent_id="test_agent",
+        session_id="test_session",
+        first_event=None,
+        llm=llm,
+        current_tick=5,
+    )
 
-    manifest = await FileOperationsHelper.read_json_file(manifest_path)
-    assert manifest is not None
-    assert "test_session" in manifest["sessions"]
-    assert "test_agent" in manifest["sessions"]["test_session"]["agents"]
+    # 验证 tape_meta.jsonl 被创建
+    assert metadata_path.exists()
+
+    # 验证 entry 被创建
+    entries = await tape_metadata_mgr.get_all_entries("test_agent")
+    assert len(entries) == 1
+    assert entries[0].session_id == "test_session"
 
 
 @pytest.mark.asyncio
