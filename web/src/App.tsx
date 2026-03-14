@@ -926,6 +926,9 @@ export default function App() {
   };
 
   const handleSelectSession = async (agentId: string, sessionId: string) => {
+    // 新增：退出群聊模式，重置selectedGroupAgentId
+    setSelectedGroupAgentId(null);
+
     if (!agentId || !sessionId) return;
     setError(null);
     setAgentTyping(false);
@@ -988,7 +991,8 @@ export default function App() {
     const firstAgent = group.agent_ids[0];
     if (firstAgent) {
       setCurrentAgentId(firstAgent);
-      // 新增：刷新chatTape
+      // 新增：设置TAPE CONTEXT的选中agent
+      setSelectedGroupAgentId(firstAgent);
       void refreshChatTape(firstAgent, group.session_id);
     }
   };
@@ -1713,9 +1717,41 @@ export default function App() {
 
             {/* 固定会话信息 */}
             <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-              <div className="flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-slate-500" />
-                <span className="truncate">{viewTape.agent_id || currentAgentId} · {viewTape.session_id ? viewTape.session_id.slice(-20) : currentSessionId.slice(-20)}</span>
+              {/* 群聊模式：显示Agent选择器 */}
+              {currentGroupId ? (
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-purple-500" />
+                  <select
+                    value={selectedGroupAgentId || currentAgentId}
+                    onChange={(e) => {
+                      const newAgentId = e.target.value;
+                      setSelectedGroupAgentId(newAgentId);
+                      void refreshViewTape(newAgentId, selectedViewSessionId || currentSessionId);
+                    }}
+                    className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-sm outline-none focus:border-purple-300"
+                  >
+                    {(() => {
+                      const group = groupChats.find(g => g.group_id === currentGroupId);
+                      if (!group) return null;
+                      return group.agent_ids.map(agentId => {
+                        const agentName = agentSessions.find(g => g.agent_id === agentId)?.agent_name || agentId;
+                        return (
+                          <option key={agentId} value={agentId}>{agentName}</option>
+                        );
+                      });
+                    })()}
+                  </select>
+                </div>
+              ) : (
+                // 非群聊模式：显示固定agent
+                <div className="flex items-center gap-2">
+                  <CalendarClock className="h-4 w-4 text-slate-500" />
+                  <span className="truncate">{viewAgentId}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>·</span>
+                <span className="truncate">{viewTape.session_id ? viewTape.session_id.slice(-20) : currentSessionId.slice(-20)}</span>
               </div>
             </div>
 
