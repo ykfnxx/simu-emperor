@@ -636,11 +636,12 @@ class Agent:
         self, event: Event, session_id: str, tape_write_tasks: list
     ) -> None:
         """
-        使用 LLM 处理事件（多轮 function calling）（V4 简化）。
+        使用 LLM 处理事件（多轮 function calling）（V4 重构）。
 
-        V4 变更：
-        - 使用 ContextManager.get_llm_messages() 替代 _build_llm_context()
-        - 设置 system_prompt 到 ContextManager（仅首次）
+        V4 架构：
+        - 所有事件通过 ContextManager.add_event_and_maybe_compact() 添加
+        - 每次迭代调用 ContextManager.get_llm_messages() 获取最新消息
+        - ContextManager 是 Single Source of Truth
 
         Args:
             event: 当前事件
@@ -660,12 +661,13 @@ class Agent:
             system_prompt = self._get_system_prompt_for_event(root_event_type)
             self._context_manager._system_prompt = system_prompt
 
-        # V4: 使用 ContextManager.get_llm_messages() 构建消息
-        messages = await self._context_manager.get_llm_messages()
+        # V4: 将当前事件添加到 ContextManager
+        current_event_dict = event.to_dict()
+        tokens = self._count_tokens(current_event_dict)
+        await self._context_manager.add_event_and_maybe_compact(current_event_dict, tokens)
 
-        # 将当前事件转换为 message 并添加到 messages
-        current_message = self.event_to_messages(event)
-        messages.append(current_message)  # event_to_messages 返回 dict，不是 list
+        # 写入当前事件到 tape
+        tape_write_tasks.append(self._tape_writer.write_event(event))
 
         # 多轮 function calling 循环
         max_iterations = 10  # 防止无限循环
@@ -676,6 +678,9 @@ class Agent:
             logger.info(
                 f"🔄 [Agent:{self.agent_id}:{session_id}] Iteration {iteration}: Calling LLM..."
             )
+
+            # V4: 每次迭代从 ContextManager 获取最新消息
+            messages = await self._context_manager.get_llm_messages()
 
             # 调用 LLM
             result = await self._call_llm(event, session_id, iteration, messages)
@@ -707,21 +712,22 @@ class Agent:
             )
             tape_write_tasks.append(self._tape_writer.write_event(assistant_response_event))
 
+            # V4: 将 ASSISTANT_RESPONSE 事件添加到 ContextManager
+            assistant_event_dict = assistant_response_event.to_dict()
+            tokens = self._count_tokens(assistant_event_dict)
+            await self._context_manager.add_event_and_maybe_compact(assistant_event_dict, tokens)
+
             # 处理响应
             if not tool_calls:
                 await self._handle_no_tool_calls(event, session_id, response_text, tape_write_tasks)
                 break
 
-            # 有 tool calls，添加 assistant 消息（使用已构建的 event）
-            messages.append(self.event_to_messages(assistant_response_event))
-
-            # 执行 tool calls
+            # 执行 tool calls（V4: 内部会添加 TOOL_RESULT 事件到 ContextManager）
             should_continue = await self._process_tool_calls(
                 event,
                 session_id,
                 iteration,
                 tool_calls,
-                messages,
                 tape_write_tasks,
                 turn_start_time,
             )
@@ -789,19 +795,17 @@ class Agent:
         session_id: str,
         iteration: int,
         tool_calls: list,
-        messages: list[dict],
         tape_write_tasks: list,
         turn_start_time: str,
     ) -> bool:
         """
-        处理 tool calls
+        处理 tool calls（V4 重构：直接通过 ContextManager 添加事件）。
 
         Args:
             event: 当前事件
             session_id: 会话 ID
             iteration: 迭代次数
             tool_calls: 工具调用列表
-            messages: 消息历史（会被修改）
             tape_write_tasks: Tape 写入任务列表
             turn_start_time: Turn开始时间戳（用于确保事件顺序）
 
@@ -875,10 +879,14 @@ class Agent:
                 timestamp=tool_result_timestamp,
             )
 
+            # 写入 tape
             tape_write_tasks.append(self._tape_writer.write_event(tool_result_event))
 
-            # 记录 tool call 结果（使用已构建的 event）
-            messages.append(self.event_to_messages(tool_result_event))
+            # V4: 将 TOOL_RESULT 事件添加到 ContextManager
+            tool_result_dict = tool_result_event.to_dict()
+            tokens = self._count_tokens(tool_result_dict)
+            await self._context_manager.add_event_and_maybe_compact(tool_result_dict, tokens)
+
             logger.debug(
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )

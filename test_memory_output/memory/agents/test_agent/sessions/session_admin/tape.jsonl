@@ -1,0 +1,3 @@
+{"event_id": "evt_000", "type": "user_query", "payload": {"query": "任免户部尚书操作"}, "timestamp": "2026-03-14T20:18:42.194631", "tick": 0}
+{"event_id": "evt_001", "type": "user_query", "payload": {"query": "处理边关奏折操作"}, "timestamp": "2026-03-14T20:18:42.194633", "tick": 1}
+{"event_id": "evt_002", "type": "user_query", "payload": {"query": "接见外国使臣操作"}, "timestamp": "2026-03-14T20:18:42.194634", "tick": 2}

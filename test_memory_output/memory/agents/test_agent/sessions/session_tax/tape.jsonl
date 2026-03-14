@@ -1,0 +1,3 @@
+{"event_id": "evt_000", "type": "user_query", "payload": {"query": "调整税收操作"}, "timestamp": "2026-03-14T20:18:42.192353", "tick": 0}
+{"event_id": "evt_001", "type": "user_query", "payload": {"query": "查询税收情况操作"}, "timestamp": "2026-03-14T20:18:42.192356", "tick": 1}
+{"event_id": "evt_002", "type": "user_query", "payload": {"query": "减免税收政策操作"}, "timestamp": "2026-03-14T20:18:42.192358", "tick": 2}

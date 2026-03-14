@@ -1,0 +1,3 @@
+{"event_id": "evt_000", "type": "user_query", "payload": {"query": "招募士兵500人操作"}, "timestamp": "2026-03-14T20:18:42.193495", "tick": 0}
+{"event_id": "evt_001", "type": "user_query", "payload": {"query": "征召民夫运输操作"}, "timestamp": "2026-03-14T20:18:42.193497", "tick": 1}
+{"event_id": "evt_002", "type": "user_query", "payload": {"query": "边关战事操作"}, "timestamp": "2026-03-14T20:18:42.193499", "tick": 2}

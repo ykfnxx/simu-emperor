@@ -1,0 +1,8 @@
+{"event_id": "evt_001", "type": "user_query", "payload": {"query": "调整直隶省税收至5%"}, "timestamp": "2026-03-14T20:18:42.109278", "tick": 1}
+{"event_id": "evt_002", "type": "user_query", "payload": {"query": "拨付赈灾款项1000两"}, "timestamp": "2026-03-14T20:18:42.187970", "tick": 2}
+{"event_id": "evt_003", "type": "user_query", "payload": {"query": "任免户部尚书"}, "timestamp": "2026-03-14T20:18:42.188139", "tick": 3}
+{"event_id": "evt_004", "type": "user_query", "payload": {"query": "修建黄河水利"}, "timestamp": "2026-03-14T20:18:42.188249", "tick": 4}
+{"event_id": "evt_005", "type": "user_query", "payload": {"query": "招募士兵500人"}, "timestamp": "2026-03-14T20:18:42.188341", "tick": 5}
+{"event_id": "evt_006", "type": "user_query", "payload": {"query": "调整商业税率"}, "timestamp": "2026-03-14T20:18:42.189666", "tick": 6}
+{"event_id": "evt_007", "type": "user_query", "payload": {"query": "处理边关奏折"}, "timestamp": "2026-03-14T20:18:42.189799", "tick": 7}
+{"event_id": "evt_008", "type": "user_query", "payload": {"query": "接见外国使臣"}, "timestamp": "2026-03-14T20:18:42.190825", "tick": 8}
