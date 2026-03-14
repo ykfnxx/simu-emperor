@@ -1,5 +1,7 @@
 """Session Service - Session management business logic."""
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,6 +184,9 @@ class SessionService:
         manifest = await FileOperationsHelper.read_json_file(self.memory_dir / "session_manifest.json") or {}
         sessions_data = manifest.get("sessions", {}) if isinstance(manifest, dict) else {}
 
+        # V4: Pre-load titles from tape_meta.jsonl for all agents
+        await self._preload_titles_from_tape_meta()
+
         # Group sessions by agent
         agent_sessions: dict[str, list[dict]] = {}
 
@@ -251,11 +256,70 @@ class SessionService:
         normalized = strip_agent_prefix(agent_id)
         return self._current_session_by_agent.get(normalized, self._main_session_id)
 
+    async def _get_title_from_tape_meta(self, session_id: str, agent_id: str) -> str | None:
+        """Get session title from tape_meta.jsonl (V4).
+
+        Args:
+            session_id: Session identifier
+            agent_id: Agent identifier
+
+        Returns:
+            Title string if found, None otherwise
+        """
+        metadata_path = self.memory_dir / "agents" / agent_id / "tape_meta.jsonl"
+        if not metadata_path.exists():
+            return None
+
+        try:
+            entries = await FileOperationsHelper.read_jsonl_file(metadata_path)
+            for entry in entries:
+                if entry.get("session_id") == session_id:
+                    title = entry.get("title")
+                    if title:
+                        # Cache the title
+                        self._session_titles[session_id] = title
+                        return title
+        except Exception as e:
+            logger.warning(f"Failed to read tape_meta.jsonl for {agent_id}: {e}")
+
+        return None
+
     def _extract_title_from_id(self, session_id: str) -> str:
         """Extract title from session ID if no title stored."""
         if session_id == self._main_session_id:
             return "主会话"
         return session_id
+
+    async def _preload_titles_from_tape_meta(self) -> None:
+        """Pre-load all session titles from tape_meta.jsonl files.
+
+        V4: Reads tape_meta.jsonl for each agent to populate _session_titles cache.
+        This is more efficient than reading the file for each session individually.
+        """
+        agents_dir = self.memory_dir / "agents"
+        if not agents_dir.exists():
+            return
+
+        # Iterate through each agent's directory
+        for agent_dir in agents_dir.iterdir():
+            if not agent_dir.is_dir():
+                continue
+
+            agent_id = agent_dir.name
+            metadata_path = agent_dir / "tape_meta.jsonl"
+            if not metadata_path.exists():
+                continue
+
+            try:
+                entries = await FileOperationsHelper.read_jsonl_file(metadata_path)
+                for entry in entries:
+                    session_id = entry.get("session_id")
+                    title = entry.get("title")
+                    if session_id and title and session_id not in self._session_titles:
+                        # Cache the title
+                        self._session_titles[session_id] = title
+            except Exception as e:
+                logger.debug(f"Failed to preload titles for {agent_id}: {e}")
 
     async def _find_agent_for_session(self, session_id: str) -> str | None:
         """Find which agent owns a session."""

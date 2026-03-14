@@ -110,7 +110,11 @@ class ApplicationServices:
 
         # 4. Initialize memory components
         tape_metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
-        tape_writer = TapeWriter(memory_dir=memory_dir)
+        tape_writer = TapeWriter(
+            memory_dir=memory_dir,
+            tape_metadata_mgr=tape_metadata_mgr,
+            llm_provider=llm_provider,
+        )
 
         # 5. Initialize SessionManager
         session_manager = SessionManager(
