@@ -87,7 +87,7 @@ class Agent:
         self._load_soul()
         self._load_data_scope()
 
-        # 初始化记忆系统组件（V3）- 必须在工具类之前初始化
+        # 初始化记忆系统组件（V4 更新）- 必须在工具类之前初始化
         from simu_emperor.memory.tape_writer import TapeWriter
         from simu_emperor.memory.manifest_index import ManifestIndex
         from simu_emperor.memory.tape_metadata import TapeMetadataManager  # V4
@@ -97,9 +97,15 @@ class Agent:
         # This ensures all agents use the same centralized memory directory
         self._memory_dir = Path(settings.memory.memory_dir).resolve()
 
-        self._tape_writer = TapeWriter(memory_dir=self._memory_dir)
+        # V4: 创建 TapeMetadataManager（先创建，因为 TapeWriter 需要它的回调）
+        self._tape_metadata_mgr = TapeMetadataManager(memory_dir=self._memory_dir)
+
+        # V4: 创建 TapeWriter，带 event_count 回调
+        self._tape_writer = TapeWriter(
+            memory_dir=self._memory_dir,
+            on_event_written=self._on_event_written,  # V4: 添加回调
+        )
         self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
-        self._tape_metadata_mgr = TapeMetadataManager(memory_dir=self._memory_dir)  # V4
 
         # 初始化工具类
         self._query_tools = QueryTools(
@@ -1279,6 +1285,22 @@ class Agent:
         else:
             logger.warning(f"Data scope file not found: {scope_path}")
             self._data_scope = {}
+
+    async def _on_event_written(self, agent_id: str, session_id: str) -> None:
+        """
+        V4: 事件写入后的回调。
+
+        触发 tape_metadata_mgr.increment_event_count() 更新事件计数。
+
+        Args:
+            agent_id: Agent 标识符
+            session_id: Session 标识符
+        """
+        if self._tape_metadata_mgr:
+            try:
+                await self._tape_metadata_mgr.increment_event_count(agent_id, session_id)
+            except Exception as e:
+                logger.warning(f"Failed to increment event count: {e}")
 
     async def _refresh_memory_metadata(self, event: Event) -> None:
         """
