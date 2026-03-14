@@ -556,6 +556,8 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupAgents, setSelectedGroupAgents] = useState<Set<string>>(new Set());
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+  // 新增：群聊模式下TAPE CONTEXT选中的agent
+  const [selectedGroupAgentId, setSelectedGroupAgentId] = useState<string | null>(null);
   // 面板 Tab 切换: 'overview' | 'incidents' | 'province'
   const [currentPanelTab, setCurrentPanelTab] = useState<'overview' | 'incidents' | 'province'>('overview');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -889,6 +891,9 @@ export default function App() {
     () => agentSessions.find((group) => group.agent_id === currentAgentId)?.agent_name || currentAgentId,
     [agentSessions, currentAgentId]
   );
+
+  // 新增：TAPE CONTEXT使用的agent ID（群聊模式用selectedGroupAgentId，否则用currentAgentId）
+  const viewAgentId = selectedGroupAgentId ?? currentAgentId;
 
   const handleCreateSession = async (agentId: string) => {
     setCreatingAgentId(agentId);
