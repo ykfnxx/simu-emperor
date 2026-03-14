@@ -1,15 +1,21 @@
-"""TapeWriter for writing events to tape.jsonl files（V4 更新）."""
+"""TapeWriter for writing events to tape.jsonl files（V4 更新）。"""
 
+import asyncio
 import aiofiles
 from pathlib import Path
 from datetime import datetime, timezone
 import uuid
 from typing import TYPE_CHECKING, Callable, Awaitable
+import logging
 
 from simu_emperor.event_bus.event import Event
 
 if TYPE_CHECKING:
-    pass
+    from simu_emperor.memory.tape_metadata import TapeMetadataManager
+    from simu_emperor.llm.base import LLMProvider
+
+
+logger = logging.getLogger(__name__)
 
 
 class TapeWriter:
@@ -19,12 +25,16 @@ class TapeWriter:
     V4 变更：
     - 添加 on_event_written 回调支持
     - 写入完成后触发回调更新 event_count
+    - 添加首事件检测和标题生成支持
     """
 
     def __init__(
         self,
         memory_dir: Path,
         on_event_written: Callable[[str, str], Awaitable[None]] | None = None,
+        # V4: 新增参数用于标题生成
+        tape_metadata_mgr: "TapeMetadataManager | None" = None,
+        llm_provider: "LLMProvider | None" = None,
     ):
         """
         Initialize TapeWriter.
@@ -33,15 +43,19 @@ class TapeWriter:
             memory_dir: Base memory directory path
             on_event_written: V4 新增：事件写入后的回调函数
                 回调签名: async def callback(agent_id: str, session_id: str) -> None
+            tape_metadata_mgr: V4 新增：TapeMetadataManager 用于标题生成
+            llm_provider: V4 新增：LLM provider 用于标题生成
         """
         self.memory_dir = memory_dir
         self._on_event_written = on_event_written
+        self._tape_metadata_mgr = tape_metadata_mgr
+        self._llm_provider = llm_provider
 
     async def write_event(
         self, event: Event, agent_id: str | None = None
     ) -> str:
         """
-        Write an event to tape.jsonl（V4 更新：添加回调触发）。
+        Write an event to tape.jsonl（V4 更新：首事件检测 + 标题生成）。
 
         Args:
             event: Event object to write
@@ -75,6 +89,9 @@ class TapeWriter:
 
         tape_path = self._get_tape_path(session_id, agent_id)
 
+        # V4: 检测是否是首事件（用于标题生成）
+        is_first_event = not tape_path.exists() or tape_path.stat().st_size == 0
+
         # Ensure directory exists
         tape_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -82,17 +99,46 @@ class TapeWriter:
         async with aiofiles.open(tape_path, mode="a", encoding="utf-8") as f:
             await f.write(event.to_json() + "\n")
 
+        # V4: 异步生成标题（首事件，且不是 TICK_COMPLETED）
+        if is_first_event and self._tape_metadata_mgr and self._llm_provider:
+            # 排除 TICK_COMPLETED 事件，因为它不适合作为标题依据
+            if event.type != "tick_completed":
+                asyncio.create_task(
+                    self._generate_title_async(agent_id, session_id, event)
+                )
+
         # V4: 触发回调更新 event_count
         if self._on_event_written and agent_id and session_id:
             try:
                 await self._on_event_written(agent_id, session_id)
             except Exception as e:
                 # 回调失败不应阻塞写入流程
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.warning(f"on_event_written callback failed: {e}")
 
         return event.event_id
+
+    async def _generate_title_async(
+        self, agent_id: str, session_id: str, first_event: Event
+    ) -> None:
+        """
+        异步生成 session 标题（V4 新增）。
+
+        Args:
+            agent_id: Agent 标识符
+            session_id: Session 标识符
+            first_event: 首事件
+        """
+        try:
+            await self._tape_metadata_mgr.append_or_update_entry(
+                agent_id=agent_id,
+                session_id=session_id,
+                first_event=first_event,
+                llm=self._llm_provider,
+                current_tick=None,  # 首事件时可能没有 tick
+            )
+            logger.debug(f"Generated title for {agent_id}/{session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to generate title for {session_id}: {e}")
 
     def _get_tape_path(self, session_id: str, agent_id: str) -> Path:
         """

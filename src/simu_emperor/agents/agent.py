@@ -97,13 +97,15 @@ class Agent:
         # This ensures all agents use the same centralized memory directory
         self._memory_dir = Path(settings.memory.memory_dir).resolve()
 
-        # V4: 创建 TapeMetadataManager（先创建，因为 TapeWriter 需要它的回调）
+        # V4: 创建 TapeMetadataManager（先创建，因为 TapeWriter 需要它）
         self._tape_metadata_mgr = TapeMetadataManager(memory_dir=self._memory_dir)
 
-        # V4: 创建 TapeWriter，带 event_count 回调
+        # V4: 创建 TapeWriter，带 event_count 回调和标题生成支持
         self._tape_writer = TapeWriter(
             memory_dir=self._memory_dir,
-            on_event_written=self._on_event_written,  # V4: 添加回调
+            on_event_written=self._on_event_written,
+            tape_metadata_mgr=self._tape_metadata_mgr,
+            llm_provider=self._llm_provider,
         )
         self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
 
