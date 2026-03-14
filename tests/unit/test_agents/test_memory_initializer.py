@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 from simu_emperor.agents.memory_initializer import MemoryInitializer
 from simu_emperor.llm.mock import MockProvider
 
@@ -10,10 +11,15 @@ from simu_emperor.llm.mock import MockProvider
 async def test_initialize_creates_components(tmp_path):
     """测试初始化创建所有必要组件"""
     llm = MockProvider()
+    # V4.1: 创建 mock tape_writer
+    tape_writer = AsyncMock()
+    tape_writer._get_tape_path = MagicMock(return_value=tmp_path / "tape.jsonl")
+
     initializer = MemoryInitializer(
         agent_id="test_agent",
         memory_dir=tmp_path,
         llm_provider=llm,
+        tape_writer=tape_writer,
     )
 
     context_manager, memory_tools = await initializer.initialize(session_id="test_session", turn=1)
@@ -31,11 +37,15 @@ async def test_initialize_with_tape_metadata_mgr(tmp_path):
 
     llm = MockProvider()
     tape_metadata_mgr = TapeMetadataManager(memory_dir=tmp_path)
+    # V4.1: 创建 mock tape_writer
+    tape_writer = AsyncMock()
+    tape_writer._get_tape_path = MagicMock(return_value=tmp_path / "tape.jsonl")
 
     initializer = MemoryInitializer(
         agent_id="test_agent",
         memory_dir=tmp_path,
         llm_provider=llm,
+        tape_writer=tape_writer,
         tape_metadata_mgr=tape_metadata_mgr,
     )
 
@@ -68,10 +78,14 @@ async def test_initialize_with_tape_metadata_mgr(tmp_path):
 async def test_initialize_loads_from_tape(tmp_path):
     """测试初始化从tape加载历史事件"""
     llm = MockProvider()
+    tape_writer = AsyncMock()
+    tape_writer._get_tape_path = MagicMock(return_value=tmp_path / "tape.jsonl")
+
     initializer = MemoryInitializer(
         agent_id="test_agent",
         memory_dir=tmp_path,
         llm_provider=llm,
+        tape_writer=tape_writer,
     )
 
     # 首先初始化创建tape
@@ -88,10 +102,14 @@ async def test_initialize_loads_from_tape(tmp_path):
 async def test_initialize_handles_missing_tape(tmp_path):
     """测试初始化处理不存在的tape文件"""
     llm = MockProvider()
+    tape_writer = AsyncMock()
+    tape_writer._get_tape_path = MagicMock(return_value=tmp_path / "tape.jsonl")
+
     initializer = MemoryInitializer(
         agent_id="test_agent",
         memory_dir=tmp_path,
         llm_provider=llm,
+        tape_writer=tape_writer,
     )
 
     # 初始化一个不存在的session应该正常工作

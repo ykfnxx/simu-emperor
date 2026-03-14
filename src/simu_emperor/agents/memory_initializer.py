@@ -23,7 +23,8 @@ class MemoryInitializer:
         agent_id: str,
         memory_dir: Path,
         llm_provider: LLMProvider,
-        # V4 新增参数
+        # V4.1: 注入全局共享实例，而不是创建自己的副本
+        tape_writer: TapeWriter,
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
     ):
         """
@@ -33,18 +34,14 @@ class MemoryInitializer:
             agent_id: Agent 标识符
             memory_dir: 内存目录路径
             llm_provider: LLM 提供者
-            tape_metadata_mgr: V4 新增：TapeMetadataManager 实例
+            tape_writer: V4.1 全局共享的 TapeWriter 实例
+            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
         """
         self.agent_id = agent_id
         self.memory_dir = memory_dir
         self.llm_provider = llm_provider
+        self._tape_writer = tape_writer  # 使用注入的实例
         self._tape_metadata_mgr = tape_metadata_mgr
-
-        # V4: 初始化 TapeWriter（带 event_count 回调）
-        self._tape_writer = TapeWriter(
-            memory_dir=memory_dir,
-            on_event_written=self._on_event_written,
-        )
 
     async def _on_event_written(self, agent_id: str, session_id: str) -> None:
         """

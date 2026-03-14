@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from simu_emperor.agents.manager import AgentManager
     from simu_emperor.agents.agent_generator import AgentGenerator
     from simu_emperor.application.task_tracker import TaskTracker  # noqa: F401
+    from simu_emperor.memory.tape_metadata import TapeMetadataManager
+    from simu_emperor.memory.tape_writer import TapeWriter
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,9 @@ class AgentService:
         session_manager: "SessionManager",
         session_id: str = DEFAULT_WEB_SESSION_ID,
         agent_generator: "AgentGenerator | None" = None,
+        # V4.1: 注入全局共享实例
+        tape_writer: "TapeWriter | None" = None,
+        tape_metadata_mgr: "TapeMetadataManager | None" = None,
     ) -> None:
         """Initialize AgentService.
 
@@ -62,6 +67,8 @@ class AgentService:
             session_manager: Session lifecycle manager
             session_id: Main session ID
             agent_generator: Optional agent generator for dynamic agent creation
+            tape_writer: V4.1 全局共享的 TapeWriter 实例
+            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
         """
         self.settings = settings
         self.event_bus = event_bus
@@ -69,6 +76,8 @@ class AgentService:
         self.repository = repository
         self.session_manager = session_manager
         self.session_id = session_id
+        self.tape_writer = tape_writer
+        self.tape_metadata_mgr = tape_metadata_mgr
 
         # Agent manager (lazy initialized)
         self.agent_manager: "AgentManager | None" = None
@@ -102,6 +111,8 @@ class AgentService:
             repository=self.repository,
             session_id=self.session_id,
             session_manager=self.session_manager,
+            tape_writer=self.tape_writer,
+            tape_metadata_mgr=self.tape_metadata_mgr,
         )
 
         # Initialize and start agents

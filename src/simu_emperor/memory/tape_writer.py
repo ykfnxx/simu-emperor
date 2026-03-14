@@ -5,7 +5,7 @@ import aiofiles
 from pathlib import Path
 from datetime import datetime, timezone
 import uuid
-from typing import TYPE_CHECKING, Callable, Awaitable
+from typing import TYPE_CHECKING
 import logging
 
 from simu_emperor.event_bus.event import Event
@@ -23,16 +23,13 @@ class TapeWriter:
     Writes events to tape.jsonl files with token counting.
 
     V4 变更：
-    - 添加 on_event_written 回调支持
-    - 写入完成后触发回调更新 event_count
+    - 直接调用 tape_metadata_mgr.increment_event_count()
     - 添加首事件检测和标题生成支持
     """
 
     def __init__(
         self,
         memory_dir: Path,
-        on_event_written: Callable[[str, str], Awaitable[None]] | None = None,
-        # V4: 新增参数用于标题生成
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
         llm_provider: "LLMProvider | None" = None,
     ):
@@ -41,13 +38,10 @@ class TapeWriter:
 
         Args:
             memory_dir: Base memory directory path
-            on_event_written: V4 新增：事件写入后的回调函数
-                回调签名: async def callback(agent_id: str, session_id: str) -> None
-            tape_metadata_mgr: V4 新增：TapeMetadataManager 用于标题生成
-            llm_provider: V4 新增：LLM provider 用于标题生成
+            tape_metadata_mgr: TapeMetadataManager 用于标题生成和事件计数
+            llm_provider: LLM provider 用于标题生成
         """
         self.memory_dir = memory_dir
-        self._on_event_written = on_event_written
         self._tape_metadata_mgr = tape_metadata_mgr
         self._llm_provider = llm_provider
 
@@ -103,17 +97,28 @@ class TapeWriter:
         if is_first_event and self._tape_metadata_mgr and self._llm_provider:
             # 排除 TICK_COMPLETED 事件，因为它不适合作为标题依据
             if event.type != "tick_completed":
+                logger.info(f"[TapeWriter] First event for {agent_id}/{session_id}, generating title...")
                 asyncio.create_task(
                     self._generate_title_async(agent_id, session_id, event)
                 )
+        else:
+            # Debug: log why title wasn't generated
+            if is_first_event and event.type != "tick_completed":
+                logger.warning(
+                    f"[TapeWriter] Skipping title generation for {agent_id}/{session_id}: "
+                    f"is_first={is_first_event}, "
+                    f"metadata_mgr={self._tape_metadata_mgr is not None}, "
+                    f"llm={self._llm_provider is not None}, "
+                    f"event_type={event.type}"
+                )
 
-        # V4: 触发回调更新 event_count
-        if self._on_event_written and agent_id and session_id:
+        # V4: 触发回调更新 event_count（已废弃：直接调用 increment_event_count）
+        if self._tape_metadata_mgr and agent_id and session_id:
             try:
-                await self._on_event_written(agent_id, session_id)
+                await self._tape_metadata_mgr.increment_event_count(agent_id, session_id)
             except Exception as e:
-                # 回调失败不应阻塞写入流程
-                logger.warning(f"on_event_written callback failed: {e}")
+                # 更新失败不应阻塞写入流程
+                logger.debug(f"Failed to increment event count: {e}")
 
         return event.event_id
 

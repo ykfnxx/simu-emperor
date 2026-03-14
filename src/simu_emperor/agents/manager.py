@@ -7,10 +7,14 @@ AgentManager - Agent 生命周期管理器
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.llm.base import LLMProvider
+
+if TYPE_CHECKING:
+    from simu_emperor.memory.tape_metadata import TapeMetadataManager
+    from simu_emperor.memory.tape_writer import TapeWriter
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,9 @@ class AgentManager:
         repository=None,
         session_id: str | None = None,
         session_manager=None,
+        # V4.1: 注入全局共享实例
+        tape_writer: "TapeWriter | None" = None,
+        tape_metadata_mgr: "TapeMetadataManager | None" = None,
     ):
         """
         初始化 AgentManager
@@ -47,6 +54,8 @@ class AgentManager:
             repository: GameRepository（用于数据查询）
             session_id: 会话标识符
             session_manager: SessionManager（用于 task sessions）
+            tape_writer: V4.1 全局共享的 TapeWriter 实例
+            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
         """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
@@ -55,6 +64,8 @@ class AgentManager:
         self.repository = repository
         self.session_id = session_id
         self.session_manager = session_manager
+        self.tape_writer = tape_writer
+        self.tape_metadata_mgr = tape_metadata_mgr
 
         self._active_agents: dict[str, Any] = {}
 
@@ -142,6 +153,8 @@ class AgentManager:
             repository=self.repository,
             session_id=self.session_id,
             session_manager=self.session_manager,
+            tape_writer=self.tape_writer,
+            tape_metadata_mgr=self.tape_metadata_mgr,
         )
 
         # 启动 Agent

@@ -150,6 +150,8 @@ class ApplicationServices:
             session_manager=session_manager,
             session_id=main_session_id,
             agent_generator=agent_generator,
+            tape_writer=tape_writer,
+            tape_metadata_mgr=tape_metadata_mgr,
         )
 
         session_service = SessionService(

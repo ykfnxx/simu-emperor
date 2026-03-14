@@ -107,6 +107,14 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, mo
     mock_session_manager.get_agent_state = AsyncMock(return_value=None)
     mock_session_manager.increment_async_replies = AsyncMock()
     mock_session_manager.save_manifest = AsyncMock()
+    mock_session_manager.get_context_manager = AsyncMock()
+
+    # V4.1: 创建 mock tape_writer 和 tape_metadata_mgr
+    # 注意：write_event 需要是 AsyncMock，因为被 await 调用
+    mock_tape_writer = MagicMock()
+    mock_tape_writer._get_tape_path = MagicMock(return_value=memory_dir / "tape.jsonl")
+    mock_tape_writer.write_event = AsyncMock(return_value="event_id")
+    mock_tape_metadata_mgr = AsyncMock()
 
     agent = Agent(
         agent_id="test_agent",
@@ -115,6 +123,8 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, mo
         data_dir=temp_data_dir,
         repository=mock_repository,
         session_manager=mock_session_manager,
+        tape_writer=mock_tape_writer,
+        tape_metadata_mgr=mock_tape_metadata_mgr,
     )
 
     yield agent

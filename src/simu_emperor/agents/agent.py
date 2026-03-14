@@ -58,6 +58,9 @@ class Agent:
         session_id: str | None = None,
         skill_loader=None,
         session_manager=SessionManager,
+        # V4.1: 注入全局共享实例
+        tape_writer=None,
+        tape_metadata_mgr=None,
     ):
         """
         初始化 Agent
@@ -71,6 +74,8 @@ class Agent:
             session_id: 会话标识符（用于 Context 组装）
             skill_loader: SkillLoader 实例（用于动态加载 Skill 内容）
             session_manager: SessionManager（V4 Task Session 支持）
+            tape_writer: V4.1 全局共享的 TapeWriter 实例
+            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
         """
         self.agent_id = agent_id
         self.event_bus = event_bus
@@ -87,25 +92,12 @@ class Agent:
         self._load_soul()
         self._load_data_scope()
 
-        # 初始化记忆系统组件（V4 更新）- 必须在工具类之前初始化
-        from simu_emperor.memory.tape_writer import TapeWriter
-        from simu_emperor.memory.tape_metadata import TapeMetadataManager  # V4
+        # V4.1: 使用注入的实例（不再创建自己的副本）
+        self._tape_writer = tape_writer
+        self._tape_metadata_mgr = tape_metadata_mgr
 
-        # Use configured memory_dir
-        # Resolve to absolute path (relative to cwd when not absolute)
-        # This ensures all agents use the same centralized memory directory
+        # V4.1: Use configured memory_dir
         self._memory_dir = Path(settings.memory.memory_dir).resolve()
-
-        # V4: 创建 TapeMetadataManager（先创建，因为 TapeWriter 需要它）
-        self._tape_metadata_mgr = TapeMetadataManager(memory_dir=self._memory_dir)
-
-        # V4: 创建 TapeWriter，带 event_count 回调和标题生成支持
-        self._tape_writer = TapeWriter(
-            memory_dir=self._memory_dir,
-            on_event_written=self._on_event_written,
-            tape_metadata_mgr=self._tape_metadata_mgr,
-            llm_provider=self.llm_provider,
-        )
 
         # 初始化工具类
         self._query_tools = QueryTools(
@@ -151,6 +143,8 @@ class Agent:
             self.agent_id,
             self._memory_dir,
             self.llm_provider,
+            tape_writer=self._tape_writer,
+            tape_metadata_mgr=self._tape_metadata_mgr,
         )
 
         # 初始化函数处理器映射（保持向后兼容）
@@ -1222,22 +1216,6 @@ class Agent:
         else:
             logger.warning(f"Data scope file not found: {scope_path}")
             self._data_scope = {}
-
-    async def _on_event_written(self, agent_id: str, session_id: str) -> None:
-        """
-        V4: 事件写入后的回调。
-
-        触发 tape_metadata_mgr.increment_event_count() 更新事件计数。
-
-        Args:
-            agent_id: Agent 标识符
-            session_id: Session 标识符
-        """
-        if self._tape_metadata_mgr:
-            try:
-                await self._tape_metadata_mgr.increment_event_count(agent_id, session_id)
-            except Exception as e:
-                logger.warning(f"Failed to increment event count: {e}")
 
     async def _refresh_memory_metadata(self, event: Event) -> None:
         """
