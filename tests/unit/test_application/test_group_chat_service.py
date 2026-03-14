@@ -3,7 +3,7 @@
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from simu_emperor.application.group_chat_service import GroupChatService, utcnow
 
@@ -12,6 +12,14 @@ from simu_emperor.application.group_chat_service import GroupChatService, utcnow
 def mock_session_manager():
     """Create mock session manager."""
     return AsyncMock()
+
+
+@pytest.fixture
+def mock_message_service():
+    """Create mock message service."""
+    service = Mock()
+    service.broadcast = AsyncMock()
+    return service
 
 
 @pytest.fixture
@@ -35,6 +43,18 @@ class TestGroupChatService:
         assert service.session_manager == mock_session_manager
         assert service.memory_dir == memory_dir
         assert len(service._group_chats) == 0
+        assert service._message_service is None
+
+    def test_set_message_service(self, mock_session_manager, memory_dir, mock_message_service):
+        """Test setting message service."""
+        service = GroupChatService(
+            session_manager=mock_session_manager,
+            memory_dir=memory_dir,
+        )
+
+        service.set_message_service(mock_message_service)
+
+        assert service._message_service == mock_message_service
 
     async def test_create_group_chat(self, mock_session_manager, memory_dir):
         """Test creating a new group chat."""
@@ -152,6 +172,60 @@ class TestGroupChatService:
 
         with pytest.raises(ValueError, match="Group chat not found"):
             await service.send_to_group_chat("group:web:nonexistent", "Test")
+
+    async def test_send_to_group_chat_broadcasts_to_agents(
+        self, mock_session_manager, memory_dir, mock_message_service
+    ):
+        """Test sending message to group chat broadcasts to all agents."""
+        service = GroupChatService(
+            session_manager=mock_session_manager,
+            memory_dir=memory_dir,
+        )
+        service.set_message_service(mock_message_service)
+
+        with patch.object(service, "_save_group_chats", new=AsyncMock()):
+            group = await service.create_group_chat(
+                name="Test Group",
+                agent_ids=["agent_a", "agent_b"],
+                session_id="session:test",
+            )
+
+            sent_agents = await service.send_to_group_chat(
+                group_id=group.group_id,
+                message="Hello group",
+            )
+
+            mock_message_service.broadcast.assert_called_once_with(
+                message="Hello group",
+                session_id="session:test",
+                agent_ids=["agent_a", "agent_b"],
+                source="player:web:group",
+            )
+            assert sent_agents == ["agent_a", "agent_b"]
+            assert group.message_count == 1
+
+    async def test_send_to_group_chat_without_message_service(
+        self, mock_session_manager, memory_dir
+    ):
+        """Test sending message works even without message service set."""
+        service = GroupChatService(
+            session_manager=mock_session_manager,
+            memory_dir=memory_dir,
+        )
+
+        mock_chat = MagicMock()
+        mock_chat.group_id = "group:web:001"
+        mock_chat.agent_ids = ["governor_zhili"]
+        mock_chat.session_id = "session:test"
+        mock_chat.message_count = 0
+        service._group_chats["group:web:001"] = mock_chat
+
+        with patch.object(service, "_save_group_chats", new=AsyncMock()):
+            # Should not raise error even without message service
+            result = await service.send_to_group_chat("group:web:001", "Test message")
+
+            assert result == ["governor_zhili"]
+            assert mock_chat.message_count == 1
 
     async def test_add_agent_to_group(self, mock_session_manager, memory_dir):
         """Test adding agent to group chat."""

@@ -157,6 +157,9 @@ class ApplicationServices:
             session_manager=session_manager,
         )
 
+        # Set message service reference for group chat
+        group_chat_service.set_message_service(message_service)
+
         tape_service = TapeService(
             session_manager=session_manager,
             tape_writer=tape_writer,

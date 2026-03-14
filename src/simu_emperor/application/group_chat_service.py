@@ -12,6 +12,7 @@ from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
 if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.session.group_chat import GroupChat
+    from simu_emperor.application.message_service import MessageService
 
 
 logger = logging.getLogger(__name__)
@@ -34,16 +35,27 @@ class GroupChatService:
         self,
         session_manager: "SessionManager",
         memory_dir: Path,
+        message_service: "MessageService | None" = None,
     ) -> None:
         """Initialize GroupChatService.
 
         Args:
             session_manager: Session lifecycle manager
             memory_dir: Memory storage directory
+            message_service: Optional message service for broadcasting
         """
         self.session_manager = session_manager
         self.memory_dir = memory_dir
         self._group_chats: dict[str, "GroupChat"] = {}
+        self._message_service: "MessageService | None" = message_service
+
+    def set_message_service(self, message_service: "MessageService") -> None:
+        """Set the message service (for dependency injection).
+
+        Args:
+            message_service: Message service instance
+        """
+        self._message_service = message_service
 
     async def create_group_chat(
         self,
@@ -128,8 +140,18 @@ class GroupChatService:
         group.message_count += 1
         await self._save_group_chats()
 
-        # Return list of agent IDs
-        # The actual message sending is handled by MessageService
+        # Actually send the message to all agents
+        if self._message_service and group.agent_ids:
+            await self._message_service.broadcast(
+                message=message,
+                session_id=group.session_id,
+                agent_ids=group.agent_ids,
+                source="player:web:group",
+            )
+            logger.info(
+                f"Broadcast group message to {len(group.agent_ids)} agents: {group.agent_ids}"
+            )
+
         return group.agent_ids
 
     async def add_agent_to_group(
