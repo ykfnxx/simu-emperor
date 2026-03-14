@@ -89,7 +89,6 @@ class Agent:
 
         # 初始化记忆系统组件（V4 更新）- 必须在工具类之前初始化
         from simu_emperor.memory.tape_writer import TapeWriter
-        from simu_emperor.memory.manifest_index import ManifestIndex
         from simu_emperor.memory.tape_metadata import TapeMetadataManager  # V4
 
         # Use configured memory_dir
@@ -107,7 +106,6 @@ class Agent:
             tape_metadata_mgr=self._tape_metadata_mgr,
             llm_provider=self._llm_provider,
         )
-        self._manifest_index = ManifestIndex(memory_dir=self._memory_dir)
 
         # 初始化工具类
         self._query_tools = QueryTools(
@@ -587,48 +585,6 @@ class Agent:
         tape_write_tasks.append(self._tape_writer.write_event(event, agent_id=self.agent_id))
 
         return tape_write_tasks
-
-    async def _build_llm_context(self, event: Event, session_id: str) -> list[dict]:
-        """
-        为事件构建完整的 LLM 上下文
-
-        整合：系统提示 + 历史消息 + 当前事件
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-
-        Returns:
-            Messages 列表
-        """
-        logger.info(f"🔧 [Agent:{self.agent_id}:{session_id}] Building context...")
-
-        # 1. 获取根事件类型（用于确定使用哪个 system prompt）
-        root_event_type = await self._get_root_event_type(event, session_id)
-
-        # 2. 获取系统提示（基于根事件类型）
-        system_prompt = self._get_system_prompt_for_event(root_event_type)
-
-        # 3. 获取历史消息（从 ContextManager）
-        history_messages = []
-        if self._context_manager:
-            history_messages = self._context_manager.get_context_messages()
-            logger.info(
-                f"📚 [Agent:{self.agent_id}:{session_id}] Loaded {len(history_messages)} history messages"
-            )
-
-        # 4. 将当前事件转换为 message
-        current_message = self.event_to_messages(event)
-
-        # 5. 组装完整消息列表
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history_messages)
-        messages.append(current_message)
-
-        logger.info(
-            f"📝 [Agent:{self.agent_id}:{session_id}] Context built with {len(messages)} messages"
-        )
-        return messages
 
     async def _check_and_restore_agent_state(self, event: Event, session_id: str) -> bool:
         """检查并恢复 agent 状态
