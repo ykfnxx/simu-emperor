@@ -316,19 +316,23 @@ class Agent:
         为动作处理函数创建包装器，使其返回标准化的成功消息
 
         Args:
-            handler_func: 原始动作处理函数（可返回 str 表示自定义消息）
+            handler_func: 原始动作处理函数（可返回 str 表示自定义消息，或 tuple (message, event)）
             success_message: 执行成功后返回的消息（当 handler 不返回自定义消息时使用）
 
         Returns:
-            包装后的异步函数（返回成功消息或 handler 的自定义消息）
+            包装后的异步函数（返回成功消息或 handler 的自定义消息/元组）
 
         Note:
-            如果 handler 返回非空字符串，则使用该返回值（支持错误消息）
-            否则使用默认的 success_message
+            - 如果 handler 返回元组 (message, event)，直接返回（V4: 支持 respond_to_player）
+            - 如果 handler 返回非空字符串，则使用该返回值（支持错误消息）
+            - 否则使用默认的 success_message
         """
 
-        async def wrapper(args: dict, event: Event) -> str:
+        async def wrapper(args: dict, event: Event) -> str | tuple:
             result = await handler_func(args, event)
+            # V4: 如果 handler 返回元组 (message, event)，直接返回
+            if isinstance(result, tuple):
+                return result
             # If handler returns a non-empty string, use it (supports custom messages like errors)
             # Otherwise, use the default success message
             if isinstance(result, str) and result.strip():
@@ -480,9 +484,7 @@ class Agent:
         1. 过滤事件
         2. V4: Tick 驱动的元数据刷新
         3. 初始化记忆组件
-        4. 构建上下文。
-        5. 多轮 LLM 调用。
-        6. 发送响应
+        4. 多轮 LLM 调用（ContextManager 自动处理 tape 写入）
 
         Args:
             event: 事件对象
@@ -506,20 +508,14 @@ class Agent:
 
         await self._ensure_memory_components(event.session_id)
 
-        # 4. 准备 Tape 写入任务
-        tape_write_tasks = await self._prepare_tape_for_event(event)
-
-        # 5. 处理事件
+        # 4. 处理事件（V4: ContextManager 自动处理所有 tape 写入）
         try:
-            await self._process_event_with_llm(event, session_id, tape_write_tasks)
+            await self._process_event_with_llm(event, session_id)
         except Exception as e:
             logger.error(
                 f"❌ [Agent:{self.agent_id}:{session_id}] Error processing event: {e}",
                 exc_info=True,
             )
-        finally:
-            # 6. 确保所有 Tape 写入任务完成
-            await self._complete_tape_writes(tape_write_tasks)
 
     def _should_handle_event(self, event: Event) -> bool:
         """检查是否应该处理此事件"""
@@ -562,28 +558,6 @@ class Agent:
             )
 
         return True
-
-    async def _prepare_tape_for_event(self, event: Event) -> list:
-        """
-        准备 Tape 写入任务
-
-        原则：是什么事件就记录什么事件，不做二次封装
-
-        Args:
-            event: 当前事件
-
-        Returns:
-            Tape 写入任务列表
-        """
-        tape_write_tasks = []
-
-        # 记录需要处理的事件类型到 tape
-        # 这些事件都是 agent 的"输入"，需要记录到当前 agent 的 tape
-        # 直接记录原始事件，不做二次封装
-        # agent_id 参数指定写入当前 agent 的 tape（而不是从 event.src 提取）
-        tape_write_tasks.append(self._tape_writer.write_event(event, agent_id=self.agent_id))
-
-        return tape_write_tasks
 
     async def _check_and_restore_agent_state(self, event: Event, session_id: str) -> bool:
         """检查并恢复 agent 状态
@@ -632,7 +606,7 @@ class Agent:
         return True
 
     async def _process_event_with_llm(
-        self, event: Event, session_id: str, tape_write_tasks: list
+        self, event: Event, session_id: str
     ) -> None:
         """
         使用 LLM 处理事件（多轮 function calling）（V4 重构）。
@@ -646,7 +620,6 @@ class Agent:
         Args:
             event: 当前事件
             session_id: 会话 ID
-            tape_write_tasks: 保留兼容（V5 将移除）
         """
         # 检查是否有尚待完成的异步任务，如果有则跳过处理
         if not await self._check_and_restore_agent_state(event, session_id):
@@ -692,25 +665,40 @@ class Agent:
             )
 
             # V4: 构造 ASSISTANT_RESPONSE 事件并通过 ContextManager 添加
+            # 如果 response_text 为空但有 respond_to_player 的 tool_call，从 arguments 提取内容
+            response_for_tape = response_text
+            if not response_text and tool_calls:
+                for tc in tool_calls:
+                    if tc.get("function", {}).get("name") == "respond_to_player":
+                        try:
+                            args = json.loads(tc["function"]["arguments"])
+                            if "content" in args:
+                                response_for_tape = args["content"]
+                                break
+                        except (json.JSONDecodeError, KeyError, TypeError):
+                            pass
+
             assistant_response_event = TapeEvent(
                 src=f"agent:{self.agent_id}",
                 dst=event.dst,
                 type=EventType.ASSISTANT_RESPONSE,
                 payload={
-                    "response": response_text,
+                    "response": response_for_tape,
                     "iteration": iteration,
                     "has_tool_calls": len(tool_calls) > 0,
                     "tool_calls": tool_calls if tool_calls else None,
                 },
                 session_id=event.session_id,
                 timestamp=turn_start_time,
+                parent_event_id=event.event_id,
+                root_event_id=event.root_event_id,
             )
             # V4: ContextManager 负责写入 tape
             await self._context_manager.add_event_and_maybe_compact(assistant_response_event)
 
             # 处理响应
             if not tool_calls:
-                await self._handle_no_tool_calls(event, session_id, response_text, tape_write_tasks)
+                await self._handle_no_tool_calls(event, session_id, response_text)
                 break
 
             # 执行 tool calls（V4: 内部会通过 ContextManager 添加 TOOL_RESULT 事件）
@@ -873,6 +861,8 @@ class Agent:
                 },
                 session_id=event.session_id,
                 timestamp=tool_result_timestamp,
+                parent_event_id=event.event_id,
+                root_event_id=event.root_event_id,
             )
             # V4: ContextManager 负责写入 tape 和添加到内存
             await self._context_manager.add_event_and_maybe_compact(tool_result_event)
@@ -910,57 +900,34 @@ class Agent:
         )
         return True
 
-    async def _complete_tape_writes(self, tape_write_tasks: list) -> None:
-        """
-        完成 Tape 写入任务
-
-        Args:
-            tape_write_tasks: Tape 写入任务列表
-        """
-        if tape_write_tasks:
-            try:
-                results = await asyncio.gather(*tape_write_tasks, return_exceptions=True)
-
-                # 检查是否有任务失败
-                for i, result in enumerate(results):
-                    if isinstance(result, Exception):
-                        logger.warning(
-                            f"[Agent:{self.agent_id}] Tape write task {i} failed: {result}"
-                        )
-
-                if results:
-                    logger.debug(
-                        f"[Agent:{self.agent_id}] {len(results)} tape write tasks completed"
-                    )
-            except Exception as tape_error:
-                logger.warning(f"Failed to complete tape write tasks: {tape_error}")
-
     async def _handle_no_tool_calls(
-        self, event: Event, session_id: str, response_text: str, tape_write_tasks: list
+        self, event: Event, session_id: str, response_text: str
     ) -> None:
         """
-        处理无 tool calls 的情况
+        处理无 tool calls 的情况（V4: 通过 ContextManager 写入 tape）
 
         Args:
             event: 当前事件
             session_id: 会话 ID
             response_text: LLM 响应文本
-            tape_write_tasks: Tape 写入任务列表
         """
         logger.info(f"✅ [Agent:{self.agent_id}:{session_id}] No more tool calls, ending loop")
 
         # 发送最终响应（即使为空也要响应）
         final_response = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
 
-        # TapeWriter: 构造并写入 RESPONSE Event (统一使用 RESPONSE 类型)
+        # V4: 通过 ContextManager 添加 RESPONSE 事件
+        # dst 应该是 event.src（玩家），而不是 event.dst（自己）
         response_event = TapeEvent(
             src=f"agent:{self.agent_id}",
-            dst=event.dst,
+            dst=[event.src],  # 修复：RESPONSE 发送给玩家（event.src），不是自己
             type=EventType.RESPONSE,
             payload={"narrative": final_response},
             session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
-        tape_write_tasks.append(self._tape_writer.write_event(response_event))
+        await self._context_manager.add_event_and_maybe_compact(response_event)
 
         logger.info(
             f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_response[:50]}..."

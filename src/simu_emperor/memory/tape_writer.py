@@ -73,7 +73,7 @@ class TapeWriter:
             # Extract from event.src
             agent_id = event.src.replace("agent:", "")
         else:
-            # Not an agent event, skip writing
+            # No agent_id available, cannot determine tape path
             return event.event_id
 
         # Extract metadata from event

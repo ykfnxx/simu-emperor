@@ -133,8 +133,23 @@ class ContextManager:
             query = payload.get("query") if isinstance(payload, dict) else payload
             return [{"role": "user", "content": str(query)}]
         elif event_type == EventType.CHAT:
+            # 先检查 message（普通聊天），再检查 command（命令）
+            message = payload.get("message", "") if isinstance(payload, dict) else ""
             command = payload.get("command", "") if isinstance(payload, dict) else ""
-            if command:
+
+            if message:
+                parts = [
+                    "# 收到的事件",
+                    f"- 来源: {event.get('src', 'unknown')}",
+                    f"- 类型: {event_type}",
+                    f"- 时间: {event.get('timestamp', '')}",
+                    "\n# 皇帝的消息：",
+                    "```",
+                    message,
+                    "```",
+                ]
+                return [{"role": "user", "content": "\n".join(parts)}]
+            elif command:
                 parts = [
                     "# 收到的事件",
                     f"- 来源: {event.get('src', 'unknown')}",
@@ -149,22 +164,6 @@ class ContextManager:
                 return [{"role": "user", "content": "\n".join(parts)}]
             else:
                 return []
-        elif event_type == EventType.CHAT:
-            message = payload.get("message", "") if isinstance(payload, dict) else ""
-            if message:
-                parts = [
-                    "# 收到的事件",
-                    f"- 来源: {event.get('src', 'unknown')}",
-                    f"- 类型: {event_type}",
-                    f"- 时间: {event.get('timestamp', '')}",
-                    "\n# 皇帝的消息：",
-                    "```",
-                    message,
-                    "```",
-                ]
-                return [{"role": "user", "content": "\n".join(parts)}]
-            else:
-                return []
         elif event_type == EventType.AGENT_MESSAGE:
             message = payload.get("message", "") if isinstance(payload, dict) else str(payload)
             source_agent = event.get("src", "unknown").replace("agent:", "")
@@ -175,21 +174,33 @@ class ContextManager:
             else:
                 return []
         elif event_type == EventType.RESPONSE:
-            # RESPONSE 事件需要区分来源：
-            # - 如果 src 是当前 agent，则是自己的响应 → "assistant"
-            # - 如果 src 是其他 agent，则是收到的消息 → "user"
+            # RESPONSE 事件需要区分：
+            # - 如果 dst 是非空列表且包含当前 agent → 旧格式数据（dst 是自己），跳过
+            # - 如果 dst 是非空列表且 src 是当前 agent → 新格式（dst 是玩家），跳过
+            # - 如果 dst 不存在或为空 → 旧格式但可能没有 ASSISTANT_RESPONSE，转换
+            # - 如果 dst 不包含当前 agent → 来自其他 agent 的消息 → "user"
             narrative = payload.get("narrative") if isinstance(payload, dict) else payload
             src = event.get("src", "")
+            dst = event.get("dst", None)
 
-            # 检查是否是当前 agent 的响应
-            if src == f"agent:{self.agent_id}":
-                # 自己的响应 → assistant
+            # 检查是否 dst 是非空列表且包含当前 agent（旧格式：dst 是自己）
+            if dst and isinstance(dst, list) and f"agent:{self.agent_id}" in dst:
+                # 旧格式：dst 是自己 → 跳过（ASSISTANT_RESPONSE 已记录相同内容）
+                return []
+
+            # 检查是否 dst 是非空列表且 src 是当前 agent（新格式：有 dst 字段但不是自己）
+            if dst and isinstance(dst, list) and src == f"agent:{self.agent_id}":
+                # 新格式：自己的响应且 dst 存在（ASSISTANT_RESPONSE 已记录）
+                return []
+
+            # 旧格式（没有 dst 字段或 dst 为空）且 src 是当前 agent → 转换为 assistant
+            if (not dst or (isinstance(dst, list) and len(dst) == 0)) and src == f"agent:{self.agent_id}":
                 return [{"role": "assistant", "content": str(narrative)}]
-            else:
-                # 其他 agent 的响应 → user (格式化为来自其他 agent 的消息)
-                source_agent = src.replace("agent:", "")
-                formatted_content = f"# 来自 {source_agent} 的回复：\n```\n{narrative}\n```"
-                return [{"role": "user", "content": formatted_content}]
+
+            # 其他 agent 的响应 → user (格式化为来自其他 agent 的消息)
+            source_agent = src.replace("agent:", "")
+            formatted_content = f"# 来自 {source_agent} 的回复：\n```\n{narrative}\n```"
+            return [{"role": "user", "content": formatted_content}]
         elif event_type == EventType.TASK_CREATED:
             goal = payload.get("goal", "")
             constraints = payload.get("constraints", "")
@@ -358,10 +369,10 @@ class ContextManager:
         if self._tape_writer:
             if event_obj:
                 # 使用原始 Event 对象
-                await self._tape_writer.write_event(event_obj)
+                await self._tape_writer.write_event(event_obj, agent_id=self.agent_id)
             else:
                 # 从 dict 重建 Event 对象
-                await self._tape_writer.write_event(Event(**event_dict))
+                await self._tape_writer.write_event(Event(**event_dict), agent_id=self.agent_id)
 
         # 必要时触发 compact
         if needs_compact:

@@ -830,10 +830,11 @@ export default function App() {
 
       // 只有当用户没有手动切换view session时，才自动刷新viewTape为主session
       if (!selectedViewSessionIdRef.current) {
-        await refreshViewTape(viewAgentId, resolvedSessionId);
+        // 使用 resolvedAgentId 确保 tape 与当前 session 匹配
+        await refreshViewTape(resolvedAgentId, resolvedSessionId);
       } else {
         // 如果用户已选择子session，刷新该子session的tape
-        await refreshViewTape(viewAgentId, selectedViewSessionIdRef.current);
+        await refreshViewTape(resolvedAgentId, selectedViewSessionIdRef.current);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '加载失败';
@@ -935,6 +936,9 @@ export default function App() {
         }
       } else {
         void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
+        // 同时刷新 TAPE CONTEXT
+        const viewSessionId = selectedViewSessionIdRef.current || currentSessionRef.current;
+        void refreshViewTape(currentAgentRef.current, viewSessionId);
       }
     });
 
@@ -973,7 +977,7 @@ export default function App() {
       offState();
       offSessionState();
     };
-  }, [refreshChatTape]);
+  }, [refreshChatTape, refreshViewTape]);
 
   useEffect(() => {
     setExpandedAgents((prev) => {
