@@ -4,6 +4,7 @@
 V4重构：所有业务逻辑委托给ApplicationServices，本模块仅处理协议转换。
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from decimal import Decimal
 import logging
@@ -488,7 +489,10 @@ async def list_agents():
     agent_ids = await game_instance.agent_service.get_available_agents()
     from simu_emperor.common import get_agent_display_name
 
-    return [{"agent_id": aid, "agent_name": get_agent_display_name(aid)} for aid in agent_ids]
+    return [
+        {"agent_id": aid, "agent_name": get_agent_display_name(aid, game_instance.settings.data_dir)}
+        for aid in agent_ids
+    ]
 
 
 @app.post("/api/agents/generate")
@@ -515,24 +519,73 @@ async def generate_agent(request: AgentGenerateRequest):
 
 @app.post("/api/agents/add-generated")
 async def add_generated_agent(request: AgentGenerateRequest):
-    """生成配置并启动 agent（完整流程）"""
+    """生成配置并启动 agent（异步后台任务）
+
+    立即返回任务 ID，需要轮询 /api/agents/jobs/{task_id} 查询状态。
+    """
     if not game_instance.is_running:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
     try:
-        result = await game_instance.agent_service.add_generated_agent(
-            agent_id=request.agent_id,
-            title=request.title,
-            name=request.name,
-            duty=request.duty,
-            personality=request.personality,
-            province=request.province,
-        )
-        return result
+        task_tracker = game_instance.agent_service._get_task_tracker()
+
+        # 创建后台任务
+        task = task_tracker.create_task(f"创建 Agent: {request.agent_id}")
+
+        # 在后台运行任务（不等待完成）
+        async def background_task():
+            try:
+                await task_tracker.run_task(
+                    task.task_id,
+                    lambda: game_instance.agent_service.add_generated_agent_async(
+                        agent_id=request.agent_id,
+                        title=request.title,
+                        name=request.name,
+                        duty=request.duty,
+                        personality=request.personality,
+                        province=request.province,
+                    ),
+                )
+            except Exception as e:
+                logger.error(f"Background task failed: {e}")
+                raise
+
+        # 启动后台任务（不阻塞响应）
+        asyncio.create_task(background_task())
+
+        return {
+            "success": True,
+            "task_id": task.task_id,
+            "agent_id": request.agent_id,
+            "status": "pending",
+            "message": "Agent 创建任务已启动，请轮询状态查询接口",
+        }
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/agents/jobs/{task_id}")
+async def get_agent_job_status(task_id: str):
+    """查询 Agent 创建任务状态
+
+    Args:
+        task_id: 任务 ID
+
+    Returns:
+        任务状态信息
+    """
+    if not game_instance.is_running:
+        raise HTTPException(status_code=503, detail="Game not initialized")
+
+    task_tracker = game_instance.agent_service._get_task_tracker()
+    task = task_tracker.get_task(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    return task.to_dict()
 
 
 # ============================================================================

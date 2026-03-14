@@ -5,12 +5,16 @@ import {
   ChevronRight,
   ClipboardList,
   Coins,
+  Loader2,
   MapPin,
   MessageSquare,
+  MoreVertical,
   Plus,
   RefreshCw,
   Send,
+  UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -600,6 +604,8 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // 标记是否为初始加载，防止周期刷新时覆盖用户选择的会话
+  const isInitialLoadRef = useRef(true);
   const [creatingAgentId, setCreatingAgentId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
@@ -617,6 +623,19 @@ export default function App() {
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   // 新增：群聊模式下TAPE CONTEXT选中的agent
   const [selectedGroupAgentId, setSelectedGroupAgentId] = useState<string | null>(null);
+  // 新增：官员管理相关状态
+  const [showAgentMenu, setShowAgentMenu] = useState(false);
+  const [showAddAgentDialog, setShowAddAgentDialog] = useState(false);
+  const [newAgentForm, setNewAgentForm] = useState({
+    agent_id: '',
+    title: '',
+    name: '',
+    duty: '',
+    personality: '',
+    province: '',
+  });
+  const [addingAgent, setAddingAgent] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
   // 面板 Tab 切换: 'overview' | 'incidents' | 'province'
   const [currentPanelTab, setCurrentPanelTab] = useState<'overview' | 'incidents' | 'province'>('overview');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -804,6 +823,10 @@ export default function App() {
       setSessions(mainSessions);
       setAgentSessions(groupedSessions);
 
+      // 确定实际使用的 agent 和 session（仅在初始加载时使用 API 返回值）
+      const targetAgentId = isInitialLoadRef.current ? resolvedAgentId : currentAgentRef.current;
+      const targetSessionId = isInitialLoadRef.current ? resolvedSessionId : currentSessionRef.current;
+
       // 群聊模式：不覆盖currentAgentId，重新加载群聊合并tape
       if (currentGroupId) {
         const group = groupChats.find(g => g.group_id === currentGroupId);
@@ -822,19 +845,19 @@ export default function App() {
           }
         }
       } else {
-        // 非群聊模式：正常刷新
-        setCurrentAgentId(resolvedAgentId);
-        setCurrentSessionId(resolvedSessionId);
-        await refreshChatTape(resolvedAgentId, resolvedSessionId);
+        // 非群聊模式：使用用户当前选择（或初始加载时的 API 返回值）
+        setCurrentAgentId(targetAgentId);
+        setCurrentSessionId(targetSessionId);
+        await refreshChatTape(targetAgentId, targetSessionId);
       }
 
       // 只有当用户没有手动切换view session时，才自动刷新viewTape为主session
       if (!selectedViewSessionIdRef.current) {
-        // 使用 resolvedAgentId 确保 tape 与当前 session 匹配
-        await refreshViewTape(resolvedAgentId, resolvedSessionId);
+        // 使用用户当前选择的 session（而非 API 返回值）
+        await refreshViewTape(targetAgentId, targetSessionId);
       } else {
         // 如果用户已选择子session，刷新该子session的tape
-        await refreshViewTape(resolvedAgentId, selectedViewSessionIdRef.current);
+        await refreshViewTape(targetAgentId, selectedViewSessionIdRef.current);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '加载失败';
@@ -842,6 +865,8 @@ export default function App() {
     } finally {
       setRefreshing(false);
       setLoading(false);
+      // 首次加载完成后，标记为非初始加载
+      isInitialLoadRef.current = false;
     }
   }, [refreshChatTape, refreshViewTape, currentGroupId, selectedGroupAgentId, groupChats]);
 
@@ -1106,6 +1131,77 @@ export default function App() {
     }
   };
 
+  // 新增官员处理函数
+  const handleAddAgent = async () => {
+    // 验证表单
+    if (!newAgentForm.agent_id.trim() || !newAgentForm.title.trim() ||
+        !newAgentForm.name.trim() || !newAgentForm.duty.trim() ||
+        !newAgentForm.personality.trim()) {
+      setAgentError('请填写所有必填字段');
+      return;
+    }
+    setAgentError(null);
+    setAddingAgent(true);
+    try {
+      // 启动后台任务
+      const result = await client.current.addAgent({
+        agent_id: newAgentForm.agent_id.trim(),
+        title: newAgentForm.title.trim(),
+        name: newAgentForm.name.trim(),
+        duty: newAgentForm.duty.trim(),
+        personality: newAgentForm.personality.trim(),
+        province: newAgentForm.province.trim() || undefined,
+      });
+
+      if (result.success && result.task_id) {
+        // 轮询任务状态
+        let completed = false;
+        let attempts = 0;
+        const maxAttempts = 120; // 最多轮询2分钟
+
+        while (!completed && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+          attempts++;
+
+          const status = await client.current.getAgentJobStatus(result.task_id);
+
+          if (status.status === 'completed') {
+            completed = true;
+            // 刷新 agent 列表
+            await refreshData();
+            setShowAddAgentDialog(false);
+            // 重置表单
+            setNewAgentForm({
+              agent_id: '',
+              title: '',
+              name: '',
+              duty: '',
+              personality: '',
+              province: '',
+            });
+          } else if (status.status === 'failed') {
+            completed = true;
+            setAgentError(status.error || 'Agent 创建失败');
+          } else if (status.status === 'running' || status.status === 'pending') {
+            // 继续轮询，显示进度
+            if (status.progress > 0) {
+              setAgentError(`正在生成 Agent 配置... ${status.progress}%`);
+            }
+          }
+        }
+
+        if (!completed) {
+          setAgentError('Agent 创建超时，请稍后刷新页面查看');
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '新增官员失败';
+      setAgentError(message);
+    } finally {
+      setAddingAgent(false);
+    }
+  };
+
   const handleSelectGroup = async (group: GroupChat) => {
     setCurrentGroupId(group.group_id);
     setCurrentSessionId(group.session_id);
@@ -1253,8 +1349,42 @@ export default function App() {
         <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[320px]">
           {/* 上半部分：百官行述 */}
           <div className="flex flex-col min-h-0" style={{ height: `${leftPanelSplit}%` }}>
-            <div className="border-b border-slate-200 px-4 py-3">
+            <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
               <h2 className="text-base font-semibold">百官行述</h2>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowAgentMenu((prev) => !prev)}
+                  className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
+                  title="官员管理"
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </button>
+                {/* 下拉菜单 */}
+                {showAgentMenu && (
+                  <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAgentMenu(false);
+                        setShowAddAgentDialog(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      新增官员
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 disabled:opacity-50"
+                      title="功能开发中"
+                    >
+                      调任官员
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-3 py-2">
               <div className="space-y-2">
@@ -2066,6 +2196,148 @@ export default function App() {
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增官员对话框 */}
+      {showAddAgentDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">新增官员</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddAgentDialog(false);
+                  setAgentError(null);
+                }}
+                className="rounded-md p-1 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mb-3 space-y-3">
+              {/* Agent ID */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Agent ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newAgentForm.agent_id}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, agent_id: e.target.value }))}
+                  placeholder="如: governor_xinjiang"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">唯一标识符，只能包含小写字母、数字和下划线</p>
+              </div>
+
+              {/* 官职 */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  官职 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newAgentForm.title}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="如: 新疆巡抚"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+                />
+              </div>
+
+              {/* 姓名 */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  姓名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newAgentForm.name}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="如: 左宗棠"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+                />
+              </div>
+
+              {/* 职责 */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  职责 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={newAgentForm.duty}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, duty: e.target.value }))}
+                  placeholder="如: 新疆省民政、农桑、商贸、边防"
+                  rows={2}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* 为人 */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  为人 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={newAgentForm.personality}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, personality: e.target.value }))}
+                  placeholder="如: 办事干练，忠心耿耿，深得朝廷信任"
+                  rows={2}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* 管辖省份（可选） */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  管辖省份 <span className="text-slate-400">(可选)</span>
+                </label>
+                <input
+                  type="text"
+                  value={newAgentForm.province}
+                  onChange={(e) => setNewAgentForm((prev) => ({ ...prev, province: e.target.value }))}
+                  placeholder="如: xinjiang，留空表示全国"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">省份的英文标识，如 zhili, fujian 等</p>
+              </div>
+            </div>
+
+            {/* 错误提示 / 进度显示 */}
+            {agentError && (
+              <div className={`mb-4 rounded-lg px-3 py-2 text-xs ${
+                agentError.includes('失败') || agentError.includes('超时')
+                  ? 'bg-red-50 text-red-600'
+                  : 'bg-blue-50 text-blue-600'
+              }`}>
+                {agentError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddAgentDialog(false);
+                  setAgentError(null);
+                }}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleAddAgent}
+                disabled={addingAgent}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {addingAgent && <Loader2 className="h-4 w-4 animate-spin" />}
+                {addingAgent ? (agentError?.includes('...') ? agentError : '生成中...') : '确定'}
               </button>
             </div>
           </div>

@@ -331,6 +331,35 @@ export class GameClient {
   async getIncidents(): Promise<Incident[]> {
     return this.request<Incident[]>('/incidents');
   }
+
+  async addAgent(request: {
+    agent_id: string;
+    title: string;
+    name: string;
+    duty: string;
+    personality: string;
+    province?: string;
+  }): Promise<{ success: boolean; task_id: string; agent_id: string; status: string; message: string }> {
+    return this.request<{ success: boolean; task_id: string; agent_id: string; status: string; message: string }>('/agents/add-generated', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentJobStatus(taskId: string): Promise<{
+    task_id: string;
+    name: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    created_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+    error: string | null;
+    result: unknown;
+    progress: number;
+  }> {
+    return this.request<any>(`/agents/jobs/${taskId}`);
+  }
 }
 
 export const createGameClient = (config?: GameClientConfig): GameClient => {

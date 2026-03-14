@@ -66,6 +66,9 @@ class AgentManager:
 
         将 template_dir/{agent_id}/ 复制到 agent_dir/{agent_id}/
 
+        如果 agent_dir/{agent_id}/ 已存在有效的 soul.md 和 data_scope.yaml，
+        则跳过复制（支持动态生成的 agent）。
+
         Args:
             agent_id: Agent 标识符
 
@@ -75,11 +78,24 @@ class AgentManager:
         template_path = self.template_dir / agent_id
         agent_path = self.agent_dir / agent_id
 
+        # 检查运行时目录是否已有有效配置（动态生成的 agent）
+        if agent_path.exists():
+            soul_md = agent_path / "soul.md"
+            data_scope = agent_path / "data_scope.yaml"
+            if soul_md.exists() and data_scope.exists():
+                # 确保 memory 和 workspace 目录存在
+                (agent_path / "memory").mkdir(parents=True, exist_ok=True)
+                (agent_path / "memory" / "recent").mkdir(exist_ok=True)
+                (agent_path / "workspace").mkdir(exist_ok=True)
+                logger.info(f"Agent {agent_id} already exists in runtime directory, skipping copy")
+                return True
+
+        # 从模板目录复制
         if not template_path.exists():
             logger.error(f"Template not found: {template_path}")
             return False
 
-        # 如果已存在，先删除
+        # 如果运行时目录已存在但无效，先删除
         if agent_path.exists():
             shutil.rmtree(agent_path)
 

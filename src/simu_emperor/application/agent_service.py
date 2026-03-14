@@ -1,7 +1,7 @@
 """Agent Service - Agent lifecycle and availability management."""
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from simu_emperor.common import DEFAULT_WEB_SESSION_ID, strip_agent_prefix
 from simu_emperor.config import GameConfig
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from simu_emperor.session.manager import SessionManager
     from simu_emperor.agents.manager import AgentManager
     from simu_emperor.agents.agent_generator import AgentGenerator
+    from simu_emperor.application.task_tracker import TaskTracker  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ class AgentService:
         self.agent_manager: "AgentManager | None" = None
         # Agent generator (optional)
         self._agent_generator: "AgentGenerator | None" = agent_generator
+        # Task tracker for background jobs (lazy initialized)
+        self._task_tracker: "TaskTracker | None" = None
 
     async def initialize_agents(self, agent_ids: list[str] | None = None) -> None:
         """Initialize and start agents.
@@ -217,8 +220,8 @@ class AgentService:
         # LLM 生成配置
         generated = await self._agent_generator.generate_config(config)
 
-        # 创建 agent 目录
-        agent_dir = self.settings.data_dir / "default_agents" / agent_id
+        # 创建 agent 目录（运行时目录，不是 default_agents 模板目录）
+        agent_dir = self.settings.data_dir / "agent" / "web" / agent_id
         agent_dir.mkdir(parents=True, exist_ok=True)
 
         # 写入 soul.md
@@ -339,3 +342,73 @@ class AgentService:
             agent_generator: AgentGenerator 实例
         """
         self._agent_generator = agent_generator
+
+    def _get_task_tracker(self) -> "TaskTracker":
+        """获取或创建 TaskTracker 实例"""
+        if self._task_tracker is None:
+            from simu_emperor.application.task_tracker import get_task_tracker
+
+            self._task_tracker = get_task_tracker()
+        return self._task_tracker
+
+    async def add_generated_agent_async(
+        self,
+        agent_id: str,
+        title: str,
+        name: str,
+        duty: str,
+        personality: str,
+        province: str | None = None,
+    ) -> dict[str, Any]:
+        """生成配置并启动 agent（异步后台任务）
+
+        此方法在后台任务中执行，返回完整结果。
+
+        Args:
+            agent_id: Agent 唯一标识符
+            title: 官职
+            name: 姓名
+            duty: 职责描述
+            personality: 为人描述
+            province: 管辖省份（可选）
+
+        Returns:
+            包含 success, agent_id, message 等字段的字典
+        """
+        from simu_emperor.application.task_tracker import TaskTracker  # noqa: F401
+
+        task_tracker = self._get_task_tracker()
+
+        # 更新进度：开始生成配置
+        task_tracker.update_progress(agent_id, 10)
+
+        # 1. 生成配置文件
+        result = await self.generate_agent(
+            agent_id=agent_id,
+            title=title,
+            name=name,
+            duty=duty,
+            personality=personality,
+            province=province,
+        )
+
+        # 更新进度：配置生成完成
+        task_tracker.update_progress(agent_id, 50)
+
+        # 2. 初始化并启动
+        if self.agent_manager:
+            if self.agent_manager.initialize_agent(agent_id):
+                self.agent_manager.add_agent(agent_id)
+                result["message"] = f"Agent {agent_id} 生成并启动成功"
+                result["success"] = True
+            else:
+                result["message"] = f"Agent {agent_id} 配置已生成，但初始化失败"
+                result["success"] = False
+        else:
+            result["message"] = f"Agent {agent_id} 配置已生成，但 AgentManager 未初始化"
+            result["success"] = False
+
+        # 更新进度：完成
+        task_tracker.update_progress(agent_id, 100)
+
+        return result
