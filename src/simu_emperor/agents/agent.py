@@ -680,7 +680,11 @@ class Agent:
         self, event: Event, session_id: str, tape_write_tasks: list
     ) -> None:
         """
-        使用 LLM 处理事件（多轮 function calling）
+        使用 LLM 处理事件（多轮 function calling）（V4 简化）。
+
+        V4 变更：
+        - 使用 ContextManager.get_llm_messages() 替代 _build_llm_context()
+        - 设置 system_prompt 到 ContextManager（仅首次）
 
         Args:
             event: 当前事件
@@ -694,8 +698,18 @@ class Agent:
         # Capture turn start time to ensure event ordering
         turn_start_time = datetime.now(timezone.utc).isoformat()
 
-        # 构建消息
-        messages = await self._build_llm_context(event, session_id)
+        # V4: 设置 system_prompt（仅首次）
+        if self._context_manager and self._context_manager._system_prompt is None:
+            root_event_type = await self._get_root_event_type(event, session_id)
+            system_prompt = self._get_system_prompt_for_event(root_event_type)
+            self._context_manager._system_prompt = system_prompt
+
+        # V4: 使用 ContextManager.get_llm_messages() 构建消息
+        messages = await self._context_manager.get_llm_messages()
+
+        # 将当前事件转换为 message 并添加到 messages
+        current_message = self.event_to_messages(event)
+        messages.extend(current_message)
 
         # 多轮 function calling 循环
         max_iterations = 10  # 防止无限循环
