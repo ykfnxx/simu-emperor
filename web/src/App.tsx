@@ -678,10 +678,8 @@ export default function App() {
   }, []);
 
   const handleSwitchSession = async (sessionId: string) => {
-    if (currentAgentRef.current) {
-      setSelectedViewSessionId(sessionId);
-      await refreshViewTape(currentAgentRef.current, sessionId);
-    }
+    setSelectedViewSessionId(sessionId);
+    await refreshViewTape(viewAgentId, sessionId);
   };
 
   const refreshData = useCallback(async () => {
@@ -1760,8 +1758,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  if (!showSubSessions && currentAgentId && currentSessionId) {
-                    loadSubSessions(currentSessionId, currentAgentId);
+                  if (!showSubSessions && viewAgentId && currentSessionId) {
+                    loadSubSessions(currentSessionId, viewAgentId);
                   }
                   setShowSubSessions((prev) => !prev);
                 }}
