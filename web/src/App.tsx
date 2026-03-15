@@ -121,7 +121,7 @@ function getTapeEventStyle(type: string): TapeEventStyle {
     };
   }
 
-  if (normalized === 'response' || normalized === 'assistant_response') {
+  if (normalized === 'response' || normalized === 'assistant_response' || normalized === 'agent_message') {
     return {
       cardClass: 'border-emerald-200 bg-emerald-50/50',
       badgeClass: 'bg-emerald-100 text-emerald-700',
@@ -222,8 +222,8 @@ function extractRespondToPlayerContent(payload: Record<string, unknown>): string
 
 function isAgentReplyEvent(event: TapeEvent): boolean {
   const type = normalizeEventType(event.type);
-  // 对话框仅显示最终RESPONSE事件，不显示中间的ASSISTANT_RESPONSE
-  return type === 'response';
+  // AGENT_MESSAGE 是统一的消息类型（V4），RESPONSE 是旧类型（向后兼容）
+  return type === 'agent_message' || type === 'response';
 }
 
 function isRespondToPlayerToolResult(event: TapeEvent): boolean {
@@ -238,6 +238,7 @@ function isReplyCompletedEvent(event: TapeEvent): boolean {
 
 function extractEventText(event: TapeEvent): string {
   const payload = event.payload ?? {};
+  const content = payload.content;  // AGENT_MESSAGE uses 'content' field (V4)
   const response = payload.response;
   const narrative = payload.narrative;
   const message = payload.message;
@@ -245,15 +246,43 @@ function extractEventText(event: TapeEvent): string {
   const description = payload.description;
   const tool = payload.tool;
   const result = payload.result;
+  const thought = payload.thought;  // OBSERVATION thought field
+  const actions = payload.actions;  // OBSERVATION actions array
   const assistantReply = extractRespondToPlayerContent(payload);
 
   if (assistantReply) return assistantReply;
 
+  // V4: AGENT_MESSAGE uses 'content' field
+  if (typeof content === 'string' && content.trim()) return content;
   if (typeof narrative === 'string' && narrative.trim()) return narrative;
   if (typeof response === 'string' && response.trim()) return response;
   if (typeof message === 'string' && message.trim()) return message;
   if (typeof command === 'string' && command.trim()) return command;
   if (typeof description === 'string' && description.trim()) return description;
+
+  // V4: OBSERVATION event formatting
+  if (normalizeEventType(event.type) === 'observation') {
+    const parts: string[] = [];
+    if (typeof thought === 'string' && thought.trim()) {
+      parts.push(thought.trim());
+    }
+    if (Array.isArray(actions) && actions.length > 0) {
+      const actionTexts = actions
+        .map((a: { tool?: string; result?: string }) => {
+          const toolName = a.tool || 'unknown';
+          const resultText = a.result || '';
+          return resultText ? `${toolName}: ${resultText}` : toolName;
+        })
+        .filter(Boolean);
+      if (actionTexts.length > 0) {
+        parts.push(actionTexts.join('\n'));
+      }
+    }
+    if (parts.length > 0) {
+      return parts.join('\n\n');
+    }
+  }
+
   if (typeof result === 'string' && result.trim()) {
     return typeof tool === 'string' && tool.trim() ? `${tool}: ${result}` : result;
   }
@@ -928,13 +957,32 @@ export default function App() {
     const offChat = client.current.on<ChatData>('chat', (data) => {
       if (!data || !data.text) return;
 
-      const eventSessionId = data.session_id || currentSessionRef.current;
-      if (eventSessionId !== currentSessionRef.current) {
-        return;
-      }
+      // 跳过玩家消息（只显示agent响应）
       if (data.agent === 'player') {
         return;
       }
+
+      const eventSessionId = data.session_id || currentSessionRef.current;
+      // 提取agent ID（去掉"agent:"前缀）
+      const eventAgentId = data.agent?.replace('agent:', '') || data.agent;
+      const currentAgent = currentAgentRef.current;
+
+      // 检查消息是否来自当前agent或在当前session中
+      const isFromCurrentAgent = eventAgentId === currentAgent;
+      const isInCurrentSession = eventSessionId === currentSessionRef.current;
+
+      // 只有来自当前agent或在当前session的消息才显示
+      if (!isFromCurrentAgent && !isInCurrentSession) {
+        return;
+      }
+
+      // 如果消息来自当前agent但session不同，更新session ID
+      // （处理新session创建后的消息）
+      if (isFromCurrentAgent && !isInCurrentSession) {
+        currentSessionRef.current = eventSessionId;
+        setCurrentSessionId(eventSessionId);
+      }
+
       // 收到agent响应，清除超时检测
       if (responseTimeoutRef.current) {
         clearTimeout(responseTimeoutRef.current);

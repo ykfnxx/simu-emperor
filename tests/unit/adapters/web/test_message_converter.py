@@ -14,13 +14,13 @@ class TestMessageConverter:
     """测试 MessageConverter 类"""
 
     @pytest.mark.asyncio
-    async def test_convert_response_event(self):
-        """测试转换 Agent 响应事件"""
+    async def test_convert_agent_message_event(self):
+        """测试转换 Agent 消息事件"""
         event = Event(
             src="agent:governor_zhili",
             dst=["player:web"],
-            type=EventType.RESPONSE,
-            payload={"narrative": "陛下，直隶省..."},
+            type=EventType.AGENT_MESSAGE,
+            payload={"content": "陛下，直隶省..."},
             timestamp="2026-03-06T12:00:00Z",
             session_id="session:web:test",
         )
@@ -35,6 +35,26 @@ class TestMessageConverter:
         assert result["data"]["text"] == "陛下，直隶省..."
         assert result["data"]["timestamp"] == "2026-03-06T12:00:00Z"
         assert result["data"]["session_id"] == "session:web:test"
+
+    @pytest.mark.asyncio
+    async def test_convert_response_event(self):
+        """测试转换旧的 Agent 响应事件（已废弃）"""
+        event = Event(
+            src="agent:governor_zhili",
+            dst=["player:web"],
+            type=EventType.RESPONSE,
+            payload={"narrative": "陛下，直隶省..."},
+            timestamp="2026-03-06T12:00:00Z",
+            session_id="session:web:test",
+        )
+
+        converter = MessageConverter()
+        result = await converter.convert(event)
+
+        # RESPONSE 已废弃，通过 _convert_agent_message 处理
+        assert result is not None
+        assert result["kind"] == "chat"
+        assert result["data"]["text"] == "陛下，直隶省..."
 
     @pytest.mark.asyncio
     async def test_convert_chat_event(self):
@@ -106,8 +126,26 @@ class TestMessageConverter:
         assert MessageConverter._describe_agriculture(metrics) == "歉收"
 
     @pytest.mark.asyncio
+    async def test_convert_agent_message_without_content(self):
+        """测试转换无 content 的消息事件"""
+        event = Event(
+            src="agent:governor_zhili",
+            dst=["player:web"],
+            type=EventType.AGENT_MESSAGE,
+            payload={},  # 没有 content 字段
+            timestamp="2026-03-06T12:00:00Z",
+            session_id="session:web:test",
+        )
+
+        converter = MessageConverter()
+        result = await converter.convert(event)
+
+        assert result is not None
+        assert result["data"]["text"] == ""  # 默认为空字符串
+
+    @pytest.mark.asyncio
     async def test_convert_response_without_narrative(self):
-        """测试转换无 narrative 的响应事件"""
+        """测试转换旧的 RESPONSE 事件（已废弃）"""
         event = Event(
             src="agent:governor_zhili",
             dst=["player:web"],
@@ -120,6 +158,7 @@ class TestMessageConverter:
         converter = MessageConverter()
         result = await converter.convert(event)
 
+        # RESPONSE 通过 _convert_agent_message 处理，查找 content 字段
         assert result is not None
         assert result["data"]["text"] == ""  # 默认为空字符串
 
@@ -129,8 +168,8 @@ class TestMessageConverter:
         event = Event(
             src="agent:governor_zhili",
             dst=["player:web"],
-            type=EventType.RESPONSE,
-            payload={"narrative": "测试"},
+            type=EventType.AGENT_MESSAGE,
+            payload={"content": "测试"},
             timestamp=None,  # 无时间戳
             session_id="session:web:test",
         )

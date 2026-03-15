@@ -47,30 +47,57 @@ class MessageConverter:
             "data": {...}
         }
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if event.type == EventType.TICK_COMPLETED:
             return await self._convert_tick_completed(event)
 
         if event.type == EventType.SESSION_STATE:
             return self._convert_session_state(event)
 
-        if event.type == EventType.RESPONSE:
-            return self._convert_response(event)
+        if event.type == EventType.AGENT_MESSAGE:
+            logger.info(f"[MessageConverter] Converting AGENT_MESSAGE event: src={event.src}, dst={event.dst}")
+            result = self._convert_agent_message(event)
+            logger.info(f"[MessageConverter] AGENT_MESSAGE converted: {result is not None}")
+            return result
         elif event.type == EventType.CHAT:
             return self._convert_chat(event)
+        elif event.type == EventType.RESPONSE:
+            # RESPONSE 已废弃，重定向到 AGENT_MESSAGE 处理（兼容性）
+            # 将 narrative 字段映射到 content
+            if "narrative" in event.payload and "content" not in event.payload:
+                # 创建新的 payload 映射
+                modified_event = Event(
+                    src=event.src,
+                    dst=event.dst,
+                    type=EventType.AGENT_MESSAGE,
+                    payload={"content": event.payload.get("narrative", "")},
+                    timestamp=event.timestamp,
+                    session_id=event.session_id,
+                )
+                return self._convert_agent_message(modified_event)
+            return self._convert_agent_message(event)
+
+        logger.info(f"[MessageConverter] Unsupported event type: {event.type}, returning None")
         return None
 
-    def _convert_response(self, event: Event) -> dict[str, Any]:
-        """转换 Agent 响应事件"""
+    def _convert_agent_message(self, event: Event) -> dict[str, Any]:
+        """转换 Agent 消息事件（统一 AGENT_MESSAGE 类型）"""
         return {
             "kind": "chat",
             "data": {
                 "agent": self._extract_agent_name(event.src),
                 "agentDisplayName": get_agent_display_name(event.src),
-                "text": event.payload.get("narrative", ""),
+                "text": event.payload.get("content", ""),
                 "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
                 "session_id": event.session_id,
             },
         }
+
+    def _convert_response(self, event: Event) -> dict[str, Any]:
+        """转换 Agent 响应事件（已废弃，保留用于向后兼容）"""
+        return self._convert_agent_message(event)
 
     def _convert_chat(self, event: Event) -> dict[str, Any]:
         """转换聊天消息（用户消息确认）"""

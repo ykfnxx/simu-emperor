@@ -127,8 +127,8 @@ class ContextManager:
         payload = event.get("payload", event.get("content", {}))
 
         if event_type == EventType.USER_QUERY:
-            query = payload.get("query") if isinstance(payload, dict) else payload
-            return [{"role": "user", "content": str(query)}]
+            # USER_QUERY 已废弃，使用 CHAT
+            return []
         elif event_type == EventType.CHAT:
             # 先检查 message（普通聊天），再检查 command（命令）
             message = payload.get("message", "") if isinstance(payload, dict) else ""
@@ -162,7 +162,7 @@ class ContextManager:
             else:
                 return []
         elif event_type == EventType.AGENT_MESSAGE:
-            message = payload.get("message", "") if isinstance(payload, dict) else str(payload)
+            message = payload.get("content", "") if isinstance(payload, dict) else str(payload)
             source_agent = event.get("src", "unknown").replace("agent:", "")
 
             if message:
@@ -171,35 +171,14 @@ class ContextManager:
             else:
                 return []
         elif event_type == EventType.RESPONSE:
-            # RESPONSE 事件需要区分：
-            # - 如果 dst 是非空列表且包含当前 agent → 旧格式数据（dst 是自己），跳过
-            # - 如果 dst 是非空列表且 src 是当前 agent → 新格式（dst 是玩家），跳过
-            # - 如果 dst 不存在或为空 → 旧格式但可能没有 ASSISTANT_RESPONSE，转换
-            # - 如果 dst 不包含当前 agent → 来自其他 agent 的消息 → "user"
-            narrative = payload.get("narrative") if isinstance(payload, dict) else payload
-            src = event.get("src", "")
-            dst = event.get("dst", None)
-
-            # 检查是否 dst 是非空列表且包含当前 agent（旧格式：dst 是自己）
-            if dst and isinstance(dst, list) and f"agent:{self.agent_id}" in dst:
-                # 旧格式：dst 是自己 → 跳过（ASSISTANT_RESPONSE 已记录相同内容）
-                return []
-
-            # 检查是否 dst 是非空列表且 src 是当前 agent（新格式：有 dst 字段但不是自己）
-            if dst and isinstance(dst, list) and src == f"agent:{self.agent_id}":
-                # 新格式：自己的响应且 dst 存在（ASSISTANT_RESPONSE 已记录）
-                return []
-
-            # 旧格式（没有 dst 字段或 dst 为空）且 src 是当前 agent → 转换为 assistant
-            if (
-                not dst or (isinstance(dst, list) and len(dst) == 0)
-            ) and src == f"agent:{self.agent_id}":
-                return [{"role": "assistant", "content": str(narrative)}]
-
-            # 其他 agent 的响应 → user (格式化为来自其他 agent 的消息)
-            source_agent = src.replace("agent:", "")
-            formatted_content = f"# 来自 {source_agent} 的回复：\n```\n{narrative}\n```"
-            return [{"role": "user", "content": formatted_content}]
+            # RESPONSE 事件已废弃，返回空列表避免重复
+            return []
+        elif event_type == EventType.ASSISTANT_RESPONSE:
+            # ASSISTANT_RESPONSE 事件已废弃，返回空列表避免重复
+            return []
+        elif event_type == EventType.TOOL_RESULT:
+            # TOOL_RESULT 事件已废弃，返回空列表避免重复
+            return []
         elif event_type == EventType.TASK_CREATED:
             goal = payload.get("goal", "")
             constraints = payload.get("constraints", "")
@@ -229,37 +208,6 @@ class ContextManager:
                 return [{"role": "user", "content": "\n".join(parts)}]
             else:
                 return []
-
-        elif event_type == EventType.ASSISTANT_RESPONSE:
-            response = payload.get("response") if isinstance(payload, dict) else payload
-            tool_calls = payload.get("tool_calls") if isinstance(payload, dict) else None
-
-            msg = {"role": "assistant", "content": str(response) or None}
-
-            if tool_calls:
-                msg["tool_calls"] = [
-                    {
-                        "id": tc.get("id") or "",
-                        "type": tc.get("type") or "function",
-                        "function": {
-                            "name": tc.get("function", {}).get("name") or "",
-                            "arguments": tc.get("function", {}).get("arguments") or "{}",
-                        },
-                    }
-                    for tc in tool_calls
-                ]
-
-            return [msg]
-        elif event_type == EventType.TOOL_RESULT:
-            tool_call_id = payload.get("tool_call_id", "") if isinstance(payload, dict) else ""
-            result = payload.get("result") if isinstance(payload, dict) else payload
-            return [
-                {
-                    "role": "tool",
-                    "tool_call_id": str(tool_call_id),
-                    "content": str(result),
-                }
-            ]
         else:
             return [{"role": "system", "content": f"[{event_type}] {str(payload)}"}]
 
@@ -675,8 +623,9 @@ class ContextManager:
         判断事件是否为锚点
 
         锚点事件包括：
-        - 用户查询 (USER_QUERY)
-        - Agent 响应 (RESPONSE, ASSISTANT_RESPONSE)
+        - 用户消息 (CHAT)
+        - Agent 消息 (AGENT_MESSAGE)
+        - 观察结果 (OBSERVATION)
         - 关键游戏状态变化 (GAME_EVENT: allocate_funds, adjust_tax, etc.)
 
         Args:
@@ -688,7 +637,7 @@ class ContextManager:
         event_type = event.get("type", "")
 
         # 用户和 Agent 消息总是锚点
-        if event_type in ("user_query", "response", "assistant_response"):
+        if event_type in ("chat", "agent_message", "observation"):
             return True
 
         # 关键游戏状态变化是锚点

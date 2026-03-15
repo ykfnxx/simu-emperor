@@ -132,10 +132,9 @@ class TaskSessionTools:
                 "❌ 权限错误：只有任务创建者可以结束任务。\n"
                 f"任务由 {session.created_by} 创建，而你是 agent:{self.agent_id}。\n"
                 "⚠️ 作为任务参与者，你应该：\n"
-                "1. 只使用 send_message_to_agent 回复消息\n"
+                "1. 只使用 send_message 回复消息\n"
                 "2. 不要调用 finish_task_session\n"
-                "3. 不要调用 respond_to_player\n"
-                "4. 等待任务创建者自然结束任务"
+                "3. 等待任务创建者自然结束任务"
             )
             raise ValueError(error_msg)
 
@@ -200,10 +199,9 @@ class TaskSessionTools:
                 "❌ 权限错误：只有任务创建者可以结束任务。\n"
                 f"任务由 {session.created_by} 创建，而你是 agent:{self.agent_id}。\n"
                 "⚠️ 作为任务参与者，你应该：\n"
-                "1. 只使用 send_message_to_agent 回复消息\n"
+                "1. 只使用 send_message 回复消息\n"
                 "2. 不要调用 finish_task_session\n"
-                "3. 不要调用 respond_to_player\n"
-                "4. 等待任务创建者自然结束任务"
+                "3. 等待任务创建者自然结束任务"
             )
             raise ValueError(error_msg)
 

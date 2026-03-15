@@ -213,11 +213,17 @@ async def _on_event(event: Event) -> None:
     Args:
         event: EventBus 事件
     """
+    # Logging (INFO level for debugging)
+    logger.info(f"[WS _on_event] Received event: type={event.type}, src={event.src}, dst={event.dst}")
+
     # 转换为 WSMessage
     ws_message = await message_converter.convert(event)
 
     if ws_message:
+        logger.info(f"[WS _on_event] Broadcasting: kind={ws_message.get('kind')}, connections={connection_manager.connection_count}")
         await connection_manager.broadcast(ws_message)
+    else:
+        logger.info(f"[WS _on_event] Message converter returned None for event type: {event.type}")
 
 
 # ============================================================================

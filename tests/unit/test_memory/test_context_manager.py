@@ -79,7 +79,8 @@ class TestContextManager:
         )
 
         context_mgr.add_event(
-            {"event_type": EventType.USER_QUERY, "content": {"query": "拨款给直隶"}}, tokens=15
+            {"event_type": EventType.CHAT, "src": "player", "payload": {"message": "拨款给直隶"}},
+            tokens=15,
         )
         context_mgr.add_event(
             {"event_type": EventType.RESPONSE, "src": "agent:revenue_minister", "content": {"narrative": "好的，我将拨款。"}},
@@ -88,11 +89,10 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        assert len(messages) == 2
+        # CHAT 被转换，RESPONSE 已废弃返回空
+        assert len(messages) == 1
         assert messages[0]["role"] == "user"
         assert "拨款给直隶" in messages[0]["content"]
-        assert messages[1]["role"] == "assistant"
-        assert "好的，我将拨款。" in messages[1]["content"]
 
     @pytest.mark.asyncio
     async def test_slide_window_trigger(self, tmp_path):
@@ -166,11 +166,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert "拨款给直隶" in messages[0]["content"]
-        assert messages[1]["role"] == "assistant"
-        assert "我来查询一下数据。" in messages[1]["content"]
+        # USER_QUERY 和 ASSISTANT_RESPONSE 已废弃，返回空列表
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_anchor_detection(self, tmp_path):
@@ -189,20 +186,15 @@ class TestContextManager:
         )
 
         # 创建测试事件
-        user_query = {"type": EventType.USER_QUERY, "payload": {"query": "test"}}
-        tool_call = {"type": "tool_result", "payload": {"tool": "query_data", "result": "ok"}}
-        agent_response = {"type": EventType.RESPONSE, "payload": {"narrative": "ok"}}
-        assistant_response = {
-            "type": EventType.ASSISTANT_RESPONSE,
-            "payload": {"narrative": "thinking"},
-        }
+        chat = {"type": EventType.CHAT, "payload": {"message": "test"}}
+        agent_message = {"type": EventType.AGENT_MESSAGE, "payload": {"content": "ok"}}
+        observation = {"type": EventType.OBSERVATION, "payload": {"thought": "thinking"}}
         game_event = {"type": "GAME_EVENT", "payload": {"action": "allocate_funds"}}
 
-        assert context_mgr._is_anchor_event(user_query)
-        assert not context_mgr._is_anchor_event(tool_call)
-        assert context_mgr._is_anchor_event(agent_response)
-        assert context_mgr._is_anchor_event(assistant_response)
-        assert context_mgr._is_anchor_event(game_event)
+        assert context_mgr._is_anchor_event(chat)  # CHAT 是锚点
+        assert context_mgr._is_anchor_event(agent_message)  # AGENT_MESSAGE 是锚点
+        assert context_mgr._is_anchor_event(observation)  # OBSERVATION 是锚点
+        assert context_mgr._is_anchor_event(game_event)  # GAME_EVENT 是锚点
 
     @pytest.mark.asyncio
     async def test_anchor_aware_sliding_window(self, tmp_path):
@@ -338,16 +330,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        # 验证所有事件都被转换为消息（包括 TOOL_RESULT）
-        assert len(messages) == 3
-        assert messages[0]["role"] == "user"
-        assert "拨款给直隶" in messages[0]["content"]
-        assert messages[1]["role"] == "assistant"
-        assert "tool_calls" in messages[1]
-        assert messages[1]["tool_calls"][0]["id"] == "call_123"
-        assert messages[2]["role"] == "tool"
-        assert messages[2]["tool_call_id"] == "call_123"
-        assert "国库白银 100 万两" in messages[2]["content"]
+        # USER_QUERY、ASSISTANT_RESPONSE、TOOL_RESULT 都已废弃，返回空列表
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_assistant_response_with_tool_calls(self, tmp_path):
@@ -397,15 +381,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        # 验证 ASSISTANT_RESPONSE 包含 tool_calls 字段
-        assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert messages[1]["role"] == "assistant"
-        assert messages[1]["content"] is None  # 空响应
-        assert "tool_calls" in messages[1]
-        assert len(messages[1]["tool_calls"]) == 1
-        assert messages[1]["tool_calls"][0]["id"] == "call_123"
-        assert messages[1]["tool_calls"][0]["function"]["name"] == "query_national_data"
+        # USER_QUERY 和 ASSISTANT_RESPONSE 都已废弃，返回空列表
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_orphaned_tool_message_filtered(self, tmp_path):
@@ -496,15 +473,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        # 验证所有消息都被正确转换
-        assert len(messages) == 3
-        assert messages[0]["role"] == "user"
-        assert messages[1]["role"] == "assistant"
-        assert "tool_calls" in messages[1]
-        assert messages[1]["tool_calls"][0]["id"] == "call_123"
-        assert messages[2]["role"] == "tool"
-        assert messages[2]["tool_call_id"] == "call_123"
-        assert "国库白银 100 万两" in messages[2]["content"]
+        # USER_QUERY、ASSISTANT_RESPONSE、TOOL_RESULT 都已废弃，返回空列表
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_with_results(self, tmp_path):
@@ -578,15 +548,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        # 验证：user + assistant (with 2 tool_calls) + 2 tool messages
-        assert len(messages) == 4
-        assert messages[0]["role"] == "user"
-        assert messages[1]["role"] == "assistant"
-        assert len(messages[1]["tool_calls"]) == 2
-        assert messages[2]["role"] == "tool"
-        assert messages[2]["tool_call_id"] == "call_1"
-        assert messages[3]["role"] == "tool"
-        assert messages[3]["tool_call_id"] == "call_2"
+        # USER_QUERY、ASSISTANT_RESPONSE、TOOL_RESULT 都已废弃，返回空列表
+        assert len(messages) == 0
 
     @pytest.mark.asyncio
     async def test_sliding_window_preserves_pairs(self, tmp_path):
@@ -694,11 +657,8 @@ class TestContextManager:
 
         messages = context_mgr.get_context_messages()
 
-        # 验证 RESPONSE 事件被转换为 user 消息
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert "来自 minister_of_revenue 的回复" in messages[0]["content"]
-        assert "已收到您的命令。" in messages[0]["content"]
+        # RESPONSE 已废弃，返回空列表
+        assert len(messages) == 0
 
 
 class TestContextManagerPositionTracking:

@@ -11,7 +11,7 @@ Agent 基类 - 文件驱动的 AI 官员
 import json
 import logging
 import logging.handlers
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -771,38 +771,6 @@ class Agent:
                 f"💬 [Agent:{self.agent_id}:{session_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
             )
 
-            # V4: 构造 ASSISTANT_RESPONSE 事件并通过 ContextManager 添加
-            # 如果 response_text 为空但有 respond_to_player 的 tool_call，从 arguments 提取内容
-            response_for_tape = response_text
-            if not response_text and tool_calls:
-                for tc in tool_calls:
-                    if tc.get("function", {}).get("name") == "respond_to_player":
-                        try:
-                            args = json.loads(tc["function"]["arguments"])
-                            if "content" in args:
-                                response_for_tape = args["content"]
-                                break
-                        except (json.JSONDecodeError, KeyError, TypeError):
-                            pass
-
-            assistant_response_event = TapeEvent(
-                src=f"agent:{self.agent_id}",
-                dst=event.dst,
-                type=EventType.ASSISTANT_RESPONSE,
-                payload={
-                    "response": response_for_tape,
-                    "iteration": iteration,
-                    "has_tool_calls": len(tool_calls) > 0,
-                    "tool_calls": tool_calls if tool_calls else None,
-                },
-                session_id=event.session_id,
-                timestamp=turn_start_time,
-                parent_event_id=event.event_id,
-                root_event_id=event.root_event_id,
-            )
-            # V4: ContextManager 负责写入 tape
-            await self._context_manager.add_event_and_maybe_compact(assistant_response_event)
-
             # 处理响应
             if not tool_calls:
                 await self._handle_no_tool_calls(event, session_id, response_text)
@@ -992,34 +960,6 @@ class Agent:
                         f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 返回无效 JSON: {result_str}"
                     )
 
-            # Fix: Ensure tool_result timestamps come AFTER assistant_response
-            # Parse base timestamp and increment microseconds to maintain ordering
-            base_dt = datetime.fromisoformat(turn_start_time.replace("Z", "+00:00"))
-            tool_result_dt = base_dt + timedelta(microseconds=idx)
-            tool_result_timestamp = tool_result_dt.isoformat()
-
-            # V4: 构造 TOOL_RESULT 事件并通过 ContextManager 添加
-            tool_result_event = TapeEvent(
-                src=f"agent:{self.agent_id}",
-                dst=event.dst,
-                type=EventType.TOOL_RESULT,
-                payload={
-                    "tool_call_id": tool_call["id"],
-                    "tool": function_name,
-                    "result": result_str,
-                },
-                session_id=event.session_id,
-                timestamp=tool_result_timestamp,
-                parent_event_id=event.event_id,
-                root_event_id=event.root_event_id,
-            )
-            # V4: ContextManager 负责写入 tape 和添加到内存
-            await self._context_manager.add_event_and_maybe_compact(tool_result_event)
-
-            logger.debug(
-                f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
-            )
-
         return observation
 
     async def _add_observation_to_tape(self, event: Event, session_id: str, observation: dict) -> None:
@@ -1046,7 +986,7 @@ class Agent:
         self, event: Event, session_id: str, response_text: str
     ) -> None:
         """
-        处理无 tool calls 的情况（使用 send_message 工具）
+        处理无 tool calls 的情况（直接创建 AGENT_MESSAGE 事件）
 
         Args:
             event: 当前事件
@@ -1058,11 +998,21 @@ class Agent:
         # 发送最终响应（即使为空也要响应）
         final_message = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
 
-        # 使用统一的 send_message 工具发送消息给玩家
-        await self._action_tools.send_message(
-            args={"recipients": ["player"], "content": final_message},
-            event=event,
+        # 直接创建 AGENT_MESSAGE 事件（不通过工具调用）
+        message_event = Event(
+            src=f"agent:{self.agent_id}",
+            dst=["player"],
+            type=EventType.AGENT_MESSAGE,
+            payload={"content": final_message, "await_reply": False},
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
+        await self.event_bus.send_event(message_event)
+
+        # 将 AGENT_MESSAGE 事件添加到 tape
+        if self._context_manager:
+            await self._context_manager.add_event_and_maybe_compact(message_event)
 
         logger.info(
             f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_message[:50]}..."
@@ -1149,27 +1099,7 @@ class Agent:
         Returns:
             单条 message，格式：{"role": "user" | "assistant" | "tool", "content": "..."}
         """
-        # 1. Agent 响应类 → assistant (RESPONSE 统一处理，不再区分 AGENT_RESPONSE)
-        if event.type == EventType.RESPONSE:
-            return {"role": "assistant", "content": event.payload.get("narrative", "")}
-
-        # 2. ASSISTANT_RESPONSE → assistant (带 tool_calls)
-        if event.type == EventType.ASSISTANT_RESPONSE:
-            msg = {"role": "assistant", "content": event.payload.get("response", "")}
-            tool_calls = event.payload.get("tool_calls")
-            if tool_calls:
-                msg["tool_calls"] = tool_calls
-            return msg
-
-        # 3. TOOL_RESULT → tool
-        if event.type == EventType.TOOL_RESULT:
-            return {
-                "role": "tool",
-                "tool_call_id": event.payload.get("tool_call_id"),
-                "content": event.payload.get("result", ""),
-            }
-
-        # 3.5. OBSERVATION → user (观察结果，用于 ReAct 循环)
+        # OBSERVATION → user (观察结果，用于 ReAct 循环)
         if event.type == EventType.OBSERVATION:
             parts = ["# 观察结果 (Observation)"]
             thought = event.payload.get("thought", "")
@@ -1332,20 +1262,6 @@ class Agent:
             error_msg = f"❌ 工具执行失败: {e}"
             logger.error(f"❌ [Agent:{self.agent_id}:{session_id}] {error_msg}", exc_info=True)
             return error_msg
-
-    async def _send_response(self, content: str, event: Event) -> None:
-        """发送响应"""
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=[event.src],
-            type=EventType.RESPONSE,
-            payload={"narrative": content},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ Agent {self.agent_id} sent RESPONSE to {event.src}")
 
     def _load_soul(self) -> None:
         """加载 soul.md"""
