@@ -64,7 +64,10 @@ def mock_llm():
         tool_calls=[
             {
                 "id": "call_1",
-                "function": {"name": "respond_to_player", "arguments": '{"content": "臣遵旨！"}'},
+                "function": {
+                    "name": "send_message",
+                    "arguments": '{"recipients": ["player"], "content": "臣遵旨！"}',
+                },
             }
         ],
     )
@@ -182,8 +185,8 @@ class TestAgent:
                 {
                     "id": "call_1",
                     "function": {
-                        "name": "respond_to_player",
-                        "arguments": '{"content": "臣遵旨！已记录陛下的命令。"}',
+                        "name": "send_message",
+                        "arguments": '{"recipients": ["player"], "content": "臣遵旨！已记录陛下的命令。"}',
                     },
                 },
             ]
@@ -253,8 +256,8 @@ class TestAgent:
                 {
                     "id": "call_1",
                     "function": {
-                        "name": "respond_to_player",
-                        "arguments": '{"content": "臣惶恐！陛下垂询，臣不胜感激。"}',
+                        "name": "send_message",
+                        "arguments": '{"recipients": ["player"], "content": "臣惶恐！陛下垂询，臣不胜感激。"}',
                     },
                 }
             ]
@@ -278,28 +281,28 @@ class TestAgent:
 
     @pytest.mark.asyncio
     async def test_send_message_to_agent(self, agent, mock_llm):
-        """测试发送消息给其他 Agent"""
+        """测试发送消息给其他 Agent（使用统一的 send_message）"""
         # 创建新的 MockProvider 实例以避免测试之间的状态污染
         fresh_mock = MockProvider(response="", tool_calls=None)
         agent.llm_provider = fresh_mock
 
         agent.start()
 
-        # 设置 tool calls
+        # 设置 tool calls（使用统一的 send_message）
         fresh_mock.set_tool_calls(
             [
                 {
                     "id": "call_1",
                     "function": {
-                        "name": "send_message_to_agent",
-                        "arguments": '{"target_agent": "governor_zhili", "message": "请执行陛下的命令"}',
+                        "name": "send_message",
+                        "arguments": '{"recipients": ["governor_zhili"], "content": "请执行陛下的命令"}',
                     },
                 },
                 {
                     "id": "call_2",
                     "function": {
-                        "name": "respond_to_player",
-                        "arguments": '{"content": "臣已通知李卫执行命令。"}',
+                        "name": "send_message",
+                        "arguments": '{"recipients": ["player"], "content": "臣已通知李卫执行命令。"}',
                     },
                 },
             ]
@@ -315,10 +318,10 @@ class TestAgent:
 
         await agent._on_event(event)
 
-        # 应该发送消息给其他 agent
+        # 应该发送消息给其他 agent 和玩家
         assert agent.event_bus.send_event.called
         calls = agent.event_bus.send_event.call_args_list
-        assert len(calls) == 2  # send_message_to_agent + respond_to_player
+        assert len(calls) == 2  # send_message to governor_zhili + send_message to player
 
     @pytest.mark.asyncio
     async def test_get_system_prompt_for_event(self, agent):
@@ -328,7 +331,7 @@ class TestAgent:
         # CHAT 事件
         prompt_chat = agent._get_system_prompt_for_event(EventType.CHAT)
         assert "皇帝想和你聊天" in prompt_chat
-        assert "respond_to_player" in prompt_chat
+        assert "send_message" in prompt_chat
 
     @pytest.mark.asyncio
     async def test_query_province_data(self, agent, mock_repository):
@@ -603,8 +606,8 @@ class TestAgent:
         assert "皇帝想和你聊天" in prompt
 
     @pytest.mark.asyncio
-    async def test_send_message_to_agent_with_await_reply_true(self, agent, tmp_path, monkeypatch):
-        """测试 send_message_to_agent 返回正确的等待消息（await_reply=true）"""
+    async def test_send_message_with_await_reply_true(self, agent, tmp_path, monkeypatch):
+        """测试 send_message 返回正确的等待消息（await_reply=true）"""
         # 创建临时 memory 目录
         memory_dir = tmp_path / "memory_for_await_test"
         memory_dir.mkdir(exist_ok=True)
@@ -646,14 +649,17 @@ class TestAgent:
             session_id=task_session_id,
         )
 
-        # 调用 send_message_to_agent with await_reply=true
-        result = await agent_with_task._action_tools.send_message_to_agent(
-            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": True},
+        # 调用 send_message with await_reply=true（返回元组）
+        result = await agent_with_task._action_tools.send_message(
+            {"recipients": ["governor_zhili"], "content": "请查收", "await_reply": True},
             event,
         )
 
+        # send_message 返回元组 (status_msg, event)
+        status_msg = result[0] if isinstance(result, tuple) else result
+
         # 应该返回等待消息
-        assert "等待回复" in result
+        assert "等待回复" in status_msg
 
         # 验证发送的事件使用的是 task session
         assert agent_with_task.event_bus.send_event.called
@@ -661,8 +667,8 @@ class TestAgent:
         assert sent_event.session_id == task_session_id
 
     @pytest.mark.asyncio
-    async def test_send_message_to_agent_with_await_reply_false(self, agent):
-        """测试 send_message_to_agent 返回成功消息（await_reply=false）"""
+    async def test_send_message_with_await_reply_false(self, agent):
+        """测试 send_message 返回成功消息（await_reply=false）"""
         event = Event(
             src="player",
             dst=["agent:test_agent"],
@@ -671,18 +677,21 @@ class TestAgent:
             session_id="test_session",
         )
 
-        # 调用 send_message_to_agent with await_reply=false (default)
-        result = await agent._action_tools.send_message_to_agent(
-            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": False},
+        # 调用 send_message with await_reply=false (default)
+        result = await agent._action_tools.send_message(
+            {"recipients": ["governor_zhili"], "content": "请查收", "await_reply": False},
             event,
         )
 
+        # send_message 返回元组 (status_msg, event)
+        status_msg = result[0] if isinstance(result, tuple) else result
+
         # 应该返回成功消息（包含 ✅）
-        assert "✅" in result
-        assert "⏳" not in result
+        assert "✅" in status_msg
+        assert "⏳" not in status_msg
 
     @pytest.mark.asyncio
-    async def test_send_message_to_agent_shares_task_session(self, agent, tmp_path, monkeypatch):
+    async def test_send_message_shares_task_session(self, agent, tmp_path, monkeypatch):
         """测试两个 agent 共享 task session"""
         # 创建临时 memory 目录
         memory_dir = tmp_path / "memory_for_task_test"
@@ -723,9 +732,9 @@ class TestAgent:
             session_id=task_session_id,
         )
 
-        # 调用 send_message_to_agent
-        result = await agent_with_sm._action_tools.send_message_to_agent(
-            {"target_agent": "governor_zhili", "message": "请查收", "await_reply": True},
+        # 调用 send_message
+        result = await agent_with_sm._action_tools.send_message(
+            {"recipients": ["governor_zhili"], "content": "请查收", "await_reply": True},
             event,
         )
 
@@ -738,8 +747,8 @@ class TestAgent:
         assert sent_event.session_id != "parent_session"
 
     @pytest.mark.asyncio
-    async def test_send_message_to_agent_rejects_self_message(self, agent):
-        """测试 send_message_to_agent 拒绝向自己发送消息"""
+    async def test_send_message_rejects_self_message(self, agent):
+        """测试 send_message 拒绝向自己发送消息"""
         event = Event(
             src="player",
             dst=["agent:test_agent"],
@@ -748,9 +757,9 @@ class TestAgent:
             session_id="test_session",
         )
 
-        # 调用 send_message_to_agent 尝试向自己发送消息
-        result = await agent._action_tools.send_message_to_agent(
-            {"target_agent": "test_agent", "message": "这是一条消息"},
+        # 调用 send_message 尝试向自己发送消息
+        result = await agent._action_tools.send_message(
+            {"recipients": ["test_agent"], "content": "这是一条消息"},
             event,
         )
 

@@ -274,33 +274,23 @@ class Agent:
 
     def _register_action_tools(self) -> None:
         """注册 Action 类型工具"""
-        # send_message_to_agent (Note: will be unified in Task 2.1)
+        # send_message (统一的消息发送接口)
         self._tool_registry.register(Tool(
-            name="send_message_to_agent",
-            description="发送消息给其他官员",
+            name="send_message",
+            description="发送消息（统一接口）",
             parameters={
                 "type": "object",
                 "properties": {
-                    "target_agent": {"type": "string"},
-                    "message": {"type": "string"},
+                    "recipients": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "content": {"type": "string"},
                     "await_reply": {"type": "boolean", "default": False},
                 },
-                "required": ["target_agent", "message"],
+                "required": ["recipients", "content"],
             },
-            handler=self._action_tools.send_message_to_agent,
-            category="action",
-        ))
-
-        # respond_to_player (Note: will be unified in Task 2.1)
-        self._tool_registry.register(Tool(
-            name="respond_to_player",
-            description="向玩家发送响应",
-            parameters={
-                "type": "object",
-                "properties": {"content": {"type": "string"}},
-                "required": ["content"],
-            },
-            handler=self._action_tools.respond_to_player,
+            handler=self._action_tools.send_message,
             category="action",
         ))
 
@@ -904,7 +894,7 @@ class Agent:
             是否应该继续循环
         """
         has_finish_loop = False
-        has_respond_to_player = False
+        has_send_message = False
         has_create_task_session = False
 
         for idx, tool_call in enumerate(tool_calls, 1):
@@ -934,12 +924,12 @@ class Agent:
                         f"⚠️ [Agent:{self.agent_id}:{session_id}] finish_loop 执行失败: {result_str}"
                     )
 
-            if function_name == "respond_to_player":
-                # V4: respond_to_player 返回元组 (message, event)
-                # 只要消息以 ✅ 开头就认为成功
-                if result_str.startswith("✅"):
-                    has_respond_to_player = True
-                # V4: 将事件添加到 ContextManager
+            if function_name == "send_message":
+                # V4: send_message 返回元组 (message, event)
+                # 只要消息以 ✅ 或 等待 开头就认为成功
+                if result_str.startswith("✅") or result_str.startswith("等待"):
+                    has_send_message = True
+                # V4: 将事件添加到 ContextManager（如果返回了事件）
                 if result_event:
                     await self._context_manager.add_event_and_maybe_compact(result_event)
 
@@ -1002,10 +992,10 @@ class Agent:
             )
             return False
 
-        # 如果已经有respond_to_player，说明第一轮LLM已经生成了最终响应，可以结束
-        if has_respond_to_player:
+        # 如果已经有send_message（发送给player），说明第一轮LLM已经生成了最终响应，可以结束
+        if has_send_message:
             logger.info(
-                f"✅ [Agent:{self.agent_id}:{session_id}] respond_to_player called, ending loop"
+                f"✅ [Agent:{self.agent_id}:{session_id}] send_message called, ending loop"
             )
             return False
 
@@ -1019,7 +1009,7 @@ class Agent:
         self, event: Event, session_id: str, response_text: str
     ) -> None:
         """
-        处理无 tool calls 的情况（V4: 通过 ContextManager 写入 tape）
+        处理无 tool calls 的情况（使用 send_message 工具）
 
         Args:
             event: 当前事件
@@ -1029,26 +1019,17 @@ class Agent:
         logger.info(f"✅ [Agent:{self.agent_id}:{session_id}] No more tool calls, ending loop")
 
         # 发送最终响应（即使为空也要响应）
-        final_response = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
+        final_message = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
 
-        # V4: 通过 ContextManager 添加 RESPONSE 事件
-        # dst 应该是 event.src（玩家），而不是 event.dst（自己）
-        response_event = TapeEvent(
-            src=f"agent:{self.agent_id}",
-            dst=[event.src],  # 修复：RESPONSE 发送给玩家（event.src），不是自己
-            type=EventType.RESPONSE,
-            payload={"narrative": final_response},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
+        # 使用统一的 send_message 工具发送消息给玩家
+        await self._action_tools.send_message(
+            args={"recipients": ["player"], "content": final_message},
+            event=event,
         )
-        await self._context_manager.add_event_and_maybe_compact(response_event)
 
         logger.info(
-            f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_response[:50]}..."
+            f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_message[:50]}..."
         )
-        self._log_event("SEND", event, f"RESPONSE to {event.src}: {final_response[:50]}...")
-        await self._send_response(final_response, event)
 
     async def _get_root_event_type(self, event: Event, session_id: str) -> str:
         """
