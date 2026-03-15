@@ -107,6 +107,7 @@ class ContextManager:
 
         # V4: Track absolute tape position for segment_index updates
         self._tape_position_counter: int = 0  # Current position in tape.jsonl
+        self._window_offset: int = 0  # Position anchor for incremental loading
 
     def event_to_messages(self, event: dict) -> list[dict]:
         """
@@ -278,17 +279,26 @@ class ContextManager:
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         """
-        events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
+        # 从 tape_meta 读取 window_offset 和 summary
+        if self.tape_metadata_mgr:
+            metadata = await self.tape_metadata_mgr._find_entry(
+                self.tape_metadata_mgr._get_metadata_path(self.agent_id),
+                self.session_id
+            )
+            if metadata:
+                self._window_offset = metadata.window_offset
+                self.summary = metadata.summary
 
-        # 为没有 _tokens 的事件计算 token 数
-        for event in events:
-            if "_tokens" not in event and "tokens" not in event:
-                event["_tokens"] = self._calc_event_tokens(event)
+        # 从 window_offset 开始读取 tape.jsonl（增量加载）
+        events = await self._read_tape_from_offset(self.tape_path, self._window_offset)
 
         self.events.extend(events)
 
-        # V4: Initialize tape position counter based on current tape length
-        self._tape_position_counter = len(events)
+        # V4: Initialize tape position counter based on actual tape file length
+        # (not the loaded events length, since we might load incrementally)
+        # We need to read the full file to get the actual length
+        all_events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
+        self._tape_position_counter = len(all_events)
 
         if include_ancestors and self.session_manager:
             ancestors = self.session_manager.get_parent_chain(self.session_id)
@@ -351,6 +361,36 @@ class ContextManager:
         if self.session_manager:
             return self.session_manager.get_tape_path(session_id, self.agent_id)
         return self.tape_path
+
+    async def _read_tape_from_offset(
+        self,
+        tape_path: Path,
+        offset: int,
+    ) -> list[dict]:
+        """
+        从指定位置开始读取 tape.jsonl，跳过已压缩的部分。
+
+        Args:
+            tape_path: Path to tape.jsonl file
+            offset: Starting position (line number) in the file
+
+        Returns:
+            List of event dicts from offset onwards
+        """
+        if not tape_path.exists():
+            return []
+
+        all_events = await FileOperationsHelper.read_jsonl_file(tape_path)
+
+        # 从 offset 开始读取（跳过已压缩的部分）
+        events = all_events[offset:] if offset < len(all_events) else []
+
+        # 为没有 _tokens 的事件计算 token 数
+        for event in events:
+            if "_tokens" not in event and "tokens" not in event:
+                event["_tokens"] = self._calc_event_tokens(event)
+
+        return events
 
     def add_event(self, event: dict, tokens: int) -> bool:
         """
@@ -499,10 +539,10 @@ class ContextManager:
         2. 否则识别锚点并保留最近 N 个事件
         3. 额外保留锚点附近 ±K 个事件
         4. 确保保留的事件 token 总数 <= 阈值（继续删除最旧事件）
-        5. 更新 tape_meta.jsonl 的 segment_index
+        5. 更新 tape_meta.jsonl 的 segment_index 和 summary
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
-        V4: Updates tape_meta.jsonl segment_index only (removed manifest.summary)
+        V4: Updates tape_meta.jsonl segment_index and cumulative summary
         """
         keep_recent = self.config.keep_recent_events
         anchor_buffer = self.config.anchor_buffer
@@ -511,8 +551,9 @@ class ContextManager:
         if len(self.events) <= keep_recent and self._calc_total_tokens() <= self.threshold:
             return
 
-        # 记录原始事件列表，用于计算 dropped_events
+        # 记录原始事件列表和旧摘要，用于计算 dropped_events 和生成新摘要
         original_events = self.events.copy()
+        old_summary = self.summary
 
         # Step 1: 如果未启用锚点感知，直接保留最近N条事件
         if not self.config.enable_anchor_aware:
@@ -552,6 +593,22 @@ class ContextManager:
 
         # Step 4: 计算 dropped_events 并更新 segment_index
         dropped_events = [e for e in original_events if e not in self.events]
+
+        # Step 5: 更新累积摘要（如果有事件被压缩）
+        if dropped_events and self.tape_metadata_mgr:
+            new_summary = await self._summarize_with_previous(
+                dropped_events,
+                old_summary
+            )
+            if new_summary:
+                self.summary = new_summary
+                await self.tape_metadata_mgr.update_summary(
+                    agent_id=self.agent_id,
+                    session_id=self.session_id,
+                    summary=new_summary,
+                )
+                logger.debug(f"Updated cumulative summary for {self.session_id}")
+
         await self._update_segment_index_for_dropped(dropped_events)
 
     def get_context_messages(self) -> list[dict]:
@@ -673,11 +730,10 @@ class ContextManager:
             if not dropped_summary:
                 return
 
-            # Calculate absolute positions using tape position counter
-            # The dropped events were at the beginning of the current window
-            # Their positions are: [current_position - len(dropped_events), current_position)
-            start_position = max(0, self._tape_position_counter - len(dropped_events))
-            end_position = max(0, self._tape_position_counter - 1)
+            # Calculate absolute positions using window_offset
+            # The dropped events were at positions [window_offset, window_offset + len(dropped_events))
+            start_position = self._window_offset
+            end_position = self._window_offset + len(dropped_events) - 1
 
             segment_info = {
                 "start": start_position,
@@ -692,9 +748,18 @@ class ContextManager:
                 segment_info=segment_info,
             )
 
+            # Move window offset forward after recording segment
+            self._window_offset += len(dropped_events)
+            await self.tape_metadata_mgr.update_window_offset(
+                agent_id=self.agent_id,
+                session_id=self.session_id,
+                window_offset=self._window_offset,
+            )
+
             logger.debug(
                 f"Updated segment_index for {self.session_id}: "
-                f"positions [{start_position}-{end_position}], {len(dropped_events)} events"
+                f"positions [{start_position}-{end_position}], {len(dropped_events)} events, "
+                f"new window_offset: {self._window_offset}"
             )
         except Exception as e:
             logger.warning(f"Failed to update segment_index: {e}")
@@ -787,3 +852,83 @@ class ContextManager:
             if isinstance(payload, dict) and (tick := payload.get("tick")):
                 return tick
         return None
+
+    async def _summarize_with_previous(
+        self,
+        dropped_events: list[dict],
+        previous_summary: str,
+    ) -> str | None:
+        """
+        Generate a cumulative summary by combining previous summary with dropped events.
+
+        Args:
+            dropped_events: Events that were dropped from the window
+            previous_summary: Previous cumulative summary
+
+        Returns:
+            New cumulative summary, or None if no events were dropped
+        """
+        if not dropped_events:
+            return None
+
+        dropped_brief = self._format_events_brief(dropped_events)
+
+        try:
+            prompt = f"""请根据以下信息，生成一份累积的对话摘要：
+
+【之前的对话摘要】
+{previous_summary if previous_summary else "(这是对话开始，无之前摘要)"}
+
+【刚刚结束的对话】
+{dropped_brief}
+
+请生成新的摘要，要求：
+1. 整合两部分内容，保持时间线连贯
+2. 简洁但保留关键信息
+3. 控制在 150 字以内
+"""
+
+            new_summary = await self.llm.call(
+                prompt=prompt,
+                system_prompt="你是历史记录整理员。",
+                temperature=0.3,
+                max_tokens=200,
+            )
+
+            return new_summary.strip()[:200] if new_summary else previous_summary
+        except Exception as e:
+            logger.debug(f"LLM cumulative summarization failed: {type(e).__name__}: {e}")
+            # Fallback: append brief to previous summary
+            if previous_summary:
+                return f"{previous_summary} | {dropped_brief[:100]}"
+            return dropped_brief[:150]
+
+    def _format_events_brief(self, events: list[dict]) -> str:
+        """
+        Format a list of events into a brief summary.
+
+        Args:
+            events: Event dict list
+
+        Returns:
+            Brief summary string
+        """
+        parts = []
+        for event in events[:10]:  # 最多 10 个
+            event_type = event.get("type", event.get("event_type", ""))
+            payload = event.get("payload", event.get("content", {}))
+            if isinstance(payload, dict):
+                msg = (
+                    payload.get("query") or
+                    payload.get("message") or
+                    payload.get("narrative") or
+                    payload.get("intent") or
+                    ""
+                )
+                if msg:
+                    parts.append(f"- {event_type}: {msg[:30]}")
+                else:
+                    parts.append(f"- {event_type}")
+            else:
+                parts.append(f"- {event_type}: {str(payload)[:30]}")
+        return "\n".join(parts) if parts else f"{len(events)} 个事件"

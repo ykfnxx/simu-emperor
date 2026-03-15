@@ -105,6 +105,8 @@ class TapeMetadataManager:
                 last_updated_tick=current_tick or existing_entry.last_updated_tick,
                 last_updated_time=now,
                 event_count=existing_entry.event_count,
+                window_offset=existing_entry.window_offset,
+                summary=existing_entry.summary,
                 segment_index=existing_entry.segment_index,
             )
             await self._update_entry_in_file(metadata_path, session_id, updated_entry)
@@ -127,6 +129,8 @@ class TapeMetadataManager:
             last_updated_tick=current_tick,
             last_updated_time=now,
             event_count=0,
+            window_offset=0,
+            summary="",
             segment_index=[],
         )
 
@@ -227,8 +231,15 @@ Guidelines:
             logger.warning(f"Cannot update segment_index: entry not found for {session_id}")
             return
 
-        # Add new segment to index
-        updated_index = list(existing_entry.segment_index)
+        # Check for duplicate ranges and remove them
+        updated_index = []
+        for seg in existing_entry.segment_index:
+            # Keep only segments with different ranges
+            if not (seg.get("start") == segment_info.get("start") and
+                    seg.get("end") == segment_info.get("end")):
+                updated_index.append(seg)
+
+        # Append new segment
         updated_index.append(segment_info)
 
         updated_entry = TapeMetadataEntry(
@@ -239,6 +250,8 @@ Guidelines:
             last_updated_tick=existing_entry.last_updated_tick,
             last_updated_time=existing_entry.last_updated_time,
             event_count=existing_entry.event_count,
+            window_offset=existing_entry.window_offset,
+            summary=existing_entry.summary,
             segment_index=updated_index,
         )
 
@@ -274,10 +287,90 @@ Guidelines:
             last_updated_tick=existing_entry.last_updated_tick,
             last_updated_time=existing_entry.last_updated_time,
             event_count=existing_entry.event_count + 1,
+            window_offset=existing_entry.window_offset,
+            summary=existing_entry.summary,
             segment_index=existing_entry.segment_index,
         )
 
         await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+
+    async def update_summary(
+        self,
+        agent_id: str,
+        session_id: str,
+        summary: str,
+    ) -> None:
+        """
+        Update the cumulative summary for a tape.
+
+        Called by ContextManager.slide_window() after compacting events.
+
+        Args:
+            agent_id: Agent identifier
+            session_id: Session identifier
+            summary: New cumulative summary
+        """
+        metadata_path = self._get_metadata_path(agent_id)
+        existing_entry = await self._find_entry(metadata_path, session_id)
+
+        if not existing_entry:
+            logger.warning(f"Cannot update summary: entry not found for {session_id}")
+            return
+
+        updated_entry = TapeMetadataEntry(
+            session_id=existing_entry.session_id,
+            title=existing_entry.title,
+            created_tick=existing_entry.created_tick,
+            created_time=existing_entry.created_time,
+            last_updated_tick=existing_entry.last_updated_tick,
+            last_updated_time=existing_entry.last_updated_time,
+            event_count=existing_entry.event_count,
+            window_offset=existing_entry.window_offset,
+            summary=summary,
+            segment_index=existing_entry.segment_index,
+        )
+
+        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+        logger.debug(f"Updated summary for {agent_id}/{session_id}")
+
+    async def update_window_offset(
+        self,
+        agent_id: str,
+        session_id: str,
+        window_offset: int,
+    ) -> None:
+        """
+        Update the window offset position anchor for a tape.
+
+        Called by ContextManager.slide_window() after compacting events.
+
+        Args:
+            agent_id: Agent identifier
+            session_id: Session identifier
+            window_offset: New window offset position
+        """
+        metadata_path = self._get_metadata_path(agent_id)
+        existing_entry = await self._find_entry(metadata_path, session_id)
+
+        if not existing_entry:
+            logger.warning(f"Cannot update window_offset: entry not found for {session_id}")
+            return
+
+        updated_entry = TapeMetadataEntry(
+            session_id=existing_entry.session_id,
+            title=existing_entry.title,
+            created_tick=existing_entry.created_tick,
+            created_time=existing_entry.created_time,
+            last_updated_tick=existing_entry.last_updated_tick,
+            last_updated_time=existing_entry.last_updated_time,
+            event_count=existing_entry.event_count,
+            window_offset=window_offset,
+            summary=existing_entry.summary,
+            segment_index=existing_entry.segment_index,
+        )
+
+        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+        logger.debug(f"Updated window_offset for {agent_id}/{session_id}: {window_offset}")
 
     def _get_metadata_path(self, agent_id: str) -> Path:
         """

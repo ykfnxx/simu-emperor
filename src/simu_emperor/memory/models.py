@@ -78,6 +78,8 @@ class TapeMetadataEntry:
         last_updated_tick: Game tick when session was last updated (optional)
         last_updated_time: ISO format timestamp when session was last updated
         event_count: Number of events in the tape
+        window_offset: Position anchor for incremental tape loading (default 0)
+        summary: Cumulative summary of compacted events (default "")
         segment_index: List of compacted segments with summaries
 
     Note on naming convention:
@@ -92,6 +94,8 @@ class TapeMetadataEntry:
     last_updated_tick: int | None
     last_updated_time: str
     event_count: int = 0
+    window_offset: int = 0
+    summary: str = ""
     segment_index: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -104,6 +108,8 @@ class TapeMetadataEntry:
             "last_updated_tick": self.last_updated_tick,
             "last_updated_time": self.last_updated_time,
             "event_count": self.event_count,
+            "window_offset": self.window_offset,
+            "summary": self.summary,
             "segment_index": self.segment_index,
         }
 
@@ -118,6 +124,8 @@ class TapeMetadataEntry:
             last_updated_tick=data.get("last_updated_tick"),
             last_updated_time=data["last_updated_time"],
             event_count=data.get("event_count", 0),
+            window_offset=data.get("window_offset", 0),
+            summary=data.get("summary", ""),
             segment_index=data.get("segment_index", []),
         )
 
