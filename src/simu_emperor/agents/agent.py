@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from simu_emperor.agents.system_prompts import get_system_prompt
-from simu_emperor.agents.tool_definitions import AVAILABLE_FUNCTIONS
 from simu_emperor.agents.tools import ActionTools, QueryTools
+from simu_emperor.agents.tools.tool_registry import Tool, ToolRegistry
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
@@ -131,10 +131,9 @@ class Agent:
         # 初始化独立日志
         self._init_agent_logger()
 
-        # 初始化工具注册表（未来版本将取代_function_handlers）
-        from simu_emperor.agents.tools.tool_registry import ToolRegistry
-
+        # 初始化工具注册表并注册所有工具
         self._tool_registry = ToolRegistry()
+        self._register_tools()
 
         # 初始化记忆系统初始化器
         from simu_emperor.agents.memory_initializer import MemoryInitializer
@@ -146,10 +145,6 @@ class Agent:
             tape_writer=self._tape_writer,
             tape_metadata_mgr=self._tape_metadata_mgr,
         )
-
-        # 初始化函数处理器映射（保持向后兼容）
-        self._function_handlers: dict[str, callable] = {}
-        self._init_function_handlers()
 
         logger.info(f"Agent {agent_id} initialized")
 
@@ -182,50 +177,206 @@ class Agent:
         # LLM 日志文件路径
         self._llm_log_path = log_dir / f"{self.agent_id}_llm.jsonl"
 
-    def _init_function_handlers(self) -> None:
-        """
-        初始化函数处理器映射表
-
-        将函数名映射到对应的处理方法，避免大量的 if-elif 语句
-        """
-        # Query 类函数 - 直接返回结果
-        self._function_handlers.update(
-            {
-                "query_province_data": self._query_tools.query_province_data,
-                "query_national_data": self._query_tools.query_national_data,
-                "list_provinces": self._query_tools.list_provinces,
-                "list_agents": self._query_tools.list_agents,
-                "get_agent_info": self._query_tools.get_agent_info,
-            }
-        )
-
-        # Memory 类函数 - 记忆检索
-        # Note: MemoryTools 延迟初始化，在 _ensure_memory_components 中处理
-        self._function_handlers["retrieve_memory"] = self._retrieve_memory_wrapper
-
-        # Action 类函数 - 执行后返回成功消息
-        # 使用包装器将无返回值的函数转换为返回成功消息
-        action_handlers = {
-            "send_message_to_agent": (
-                self._action_tools.send_message_to_agent,
-                "✅ 消息已发送给其他官员",
-            ),
-            "respond_to_player": (self._action_tools.respond_to_player, "✅ 响应已发送给玩家"),
-            "finish_loop": (self._action_tools.finish_loop, "✅ finish_loop 已执行"),
-            "create_incident": (self._action_tools.create_incident, "✅ 事件已创建"),
-        }
-
-        for func_name, (handler, success_msg) in action_handlers.items():
-            self._function_handlers[func_name] = self._create_action_wrapper(handler, success_msg)
-
-        # Task Session 类函数（V4）
+    def _register_tools(self) -> None:
+        """统一注册所有工具到 ToolRegistry"""
+        self._register_query_tools()
+        self._register_memory_tools()
+        self._register_action_tools()
         if self._task_session_tools:
-            task_handlers = {
-                "create_task_session": self._wrap_create_task_session,
-                "finish_task_session": self._wrap_finish_task_session,
-                "fail_task_session": self._wrap_fail_task_session,
-            }
-            self._function_handlers.update(task_handlers)
+            self._register_session_tools()
+
+    def _register_query_tools(self) -> None:
+        """注册 Query 类型工具"""
+        # query_province_data
+        self._tool_registry.register(Tool(
+            name="query_province_data",
+            description="查询某个省份的特定数据字段",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "province_id": {
+                        "type": "string",
+                        "enum": ["zhili", "jiangsu", "zhejiang", "fujian", "huguang", "sichuan", "shaanxi", "shandong", "jiangxi"],
+                    },
+                    "field_path": {"type": "string"},
+                },
+                "required": ["province_id", "field_path"],
+            },
+            handler=self._query_tools.query_province_data,
+            category="query",
+        ))
+
+        # query_national_data
+        self._tool_registry.register(Tool(
+            name="query_national_data",
+            description="查询国家级数据",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "field_name": {
+                        "type": "string",
+                        "enum": ["imperial_treasury", "turn", "base_tax_rate", "tribute_rate", "fixed_expenditure"],
+                    }
+                },
+                "required": ["field_name"],
+            },
+            handler=self._query_tools.query_national_data,
+            category="query",
+        ))
+
+        # list_provinces
+        self._tool_registry.register(Tool(
+            name="list_provinces",
+            description="列出所有可访问的省份 ID",
+            parameters={"type": "object", "properties": {}, "required": []},
+            handler=self._query_tools.list_provinces,
+            category="query",
+        ))
+
+        # list_agents
+        self._tool_registry.register(Tool(
+            name="list_agents",
+            description="列出所有活跃的官员",
+            parameters={"type": "object", "properties": {}, "required": []},
+            handler=self._query_tools.list_agents,
+            category="query",
+        ))
+
+        # get_agent_info
+        self._tool_registry.register(Tool(
+            name="get_agent_info",
+            description="获取某个官员的详细信息",
+            parameters={
+                "type": "object",
+                "properties": {"agent_id": {"type": "string"}},
+                "required": ["agent_id"],
+            },
+            handler=self._query_tools.get_agent_info,
+            category="query",
+        ))
+
+    def _register_memory_tools(self) -> None:
+        """注册 Memory 类型工具"""
+        self._tool_registry.register(Tool(
+            name="retrieve_memory",
+            description="检索历史记忆",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer", "default": 5},
+                },
+                "required": ["query"],
+            },
+            handler=self._retrieve_memory_wrapper,
+            category="memory",
+        ))
+
+    def _register_action_tools(self) -> None:
+        """注册 Action 类型工具"""
+        # send_message_to_agent (Note: will be unified in Task 2.1)
+        self._tool_registry.register(Tool(
+            name="send_message_to_agent",
+            description="发送消息给其他官员",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_agent": {"type": "string"},
+                    "message": {"type": "string"},
+                    "await_reply": {"type": "boolean", "default": False},
+                },
+                "required": ["target_agent", "message"],
+            },
+            handler=self._action_tools.send_message_to_agent,
+            category="action",
+        ))
+
+        # respond_to_player (Note: will be unified in Task 2.1)
+        self._tool_registry.register(Tool(
+            name="respond_to_player",
+            description="向玩家发送响应",
+            parameters={
+                "type": "object",
+                "properties": {"content": {"type": "string"}},
+                "required": ["content"],
+            },
+            handler=self._action_tools.respond_to_player,
+            category="action",
+        ))
+
+        # finish_loop
+        self._tool_registry.register(Tool(
+            name="finish_loop",
+            description="结束当前 agent loop",
+            parameters={
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+                "required": ["reason"],
+            },
+            handler=self._action_tools.finish_loop,
+            category="action",
+        ))
+
+        # create_incident
+        self._tool_registry.register(Tool(
+            name="create_incident",
+            description="创建持续 N 个 tick 的游戏事件",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "effects": {"type": "array", "items": {"type": "object"}},
+                    "duration_ticks": {"type": "integer", "minimum": 1},
+                },
+                "required": ["title", "description", "effects", "duration_ticks"],
+            },
+            handler=self._action_tools.create_incident,
+            category="action",
+        ))
+
+    def _register_session_tools(self) -> None:
+        """注册 Session 类型工具"""
+        self._tool_registry.register(Tool(
+            name="create_task_session",
+            description="创建任务会话",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "timeout_seconds": {"type": "integer", "default": 300},
+                    "description": {"type": "string"},
+                    "goal": {"type": "string"},
+                    "constraints": {"type": "string"},
+                },
+                "required": [],
+            },
+            handler=self._wrap_create_task_session,
+            category="session",
+        ))
+
+        self._tool_registry.register(Tool(
+            name="finish_task_session",
+            description="完成任务会话",
+            parameters={
+                "type": "object",
+                "properties": {"result": {"type": "string"}},
+                "required": ["result"],
+            },
+            handler=self._wrap_finish_task_session,
+            category="session",
+        ))
+
+        self._tool_registry.register(Tool(
+            name="fail_task_session",
+            description="任务会话失败",
+            parameters={
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+                "required": ["reason"],
+            },
+            handler=self._wrap_fail_task_session,
+            category="session",
+        ))
 
     async def _wrap_create_task_session(self, args: dict, event: Event) -> str:
         """包装 create_task_session 以符合 Agent 调用约定"""
@@ -303,37 +454,6 @@ class Agent:
             reason=args.get("reason", ""),
         )
         return json.dumps(result, ensure_ascii=False)
-
-    @staticmethod
-    def _create_action_wrapper(handler_func: callable, success_message: str) -> callable:
-        """
-        为动作处理函数创建包装器，使其返回标准化的成功消息
-
-        Args:
-            handler_func: 原始动作处理函数（可返回 str 表示自定义消息，或 tuple (message, event)）
-            success_message: 执行成功后返回的消息（当 handler 不返回自定义消息时使用）
-
-        Returns:
-            包装后的异步函数（返回成功消息或 handler 的自定义消息/元组）
-
-        Note:
-            - 如果 handler 返回元组 (message, event)，直接返回（V4: 支持 respond_to_player）
-            - 如果 handler 返回非空字符串，则使用该返回值（支持错误消息）
-            - 否则使用默认的 success_message
-        """
-
-        async def wrapper(args: dict, event: Event) -> str | tuple:
-            result = await handler_func(args, event)
-            # V4: 如果 handler 返回元组 (message, event)，直接返回
-            if isinstance(result, tuple):
-                return result
-            # If handler returns a non-empty string, use it (supports custom messages like errors)
-            # Otherwise, use the default success message
-            if isinstance(result, str) and result.strip():
-                return result
-            return success_message
-
-        return wrapper
 
     def _log_event(self, action: str, event: Event, message: str = "") -> None:
         """记录事件日志"""
@@ -741,8 +861,9 @@ class Agent:
                 logger.debug(f"  [{i}] role={role}, content={content_preview}")
 
         # 调用 LLM（传递完整的messages历史）
+        functions = self._tool_registry.to_function_definitions()
         result = await self.llm_provider.call_with_functions(
-            functions=AVAILABLE_FUNCTIONS,
+            functions=functions,
             messages=messages,
             temperature=0.7,
             max_tokens=1000,
@@ -754,7 +875,7 @@ class Agent:
             event_id=event.event_id,
             session_id=event.session_id,
             iteration=iteration,
-            request={"messages": messages, "functions": AVAILABLE_FUNCTIONS},
+            request={"messages": messages, "functions": functions},
             response=result,
             duration_ms=duration_ms,
         )
@@ -1147,7 +1268,7 @@ class Agent:
         """
         调用 function handler 并返回结果（多轮模式）
 
-        使用函数映射表来避免大量的 if-elif 语句，提高代码可维护性。
+        使用 ToolRegistry 获取工具处理器。
 
         Args:
             function_name: 函数名称
@@ -1163,17 +1284,17 @@ class Agent:
         logger.debug(f"📋 [Agent:{self.agent_id}:{session_id}] Function arguments: {arguments}")
 
         try:
-            # 从映射表中获取处理函数
-            handler = self._function_handlers.get(function_name)
-            if handler is None:
-                return f"❌ 未知函数: {function_name}"
+            # 从 ToolRegistry 获取工具
+            tool = self._tool_registry.get(function_name)
+            if tool is None:
+                return f"❌ 未知工具: {function_name}"
 
-            # 执行处理函数
-            result = await handler(arguments, original_event)
+            # 执行工具处理函数
+            result = await tool.handler(arguments, original_event)
             return result
 
         except Exception as e:
-            error_msg = f"❌ 函数执行失败: {e}"
+            error_msg = f"❌ 工具执行失败: {e}"
             logger.error(f"❌ [Agent:{self.agent_id}:{session_id}] {error_msg}", exc_info=True)
             return error_msg
 
