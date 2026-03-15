@@ -334,7 +334,7 @@ sequenceDiagram
         A->>A: 注入变量<br/>(agent_id, turn, timestamp)
     end
 
-    A->>A: 构建 AVAILABLE_FUNCTIONS
+    A->>A: 获取 Tool Schema (从 ToolRegistry)
 
     loop Agent Loop 迭代
         A->>L: call(prompt, system_prompt, functions)
