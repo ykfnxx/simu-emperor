@@ -15,6 +15,7 @@ class EventType:
     - 记忆系统：USER_QUERY, ASSISTANT_RESPONSE, TOOL_RESULT
     - 系统事件：SESSION_STATE, TICK_COMPLETED, INCIDENT_CREATED
     - Task 生命周期：TASK_CREATED, TASK_FINISHED, TASK_FAILED, TASK_TIMEOUT
+    - 工具执行：OBSERVATION
     """
 
     # 玩家交互事件
@@ -23,6 +24,9 @@ class EventType:
     # Agent 响应事件
     RESPONSE = "response"  # Agent → 玩家 (叙述性响应)
     AGENT_MESSAGE = "agent_message"  # Agent → Agent (Agent 间通信)
+
+    # 工具执行事件（ReAct 模式）
+    OBSERVATION = "observation"  # 工具执行观察结果
 
     # 记忆系统事件（V3 Memory）
     USER_QUERY = "user_query"  # 用户查询（写入 tape）
@@ -48,6 +52,7 @@ class EventType:
             cls.CHAT,
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
+            cls.OBSERVATION,
             cls.USER_QUERY,
             cls.ASSISTANT_RESPONSE,
             cls.TOOL_CALL,
@@ -77,6 +82,7 @@ class EventType:
         return [
             cls.RESPONSE,
             cls.AGENT_MESSAGE,
+            cls.OBSERVATION,
             cls.TASK_CREATED,
             cls.TASK_FINISHED,
             cls.TASK_FAILED,
