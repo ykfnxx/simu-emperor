@@ -303,13 +303,16 @@ async def get_state():
     if not game_instance.repository:
         raise HTTPException(status_code=503, detail="Game not initialized")
 
-    state = await game_instance.repository.load_state()
-    if state is None:
+    # V4: 使用 load_nation_data() 获取 NationData 对象
+    from dataclasses import asdict
+    from simu_emperor.persistence.serialization import _decimal_to_str
+
+    nation = await game_instance.repository.load_nation_data()
+    if nation is None:
         return {}
-    if isinstance(state, dict):
-        state_dict = state
-    else:
-        state_dict = state.dict()
+
+    # 转换为 dict，Decimal 转 str
+    state_dict = _decimal_to_str(asdict(nation))
 
     # 获取 engine 用于计算变化量和实际税率
     engine = game_instance.game_service.engine

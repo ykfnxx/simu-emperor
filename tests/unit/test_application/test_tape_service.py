@@ -62,8 +62,10 @@ class TestTapeService:
             memory_dir=memory_dir,
         )
 
+        # Only web sessions are considered main sessions
         assert service._is_main_session("session:web:main") is True
-        assert service._is_main_session("session:telegram:main") is True
+        assert service._is_main_session("session:web:12345") is True
+        assert service._is_main_session("session:cli:default") is False
         assert service._is_main_session("task:001") is False
 
     def test_is_task_session(self, mock_session_manager, mock_tape_writer, memory_dir):

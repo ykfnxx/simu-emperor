@@ -111,8 +111,12 @@ class MessageConverter:
                 },
             }
 
-        state = await self._repository.load_state()
-        if not state:
+        # V4: 使用 load_nation_data() 获取 NationData 对象
+        from dataclasses import asdict
+        from simu_emperor.persistence.serialization import _decimal_to_str
+
+        nation = await self._repository.load_nation_data()
+        if not nation:
             return {
                 "kind": "state",
                 "data": {
@@ -121,6 +125,9 @@ class MessageConverter:
                     "population": 0,
                 },
             }
+
+        # 转换为 dict，Decimal 转 str
+        state = _decimal_to_str(asdict(nation))
 
         # 计算 V4 格式的 overview 数据
         def _to_number(value, default: float = 0.0) -> float:
@@ -133,22 +140,11 @@ class MessageConverter:
             except (TypeError, ValueError):
                 return default
 
-        def _get_provinces_dict(state_dict: dict) -> dict:
-            provinces = state_dict.get("provinces")
-            if isinstance(provinces, dict):
-                return provinces
-            base_data = state_dict.get("base_data", {})
-            if isinstance(base_data, dict):
-                provinces = base_data.get("provinces")
-                if isinstance(provinces, dict):
-                    return provinces
-            return {}
-
         turn = int(_to_number(state.get("turn", 0)))
         treasury = _to_number(state.get("imperial_treasury", 0))
 
         # 计算总人口
-        provinces_dict = _get_provinces_dict(state)
+        provinces_dict = state.get("provinces", {})
         population_total = 0.0
         for province in provinces_dict.values():
             if isinstance(province, dict):

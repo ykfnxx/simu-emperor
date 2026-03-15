@@ -15,10 +15,3 @@ skills:
 
   write_report:
     inherits: query_data
-
-  execute_command:
-    provinces: [zhili]
-    fields:
-      - agriculture.irrigation_level
-      - taxation.commercial_tax_rate
-      - granary_stock

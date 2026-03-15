@@ -128,7 +128,12 @@ class GameService:
                 "population_delta": 0,
             }
 
-        state = await self.repository.load_state()
+        # V4: 使用 load_nation_data() 获取 NationData 对象
+        from dataclasses import asdict
+        from simu_emperor.persistence.serialization import _decimal_to_str
+
+        nation = await self.repository.load_nation_data()
+        state = _decimal_to_str(asdict(nation))
         return self._calculate_overview(state)
 
     def _calculate_overview(self, state: dict) -> dict:
@@ -277,20 +282,16 @@ class GameService:
         from simu_emperor.engine.models.base_data import NationData
 
         try:
-            state_data = await self.repository.load_state()
-            if state_data:
-                # Deserialize state_data to NationData
-                # For now, return empty state as deserialization is complex
-                logger.warning("State deserialization not fully implemented, returning empty state")
+            # V4: 直接使用 load_nation_data() 返回 NationData
+            return await self.repository.load_nation_data()
         except Exception as e:
             logger.error(f"Failed to load state from repository: {e}")
-
-        return NationData(
-            turn=0,
-            base_tax_rate=Decimal("0.10"),
-            imperial_treasury=Decimal("0"),
-            provinces={},
-        )
+            return NationData(
+                turn=0,
+                base_tax_rate=Decimal("0.10"),
+                imperial_treasury=Decimal("0"),
+                provinces={},
+            )
 
     @property
     def engine(self) -> "Engine | None":

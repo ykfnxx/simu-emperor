@@ -138,9 +138,10 @@ src/simu_emperor/
 
 data/
 ├── skills/                           # Universal skill templates (all agents share, v2.0 format)
-│   ├── execute_command.md            # Execute imperial commands
-│   ├── query_data.md                 # Query data within permissions
 │   ├── chat.md                       # Chat with emperor (role-play)
+│   ├── create_incident.md            # Create time-limited game events
+│   ├── on_tick_completed.md          # Handle tick completed events
+│   ├── query_data.md                 # Query data within permissions
 │   ├── receive_message.md            # Receive inter-agent messages
 │   └── write_report.md               # Write reports to emperor
 │
@@ -320,7 +321,7 @@ The Application Layer separates business logic from protocol handling, following
 
 - **Three-tier caching**: Memory (LRU, size=50) → mtime (file change detection) → File system
 - **Dynamic loading**: `_get_system_prompt_for_event()` loads skills on-demand based on event type
-- **Event mapping**: Hardcoded registry (EventType.COMMAND → execute_command, etc.)
+- **Event mapping**: Hardcoded registry (EventType.CHAT → chat, EventType.AGENT_MESSAGE → receive_message, EventType.TICK_COMPLETED → on_tick_completed)
 - **Variable injection**: Supports `{{agent_id}}`, `{{turn}}`, `{{timestamp}}` placeholders
 - **Fallback mechanism**: Hardcoded instructions used when skill loading fails
 
@@ -380,11 +381,11 @@ Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (wri
 ### Event Types in Tape:
 
 ```python
-USER_QUERY      # Player commands/queries (from COMMAND/QUERY events)
+USER_QUERY      # Player queries (from CHAT events)
 TOOL_CALL       # Function invocations
 TOOL_RESULT     # Function results
 RESPONSE        # Final agent responses (sent to player and written to tape)
-GAME_EVENT      # Game state changes (allocate_funds, adjust_tax, etc.)
+GAME_EVENT      # Game state changes (create_incident, etc.)
 ```
 
 ### Query Flow Example:
@@ -457,7 +458,7 @@ self._function_handlers["retrieve_memory"] = self._retrieve_memory_wrapper
 
 **TapeWriter hooks** (`agents/agent.py`):
 ```python
-# In _on_event(), for COMMAND/QUERY events:
+# In _on_event(), for CHAT events:
 await self._tape_writer.write_event(
     session_id=event.session_id,
     agent_id=self.agent_id,

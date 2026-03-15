@@ -14,10 +14,3 @@ skills:
 
   write_report:
     inherits: query_data
-
-  execute_command:
-    provinces: [shaanxi]
-    fields:
-      - agriculture.irrigation_level
-      - military.garrison_size
-      - granary_stock

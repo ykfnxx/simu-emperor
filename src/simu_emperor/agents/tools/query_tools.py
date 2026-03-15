@@ -1,6 +1,8 @@
 """Query tool handlers for Agent
 
 These handlers return data to the LLM for function calling.
+
+V4: Updated to work with simplified NationData/ProvinceData models.
 """
 
 import logging
@@ -21,7 +23,7 @@ class QueryTools:
     and return data to the LLM during function calling.
 
     Query functions:
-    - query_province_data: Query province-specific data
+    - query_province_data: Query province-specific data (V4: 4 core fields)
     - query_national_data: Query national-level data
     - list_provinces: List all available provinces
     - list_agents: List all active agents from role_map.md
@@ -48,41 +50,44 @@ class QueryTools:
         self._role_map_parser = RoleMapParser(data_dir)
 
     async def query_province_data(self, args: dict, event: Event) -> str:
-        """Query province-specific data"""
+        """Query province-specific data (V4: 4 core fields)"""
         if not self.repository:
             return "❌ Repository not available"
 
         province_id = args.get("province_id")
-        field_path = args.get("field_path")
+        field_name = args.get("field_path")  # Renamed from field_path for V4
 
         try:
-            # 加载状态
-            state = await self.repository.load_state()
+            # V4: 使用 load_nation_data() 获取 NationData 对象
+            nation = await self.repository.load_nation_data()
 
-            # 解析 field_path（如 "population.total"）
-            parts = field_path.split(".")
-
-            # 获取省份数据
-            provinces_dict = {p["province_id"]: p for p in state.get("provinces", [])}
-            if province_id not in provinces_dict:
+            if province_id not in nation.provinces:
                 return f"❌ 未找到省份 {province_id}"
 
-            province_data = provinces_dict[province_id]
+            province = nation.provinces[province_id]
 
-            # 导航到目标字段
-            value = province_data
-            for part in parts:
-                if isinstance(value, dict):
-                    value = value.get(part)
-                elif isinstance(value, list) and part.isdigit():
-                    value = value[int(part)]
-                else:
-                    return f"❌ 无法访问字段 {field_path}"
+            # V4: 直接访问4个核心字段
+            valid_fields = {
+                "production_value",
+                "population",
+                "fixed_expenditure",
+                "stockpile",
+                "name",
+                "province_id",
+                "base_production_growth",
+                "base_population_growth",
+                "tax_modifier",
+            }
 
-            logger.info(f"Agent {self.agent_id} queried {province_id}.{field_path} = {value}")
+            if field_name not in valid_fields:
+                return f"❌ 无效字段: {field_name}。可用字段: {', '.join(sorted(valid_fields))}"
+
+            value = getattr(province, field_name)
+
+            logger.info(f"Agent {self.agent_id} queried {province_id}.{field_name} = {value}")
 
             # 返回查询结果（给LLM）
-            return f"查询结果：{province_id} 的 {field_path} = {value}"
+            return f"查询结果：{province_id} 的 {field_name} = {value}"
 
         except Exception as e:
             logger.error(f"Agent {self.agent_id} error querying province data: {e}")
@@ -96,11 +101,22 @@ class QueryTools:
         field_name = args.get("field_name")
 
         try:
-            # 加载状态
-            state = await self.repository.load_state()
+            # V4: 使用 load_nation_data() 获取 NationData 对象
+            nation = await self.repository.load_nation_data()
 
-            # 获取字段值
-            value = state.get(field_name)
+            # V4: 直接访问 NationData 字段
+            valid_fields = {
+                "turn",
+                "base_tax_rate",
+                "tribute_rate",
+                "fixed_expenditure",
+                "imperial_treasury",
+            }
+
+            if field_name not in valid_fields:
+                return f"❌ 无效字段: {field_name}。可用字段: {', '.join(sorted(valid_fields))}"
+
+            value = getattr(nation, field_name)
 
             logger.info(f"Agent {self.agent_id} queried national.{field_name} = {value}")
 
@@ -117,12 +133,11 @@ class QueryTools:
             return "❌ Repository not available"
 
         try:
-            # 加载状态
-            state = await self.repository.load_state()
+            # V4: 使用 load_nation_data() 获取 NationData 对象
+            nation = await self.repository.load_nation_data()
 
             # 获取省份列表
-            provinces = state.get("provinces", [])
-            province_ids = [p.get("province_id") for p in provinces]
+            province_ids = list(nation.provinces.keys())
 
             logger.info(f"Agent {self.agent_id} listed provinces: {province_ids}")
 

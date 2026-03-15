@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from simu_emperor.config import GameConfig
 from simu_emperor.application.game_service import GameService
-from simu_emperor.engine.models.base_data import NationData
+from simu_emperor.engine.models.base_data import NationData, ProvinceData
 
 
 @pytest.fixture
@@ -27,21 +27,24 @@ def mock_settings(tmp_path: Path) -> GameConfig:
 @pytest.fixture
 def mock_repository():
     """Create mock repository with V4 flat structure."""
+    from simu_emperor.engine.models.base_data import ProvinceData, NationData
+
     repo = AsyncMock()
-    repo.load_state = AsyncMock(return_value={
-        "turn": 5,
-        "imperial_treasury": 100000,
-        "provinces": {
-            "zhili": {
-                "province_id": "zhili",
-                "name": "直隶",
-                "production_value": 100000,
-                "population": 1000000,
-                "fixed_expenditure": 50000,
-                "stockpile": 1200000,
-            }
+    # V4: 使用 load_nation_data() 返回 NationData 对象
+    repo.load_nation_data = AsyncMock(return_value=NationData(
+        turn=5,
+        imperial_treasury=Decimal("100000"),
+        provinces={
+            "zhili": ProvinceData(
+                province_id="zhili",
+                name="直隶",
+                production_value=Decimal("100000"),
+                population=Decimal("1000000"),
+                fixed_expenditure=Decimal("50000"),
+                stockpile=Decimal("1200000"),
+            )
         },
-    })
+    ))
     repo.get_current_turn = AsyncMock(return_value=5)
     return repo
 
@@ -139,7 +142,7 @@ class TestGameService:
     async def test_get_overview_empty_state(self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir):
         """Test getting overview with empty state (V4 format)."""
         mock_repo = AsyncMock()
-        mock_repo.load_state = AsyncMock(return_value={})
+        mock_repo.load_nation_data = AsyncMock(return_value=NationData(turn=0))
 
         service = GameService(
             settings=mock_settings,
@@ -262,22 +265,21 @@ class TestGameService:
     async def test_calculate_overview_with_nested_base_data(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
         """Test overview calculation with nested base_data structure (V4 format)."""
         mock_repo = AsyncMock()
-        mock_repo.load_state = AsyncMock(return_value={
-            "base_data": {
-                "turn": 8,
-                "imperial_treasury": 200000,
-                "provinces": {
-                    "zhejiang": {
-                        "province_id": "zhejiang",
-                        "name": "浙江",
-                        "production_value": 150000,
-                        "population": 500000,
-                        "fixed_expenditure": 40000,
-                        "stockpile": 800000,
-                    }
-                },
-            }
-        })
+        # V4: 使用 load_nation_data() 返回 NationData 对象
+        mock_repo.load_nation_data = AsyncMock(return_value=NationData(
+            turn=8,
+            imperial_treasury=Decimal("200000"),
+            provinces={
+                "zhejiang": ProvinceData(
+                    province_id="zhejiang",
+                    name="浙江",
+                    production_value=Decimal("150000"),
+                    population=Decimal("500000"),
+                    fixed_expenditure=Decimal("40000"),
+                    stockpile=Decimal("800000"),
+                )
+            },
+        ))
 
         service = GameService(
             settings=mock_settings,

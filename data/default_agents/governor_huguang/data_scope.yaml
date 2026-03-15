@@ -15,10 +15,3 @@ skills:
 
   write_report:
     inherits: query_data
-
-  execute_command:
-    provinces: [huguang]
-    fields:
-      - agriculture.irrigation_level
-      - taxation.land_tax_rate
-      - granary_stock

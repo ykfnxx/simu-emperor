@@ -24,25 +24,34 @@ def mock_event_bus():
 
 @pytest.fixture
 def mock_repository():
-    """Mock Repository"""
+    """Mock Repository (V4 format with NationData)"""
+    from decimal import Decimal
+    from simu_emperor.engine.models.base_data import NationData, ProvinceData
+
     repo = Mock()
-    repo.load_state = AsyncMock(
-        return_value={
-            "turn": 5,
-            "imperial_treasury": 100000,
-            "provinces": [
-                {
-                    "province_id": "zhili",
-                    "name": "直隶",
-                    "population": {"total": 2600000, "happiness": 0.7},
-                },
-                {
-                    "province_id": "jiangsu",
-                    "name": "江苏",
-                    "population": {"total": 1800000, "happiness": 0.65},
-                },
-            ],
-        }
+    repo.load_nation_data = AsyncMock(
+        return_value=NationData(
+            turn=5,
+            imperial_treasury=Decimal("100000"),
+            provinces={
+                "zhili": ProvinceData(
+                    province_id="zhili",
+                    name="直隶",
+                    production_value=Decimal("100000"),
+                    population=Decimal("2600000"),
+                    fixed_expenditure=Decimal("50000"),
+                    stockpile=Decimal("1200000"),
+                ),
+                "jiangsu": ProvinceData(
+                    province_id="jiangsu",
+                    name="江苏",
+                    production_value=Decimal("80000"),
+                    population=Decimal("1800000"),
+                    fixed_expenditure=Decimal("40000"),
+                    stockpile=Decimal("900000"),
+                ),
+            },
+        )
     )
     return repo
 
@@ -336,11 +345,11 @@ class TestAgent:
 
         # 调用 QueryTools 的方法
         result = await agent._query_tools.query_province_data(
-            {"province_id": "zhili", "field_path": "population.total"}, event
+            {"province_id": "zhili", "field_path": "population"}, event
         )
 
-        # 应该调用 load_state
-        assert mock_repository.load_state.called
+        # 应该调用 load_nation_data
+        assert mock_repository.load_nation_data.called
         # 应该返回结果字符串
         assert isinstance(result, str)
         assert "2600000" in result
@@ -363,8 +372,8 @@ class TestAgent:
             {"field_name": "imperial_treasury"}, event
         )
 
-        # 应该调用 load_state
-        assert mock_repository.load_state.called
+        # 应该调用 load_nation_data
+        assert mock_repository.load_nation_data.called
         # 应该返回结果字符串
         assert isinstance(result, str)
         assert "100000" in result
@@ -385,8 +394,8 @@ class TestAgent:
         # 调用 QueryTools 的方法
         result = await agent._query_tools.list_provinces({}, event)
 
-        # 应该调用 load_state
-        assert mock_repository.load_state.called
+        # 应该调用 load_nation_data
+        assert mock_repository.load_nation_data.called
         # 应该返回结果字符串
         assert isinstance(result, str)
         assert "zhili" in result
