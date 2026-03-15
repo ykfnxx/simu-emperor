@@ -1,70 +1,89 @@
-"""工具函数注册表"""
+"""ToolRegistry - 统一工具注册管理"""
 
-import logging
 from dataclasses import dataclass
-from typing import Any, Callable
-
-logger = logging.getLogger(__name__)
+from typing import Callable
 
 
 @dataclass
-class ToolMetadata:
-    """工具元数据"""
+class Tool:
+    """工具定义
+
+    Attributes:
+        name: 工具名称（唯一标识符）
+        description: 工具描述（用于 LLM Function Calling）
+        parameters: JSON Schema 参数定义
+        handler: 工具处理函数
+        category: 工具分类（"query" | "action" | "memory" | "session"）
+    """
 
     name: str
     description: str
-    parameters: dict  # JSON Schema 格式
-    category: str  # "query" | "action" | "memory"
+    parameters: dict
+    handler: Callable
+    category: str
 
-    def to_openai_schema(self) -> dict:
-        """转换为 OpenAI function schema"""
+    def to_function_definition(self) -> dict:
+        """导出为 LLM Function Calling 格式"""
         return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
         }
 
 
 class ToolRegistry:
-    """工具函数注册表"""
+    """工具注册表 - 统一管理所有工具"""
 
     def __init__(self):
-        self._tools: dict[str, dict[str, Any]] = {}
+        self._tools: dict[str, Tool] = {}
 
-    def register(
-        self,
-        name: str,
-        handler: Callable,
-        metadata: ToolMetadata,
-        success_message: str | None = None,
-    ) -> None:
-        """注册工具函数"""
-        self._tools[name] = {
-            "handler": handler,
-            "metadata": metadata,
-            "success_message": success_message,
-        }
-        logger.debug(f"Registered tool: {name}")
+    def register(self, tool: Tool) -> None:
+        """注册工具
 
-    def get_handler(self, name: str) -> Callable | None:
-        """获取工具处理器"""
-        return self._tools.get(name, {}).get("handler")
+        Args:
+            tool: Tool 实例
 
-    def get_metadata(self, name: str) -> ToolMetadata | None:
-        """获取工具元数据"""
-        return self._tools.get(name, {}).get("metadata")
+        Raises:
+            ValueError: 如果工具名称已存在
+        """
+        if tool.name in self._tools:
+            raise ValueError(f"Tool {tool.name} already registered")
+        self._tools[tool.name] = tool
 
-    def get_success_message(self, name: str) -> str | None:
-        """获取成功消息"""
-        return self._tools.get(name, {}).get("success_message")
+    def get(self, name: str) -> Tool | None:
+        """获取工具
 
-    def list_all(self) -> dict[str, ToolMetadata]:
-        """列出所有工具"""
-        return {name: data["metadata"] for name, data in self._tools.items()}
+        Args:
+            name: 工具名称
 
-    def to_openai_schemas(self) -> list[dict]:
-        """转换为 OpenAI function calling 格式"""
-        return [metadata.to_openai_schema() for metadata in self.list_all().values()]
+        Returns:
+            Tool 实例，如果不存在则返回 None
+        """
+        return self._tools.get(name)
+
+    def list_all(self) -> list[Tool]:
+        """列出所有工具
+
+        Returns:
+            所有已注册工具的列表
+        """
+        return list(self._tools.values())
+
+    def to_function_definitions(self) -> list[dict]:
+        """导出所有工具为 LLM Function Calling 格式
+
+        Returns:
+            函数定义列表
+        """
+        return [tool.to_function_definition() for tool in self._tools.values()]
+
+    def list_by_category(self, category: str) -> list[Tool]:
+        """按分类列出工具
+
+        Args:
+            category: 工具分类（如 "query", "action", "memory", "session"）
+
+        Returns:
+            该分类下的所有工具
+        """
+        return [t for t in self._tools.values() if t.category == category]
