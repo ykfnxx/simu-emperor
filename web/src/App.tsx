@@ -971,16 +971,9 @@ export default function App() {
       const isFromCurrentAgent = eventAgentId === currentAgent;
       const isInCurrentSession = eventSessionId === currentSessionRef.current;
 
-      // 只有来自当前agent或在当前session的消息才显示
-      if (!isFromCurrentAgent && !isInCurrentSession) {
+      // 只有来自当前agent的消息才显示（不自动切换session）
+      if (!isFromCurrentAgent) {
         return;
-      }
-
-      // 如果消息来自当前agent但session不同，更新session ID
-      // （处理新session创建后的消息）
-      if (isFromCurrentAgent && !isInCurrentSession) {
-        currentSessionRef.current = eventSessionId;
-        setCurrentSessionId(eventSessionId);
       }
 
       // 收到agent响应，清除超时检测
