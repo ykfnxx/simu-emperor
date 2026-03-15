@@ -8,7 +8,6 @@ Agent 基类 - 文件驱动的 AI 官员
 - LLM 自主决定调用哪些 functions
 """
 
-import asyncio
 import json
 import logging
 import logging.handlers
@@ -713,13 +712,17 @@ class Agent:
         self, event: Event, session_id: str
     ) -> None:
         """
-        使用 LLM 处理事件（多轮 function calling）（V4 重构）。
+        使用 LLM 处理事件（ReAct Observation 模式）。
 
-        V4 架构：
-        - 所有事件通过 ContextManager.add_event_and_maybe_compact() 添加
-        - ContextManager 内部负责写入 tape.jsonl
-        - 每次迭代调用 ContextManager.get_llm_messages() 获取最新消息
-        - ContextManager 是 Single Source of Truth
+        ReAct 循环架构：
+        1. LLM 返回 thought + tool_calls
+        2. 执行工具并创建 Observation
+        3. 将 Observation 添加到 tape
+        4. 检查是否应该停止（send_message, finish_loop, create_task_session）
+        5. 重复直到可以给出最终响应
+
+        所有事件通过 ContextManager.add_event_and_maybe_compact() 添加。
+        ContextManager 内部负责写入 tape.jsonl。
 
         Args:
             event: 当前事件
@@ -805,17 +808,46 @@ class Agent:
                 await self._handle_no_tool_calls(event, session_id, response_text)
                 break
 
-            # 执行 tool calls（V4: 内部会通过 ContextManager 添加 TOOL_RESULT 事件）
-            should_continue = await self._process_tool_calls(
+            # 执行 tool calls 并创建 Observation（ReAct 模式）
+            observation = await self._execute_tools_and_create_observation(
                 event,
                 session_id,
                 iteration,
                 tool_calls,
+                response_text,
                 turn_start_time,
             )
 
-            if not should_continue:
+            # 将 Observation 添加到 tape
+            await self._add_observation_to_tape(event, session_id, observation)
+
+            # 检查退出条件
+            # create_task_session 优先级最高，创建任务后应立即停止主session的LLM循环
+            if observation.get("has_create_task_session"):
+                logger.info(
+                    f"📋 [Agent:{self.agent_id}:{session_id}] create_task_session called, task session created. "
+                    f"Main session loop ending to wait for task completion."
+                )
                 break
+
+            # finish_loop 其次
+            if observation.get("has_finish_loop"):
+                logger.info(
+                    f"🔄 [Agent:{self.agent_id}:{session_id}] finish_loop called (priority check), ending loop"
+                )
+                break
+
+            # 如果已经有send_message（发送给player），说明第一轮LLM已经生成了最终响应，可以结束
+            if observation.get("has_send_message"):
+                logger.info(
+                    f"✅ [Agent:{self.agent_id}:{session_id}] send_message called, ending loop"
+                )
+                break
+
+            # 否则继续循环，让 LLM 基于工具调用结果生成最终响应
+            logger.info(
+                f"✅ [Agent:{self.agent_id}:{session_id}] Tool calls executed, requesting final response from LLM..."
+            )
 
         if iteration >= max_iterations:
             logger.warning(
@@ -872,30 +904,36 @@ class Agent:
 
         return result
 
-    async def _process_tool_calls(
+    async def _execute_tools_and_create_observation(
         self,
         event: Event,
         session_id: str,
         iteration: int,
         tool_calls: list,
+        response_text: str,
         turn_start_time: str,
-    ) -> bool:
+    ) -> dict:
         """
-        处理 tool calls（V4 重构：ContextManager 统一管理事件写入）。
+        执行工具并创建 Observation（ReAct 模式）
 
         Args:
             event: 当前事件
             session_id: 会话 ID
             iteration: 迭代次数
             tool_calls: 工具调用列表
+            response_text: LLM 响应文本（thought）
             turn_start_time: Turn开始时间戳（用于确保事件顺序）
 
         Returns:
-            是否应该继续循环
+            Observation dict 包含 thought, actions, has_send_message, has_finish_loop, has_create_task_session
         """
-        has_finish_loop = False
-        has_send_message = False
-        has_create_task_session = False
+        observation = {
+            "thought": response_text,
+            "actions": [],
+            "has_send_message": False,
+            "has_finish_loop": False,
+            "has_create_task_session": False,
+        }
 
         for idx, tool_call in enumerate(tool_calls, 1):
             function_name = tool_call["function"]["name"]
@@ -914,11 +952,17 @@ class Agent:
             if isinstance(result, tuple):
                 result_str, result_event = result
 
+            # 记录 action
+            observation["actions"].append({
+                "tool": function_name,
+                "result": result_str,
+            })
+
             # 检查函数是否成功执行
             if function_name == "finish_loop":
                 # finish_loop 成功时返回 "✅ finish_loop 已执行..."
                 if result_str.startswith("✅"):
-                    has_finish_loop = True
+                    observation["has_finish_loop"] = True
                 else:
                     logger.warning(
                         f"⚠️ [Agent:{self.agent_id}:{session_id}] finish_loop 执行失败: {result_str}"
@@ -928,7 +972,7 @@ class Agent:
                 # V4: send_message 返回元组 (message, event)
                 # 只要消息以 ✅ 或 等待 开头就认为成功
                 if result_str.startswith("✅") or result_str.startswith("等待"):
-                    has_send_message = True
+                    observation["has_send_message"] = True
                 # V4: 将事件添加到 ContextManager（如果返回了事件）
                 if result_event:
                     await self._context_manager.add_event_and_maybe_compact(result_event)
@@ -938,7 +982,7 @@ class Agent:
                 try:
                     result_data = json.loads(result_str)
                     if result_data.get("success") is True:
-                        has_create_task_session = True
+                        observation["has_create_task_session"] = True
                     else:
                         logger.warning(
                             f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 执行失败: {result_str}"
@@ -976,34 +1020,27 @@ class Agent:
                 f"📤 [Agent:{self.agent_id}:{session_id}] Tool result: {result_str[:100]}..."
             )
 
-        # 检查退出条件
-        # create_task_session 优先级最高，创建任务后应立即停止主session的LLM循环
-        if has_create_task_session:
-            logger.info(
-                f"📋 [Agent:{self.agent_id}:{session_id}] create_task_session called, task session created. "
-                f"Main session loop ending to wait for task completion."
-            )
-            return False
+        return observation
 
-        # finish_loop 其次
-        if has_finish_loop:
-            logger.info(
-                f"🔄 [Agent:{self.agent_id}:{session_id}] finish_loop called (priority check), ending loop"
-            )
-            return False
+    async def _add_observation_to_tape(self, event: Event, session_id: str, observation: dict) -> None:
+        """
+        将 Observation 添加到 tape
 
-        # 如果已经有send_message（发送给player），说明第一轮LLM已经生成了最终响应，可以结束
-        if has_send_message:
-            logger.info(
-                f"✅ [Agent:{self.agent_id}:{session_id}] send_message called, ending loop"
-            )
-            return False
-
-        # 否则继续循环，让 LLM 基于工具调用结果生成最终响应
-        logger.info(
-            f"✅ [Agent:{self.agent_id}:{session_id}] Tool calls executed, requesting final response from LLM..."
+        Args:
+            event: 当前事件
+            session_id: 会话 ID
+            observation: Observation dict
+        """
+        observation_event = TapeEvent(
+            src=f"agent:{self.agent_id}",
+            dst=["*"],
+            type=EventType.OBSERVATION,
+            payload=observation,
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+            root_event_id=event.root_event_id,
         )
-        return True
+        await self._context_manager.add_event_and_maybe_compact(observation_event)
 
     async def _handle_no_tool_calls(
         self, event: Event, session_id: str, response_text: str
@@ -1131,6 +1168,23 @@ class Agent:
                 "tool_call_id": event.payload.get("tool_call_id"),
                 "content": event.payload.get("result", ""),
             }
+
+        # 3.5. OBSERVATION → user (观察结果，用于 ReAct 循环)
+        if event.type == EventType.OBSERVATION:
+            parts = ["# 观察结果 (Observation)"]
+            thought = event.payload.get("thought", "")
+            if thought:
+                parts.append(f"\n## 思考\n{thought}")
+
+            actions = event.payload.get("actions", [])
+            if actions:
+                parts.append("\n## 执行的操作")
+                for action in actions:
+                    tool = action.get("tool", "")
+                    result = action.get("result", "")
+                    parts.append(f"- **{tool}**: {result[:200]}...")
+
+            return {"role": "user", "content": "\n".join(parts)}
 
         # 4. 其他事件 → user (内联构建内容)
         parts = [
