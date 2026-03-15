@@ -1,10 +1,8 @@
 """Tests for FileOperationsHelper"""
 
-import json
 import pytest
-from pathlib import Path
 
-from simu_emperor.common import FileOperationsHelper, JSONParseError, FileOperationError
+from simu_emperor.common import FileOperationsHelper
 
 
 @pytest.mark.asyncio

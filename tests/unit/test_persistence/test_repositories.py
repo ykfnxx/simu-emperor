@@ -1,7 +1,6 @@
 """Test GameRepository (V4)."""
 
 import pytest
-from aiosqlite import Connection
 from decimal import Decimal
 
 from simu_emperor.persistence.repositories import GameRepository

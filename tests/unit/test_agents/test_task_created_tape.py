@@ -88,7 +88,7 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
             session_id=task_session_id,
         )
 
-        print(f"\n=== Sending TASK_CREATED event ===")
+        print("\n=== Sending TASK_CREATED event ===")
         print(f"  session_id: {task_created_event.session_id}")
 
         await event_bus.send_event(task_created_event)
@@ -118,7 +118,7 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
 
             assert len(task_created_events) > 0, "task_created event should be written to tape"
         else:
-            print(f"\n=== Tape file does not exist! ===")
+            print("\n=== Tape file does not exist! ===")
             print(f"Expected path: {tape_path}")
             print(f"Parent directory exists: {tape_path.parent.exists()}")
             assert False, "Tape file should exist"

@@ -1,7 +1,5 @@
 """Session Service - Session management business logic."""
 
-import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path

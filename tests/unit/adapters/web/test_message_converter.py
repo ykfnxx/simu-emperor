@@ -3,7 +3,6 @@ Unit tests for MessageConverter
 """
 
 import pytest
-from datetime import datetime
 
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType

@@ -1,7 +1,6 @@
 """Unit tests for TaskSessionTools with permission validation."""
 
 import pytest
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 

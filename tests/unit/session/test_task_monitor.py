@@ -2,9 +2,9 @@
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from simu_emperor.session import SessionManager, Session
+from simu_emperor.session import SessionManager
 from simu_emperor.session.task_monitor import TaskMonitor
 
 

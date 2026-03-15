@@ -1,6 +1,5 @@
 """TapeWriter for writing events to tape.jsonl files（V4 更新）。"""
 
-import asyncio
 import aiofiles
 from pathlib import Path
 from datetime import datetime, timezone

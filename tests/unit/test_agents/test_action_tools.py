@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from simu_emperor.agents.tools.action_tools import ActionTools
 from simu_emperor.event_bus.event import Event
-from simu_emperor.session import SessionManager
 
 
 @pytest.fixture

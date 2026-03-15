@@ -90,7 +90,6 @@ async def main_web() -> None:
     logger.info(f"Starting web server on {host}:{port}")
 
     # 导入 FastAPI 应用
-    from simu_emperor.adapters.web.server import app
 
     # 启动服务器
     config = uvicorn.Config(

@@ -6,7 +6,6 @@ WebGameInstance now only manages lifecycle, all business logic is delegated to A
 """
 
 import pytest
-from pathlib import Path
 from pydantic import BaseModel
 
 from simu_emperor.adapters.web.game_instance import WebGameInstance

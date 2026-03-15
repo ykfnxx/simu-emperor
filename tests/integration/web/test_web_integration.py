@@ -178,6 +178,7 @@ class TestFullWorkflow:
     def test_client_lifecycle(self):
         """测试客户端生命周期"""
         from simu_emperor.adapters.web.game_instance import WebGameInstance
+        from simu_emperor.config import GameConfig
         import tempfile
         from pathlib import Path
 
@@ -185,29 +186,22 @@ class TestFullWorkflow:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
 
-            # 创建测试配置
-            class MockSettings:
-                def __init__(self):
-                    self.data_dir = tmp_path / "data"
-                    self.data_dir.mkdir(parents=True, exist_ok=True)
-                    self.log_dir = tmp_path / "logs"
-                    self.log_dir.mkdir(parents=True, exist_ok=True)
+            # 创建测试配置 - 使用 Pydantic 模型
+            from simu_emperor.config import LLMConfig, MemoryConfig
 
-                    class MockLLM:
-                        provider = "mock"
-                        api_key = "test"
-                        api_base = None
-                        model = "test"
+            settings = GameConfig(
+                data_dir=str(tmp_path / "data"),
+                log_dir=str(tmp_path / "logs"),
+                llm=LLMConfig(provider="mock", api_key="test", model="test"),
+                memory=MemoryConfig(enabled=False),
+            )
 
-                    self.llm = MockLLM()
-
-            settings = MockSettings()
             instance = WebGameInstance(settings)
 
-            # 验证初始化
-            assert instance.player_id == "player:web"
-            assert instance.session_id == "session:web:main"
+            # 验证初始化 (V4架构：不再有player_id和session_id属性)
+            assert instance.settings == settings
             assert instance._running is False
+            assert instance.services is None  # 服务未启动
 
     def test_server_startup(self):
         """测试服务器启动"""

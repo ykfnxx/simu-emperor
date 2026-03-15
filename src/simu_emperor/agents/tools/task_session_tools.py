@@ -123,9 +123,9 @@ class TaskSessionTools:
             raise ValueError(f"Session {task_session_id} is not a task session")
 
         if session.status == "FINISHED":
-            raise ValueError(f"❌ 任务已完成，不能调用 finish_task_session。任务状态：FINISHED")
+            raise ValueError("❌ 任务已完成，不能调用 finish_task_session。任务状态：FINISHED")
         if session.status == "FAILED":
-            raise ValueError(f"❌ 任务已失败，不能调用 finish_task_session。任务状态：FAILED")
+            raise ValueError("❌ 任务已失败，不能调用 finish_task_session。任务状态：FAILED")
 
         if session.created_by != f"agent:{self.agent_id}":
             error_msg = (
@@ -191,9 +191,9 @@ class TaskSessionTools:
             raise ValueError(f"Session {task_session_id} is not a task session")
 
         if session.status == "FINISHED":
-            raise ValueError(f"❌ 任务已完成，不能调用 fail_task_session。任务状态：FINISHED")
+            raise ValueError("❌ 任务已完成，不能调用 fail_task_session。任务状态：FINISHED")
         if session.status == "FAILED":
-            raise ValueError(f"❌ 任务已失败，不能调用 fail_task_session。任务状态：FAILED")
+            raise ValueError("❌ 任务已失败，不能调用 fail_task_session。任务状态：FAILED")
 
         if session.created_by != f"agent:{self.agent_id}":
             error_msg = (

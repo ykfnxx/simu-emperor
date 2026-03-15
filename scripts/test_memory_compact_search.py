@@ -92,7 +92,7 @@ class MemoryCompactSearchTest:
         # 创建 metadata entry
         await self._create_metadata_entry()
 
-        self.print(f"✅ 测试环境初始化完成")
+        self.print("✅ 测试环境初始化完成")
         self.print(f"   内存目录: {self.memory_dir}")
         self.print(f"   Tape 路径: {self.tape_path}")
 
@@ -179,7 +179,7 @@ class MemoryCompactSearchTest:
 
             # 如果需要 compact，执行 compact
             if need_compact:
-                self.print(f"\n  📦 执行 Compact...")
+                self.print("\n  📦 执行 Compact...")
                 before = len(context_mgr.events)
                 before_tokens = context_mgr._calc_total_tokens()
                 self.print(f"     前: {before} 事件, {before_tokens} tokens")
@@ -249,7 +249,7 @@ class MemoryCompactSearchTest:
             self.print(f"\n🔍 搜索: {query_desc}")
 
             # 创建结构化查询 - 使用实际事件中出现的关键词
-            from simu_emperor.memory.models import StructuredQuery, ParseResult
+            from simu_emperor.memory.models import StructuredQuery
 
             structured_query = StructuredQuery(
                 raw_query=query_desc,
@@ -359,9 +359,9 @@ class MemoryCompactSearchTest:
 
             if self.output_dir:
                 self.print(f"\n📁 测试结果保存在: {self.output_dir}")
-                self.print(f"   - tape_meta.jsonl: 元数据索引")
-                self.print(f"   - test_log.txt: 测试日志")
-                self.print(f"   - memory/: 完整内存目录")
+                self.print("   - tape_meta.jsonl: 元数据索引")
+                self.print("   - test_log.txt: 测试日志")
+                self.print("   - memory/: 完整内存目录")
 
         except Exception as e:
             self.print(f"\n❌ 测试失败: {e}")

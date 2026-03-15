@@ -40,7 +40,6 @@ from simu_emperor.memory import (
     ContextConfig,
     count_tokens,
 )
-from simu_emperor.memory.config import MemoryConfig
 from simu_emperor.llm.mock import MockProvider
 
 
@@ -207,7 +206,7 @@ class MemoryTestTool:
         # 创建初始 metadata entry
         await self._create_metadata_entry()
 
-        print(f"✅ 测试工具初始化完成")
+        print("✅ 测试工具初始化完成")
         print(f"   内存目录: {self.memory_dir_path}")
         print(f"   Tape 路径: {self.tape_path}")
         print(f"   自动 LLM: {self.auto_llm}")

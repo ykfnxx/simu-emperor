@@ -3,7 +3,6 @@ Unit tests for ConnectionManager
 """
 
 import pytest
-from fastapi import WebSocket
 
 from simu_emperor.adapters.web.connection_manager import ConnectionManager
 

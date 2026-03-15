@@ -167,7 +167,7 @@ class OpenAIProvider(LLMProvider):
             if tools:
                 api_params["tools"] = tools
                 # Debug: 打印 tools 结构
-                logger.debug(f"Tools being sent to GLM API:")
+                logger.debug("Tools being sent to GLM API:")
                 for i, tool in enumerate(tools):
                     logger.debug(f"  Tool {i}: type={tool.get('type')}, name={tool.get('function', {}).get('name')}")
 

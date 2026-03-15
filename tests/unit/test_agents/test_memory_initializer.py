@@ -1,7 +1,6 @@
 """Tests for MemoryInitializer（V4 更新：移除 manifest 测试）"""
 
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from simu_emperor.agents.memory_initializer import MemoryInitializer
 from simu_emperor.llm.mock import MockProvider

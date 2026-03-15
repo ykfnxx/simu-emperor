@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from simu_emperor.agents.tools.memory_tools import MemoryTools
 from simu_emperor.config import settings

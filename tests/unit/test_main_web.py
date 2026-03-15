@@ -2,8 +2,7 @@
 Unit tests for CLI web command
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 class TestCLIWebCommand:
