@@ -26,10 +26,10 @@ class ActionTools:
     side effects like sending events or writing files.
 
     Action functions:
-    - send_message_to_agent: Send messages to other agents
-    - respond_to_player: Send responses to player
+    - send_message: Unified message sending (to player or other agents)
     - finish_loop: End agent loop (when session has > 2 members)
     - write_memory: Write memory summaries to files
+    - create_incident: Create time-limited game events
     """
 
     def __init__(
@@ -44,119 +44,60 @@ class ActionTools:
         self.data_dir = data_dir
         self.session_manager = session_manager
 
-    async def send_message_to_agent(self, args: dict, event: Event) -> str:
-        target_agent = args.get("target_agent", "")
-        message = args.get("message", "")
-        await_reply = args.get("await_reply", False)  # New parameter: default False
+    async def send_message(self, args: dict, event: Event) -> str | tuple:
+        """统一的消息发送函数
 
-        if not target_agent:
-            return "❌ 目标官员不能为空"
+        所有 agent 发出的消息都是 AGENT_MESSAGE 事件类型。
+        """
+        recipients = args.get("recipients", [])
+        content = args.get("content", "")
+        await_reply = args.get("await_reply", False)
 
-        if not message:
+        if not recipients:
+            return "❌ 接收者列表不能为空"
+        if not content:
             return "❌ 消息内容不能为空"
+        if await_reply and "player" in recipients:
+            return "❌ await_reply=true 只能用于 agent 间消息"
 
-        # Validate session type for await_reply
-        if self.session_manager:
-            session = await self.session_manager.get_session(event.session_id)
-            if not session:
-                return "❌ 会话不存在"
+        # 标准化 recipients
+        normalized_recipients = []
+        for r in recipients:
+            if r == "player":
+                normalized_recipients.append("player")
+            elif not r.startswith("agent:"):
+                normalized_recipients.append(f"agent:{r}")
+            else:
+                normalized_recipients.append(r)
 
-            # await_reply=true should only be used in task sessions
-            if await_reply and not session.is_task:
-                return (
-                    "❌ await_reply=true 只能在任务会话中使用。\n"
-                    "在主会话中发送消息不会等待回复。\n"
-                    "如果需要等待其他官员的回复，请先使用 create_task_session 创建任务会话。"
-                )
-
-        if not target_agent.startswith("agent:"):
-            target_agent = f"agent:{target_agent}"
-
-        # Prevent sending messages to oneself
-        if target_agent == f"agent:{self.agent_id}":
+        # 防止向自己发送消息
+        self_agent = f"agent:{self.agent_id}"
+        if self_agent in normalized_recipients:
             return "❌ 不能向自己发送消息"
 
-        logger.info(
-            f"📨 [Agent:{self.agent_id}] Sending message to {target_agent}: {message[:50]}..."
-            f" (await_reply={await_reply})"
-        )
-
-        # Design principle: AGENT_MESSAGE means "send to which agent in which session"
-        # Both agents share the same session
-        new_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=[target_agent],
-            type=EventType.AGENT_MESSAGE,
-            payload={
-                "message": message,
-                "original_caller": f"agent:{self.agent_id}",
-                "await_reply": await_reply,
-            },
-            session_id=event.session_id,  # Share the same session
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ Agent {self.agent_id} sent AGENT_MESSAGE to {target_agent}")
-
-        # If await_reply=true, increment pending_async_replies counter
+        # 处理 await_reply
         if await_reply and self.session_manager:
+            session = await self.session_manager.get_session(event.session_id)
+            if not session or not session.is_task:
+                return "❌ await_reply=true 只能在任务会话中使用"
             await self.session_manager.increment_async_replies(
-                event.session_id,
-                self.agent_id,
-                count=1,
+                event.session_id, self.agent_id, count=1
             )
-            # Also track the message ID for correlation
-            session = await self.session_manager.get_session(event.session_id)
-            if session:
-                session.pending_message_ids.append(new_event.event_id)
-                await self.session_manager.save_manifest()
-            return "消息已发送，等待回复..."
-        else:
-            return "✅ 消息已发送"
 
-    async def respond_to_player(self, args: dict, event: Event) -> str | tuple:
-        """Send responses to player
-
-        V4: 返回 (response_message, response_event) 元组，由 Agent 统一通过 ContextManager 管理。
-
-        Always sends to the original player who created the main session,
-        even when called from a nested task session.
-        """
-        content = args.get("content", "")
-
-        # Get the player source from session (traverse to main session if needed)
-        player_src = "player"  # Default fallback
-
-        if self.session_manager:
-            session = await self.session_manager.get_session(event.session_id)
-            if session:
-                # Traverse to main session (parent_id is None) to get original player
-                current_session = session
-                while current_session.parent_id:
-                    parent = await self.session_manager.get_session(current_session.parent_id)
-                    if not parent:
-                        break
-                    current_session = parent
-                # Use main session's creator as the destination
-                player_src = current_session.created_by or "player"
-
-        logger.info(f"💬 [Agent:{self.agent_id}] Responding to {player_src}: {content[:50]}...")
-
-        new_event = Event(
+        # 创建 AGENT_MESSAGE 事件
+        message_event = Event(
             src=f"agent:{self.agent_id}",
-            dst=[player_src],  # Always send to the original player
-            type=EventType.RESPONSE,
-            payload={"narrative": content},
+            dst=normalized_recipients,
+            type=EventType.AGENT_MESSAGE,
+            payload={"content": content, "await_reply": await_reply},
             session_id=event.session_id,
             parent_event_id=event.event_id,
             root_event_id=event.root_event_id,
         )
-        await self.event_bus.send_event(new_event)
-        logger.info(f"✅ [Agent:{self.agent_id}] Sent RESPONSE event to {player_src}")
+        await self.event_bus.send_event(message_event)
 
-        # V4: 返回事件对象，由 Agent 统一通过 ContextManager 添加到上下文和 tape
-        return ("✅ 响应已发送", new_event)
+        status_msg = "等待回复..." if await_reply else "✅ 消息已发送"
+        return (status_msg, message_event)
 
     async def finish_loop(self, args: dict, event: Event) -> str:
         """结束 agent loop（仅在成员 > 2 时生效）"""
