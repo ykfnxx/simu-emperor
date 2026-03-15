@@ -279,6 +279,12 @@ class ContextManager:
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         """
         events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
+
+        # 为没有 _tokens 的事件计算 token 数
+        for event in events:
+            if "_tokens" not in event and "tokens" not in event:
+                event["_tokens"] = self._calc_event_tokens(event)
+
         self.events.extend(events)
 
         # V4: Initialize tape position counter based on current tape length
@@ -288,9 +294,50 @@ class ContextManager:
             ancestors = self.session_manager.get_parent_chain(self.session_id)
             for ancestor in ancestors:
                 ancestor_events = await self._load_session_events(ancestor.session_id)
+
+                # 为祖先事件也计算 token 数
+                for event in ancestor_events:
+                    if "_tokens" not in event and "tokens" not in event:
+                        event["_tokens"] = self._calc_event_tokens(event)
+
                 self.events.extend(ancestor_events)
 
             self.events.sort(key=lambda e: e.get("timestamp", ""))
+
+        # 加载后检查 token 是否超过阈值，超过则自动 compact
+        if self._calc_total_tokens() > self.threshold:
+            logger.info(
+                f"加载 tape 后 token 总数 {self._calc_total_tokens()} > 阈值 {self.threshold}，"
+                f"触发自动 compact（原始事件数: {len(self.events)}）"
+            )
+            # 记录原始事件列表
+            original_events = self.events.copy()
+
+            # 如果事件数 <= keep_recent，直接删除最旧事件直到 token <= 阈值
+            # 因为 slide_window() 在这种情况下会直接返回
+            if len(self.events) <= self.config.keep_recent_events:
+                while self._calc_total_tokens() > self.threshold and len(self.events) > 1:
+                    self.events.pop(0)
+                    logger.debug(
+                        f"删除最旧事件（事件数较少但 token 超阈值），"
+                        f"剩余事件数: {len(self.events)}, token: {self._calc_total_tokens()}"
+                    )
+            else:
+                await self.slide_window()
+
+            # 计算 dropped_events 并更新 segment_index（使用事件 ID 比较）
+            original_event_ids = {e.get("event_id") for e in original_events}
+            current_event_ids = {e.get("event_id") for e in self.events}
+            dropped_event_ids = original_event_ids - current_event_ids
+
+            if dropped_event_ids:
+                dropped_events = [e for e in original_events if e.get("event_id") in dropped_event_ids]
+                await self._update_segment_index_for_dropped(dropped_events)
+
+            logger.info(
+                f"自动 compact 完成，最终事件数: {len(self.events)}，"
+                f"token 总数: {self._calc_total_tokens()}"
+            )
 
     async def _load_session_events(self, session_id: str) -> list[dict]:
         """加载指定 session 的事件"""
@@ -448,10 +495,11 @@ class ContextManager:
         锚点感知的滑动窗口
 
         策略：
-        1. 识别窗口内所有锚点
-        2. 保留最近 N 个事件
+        1. 如果事件数 <= keep_recent，不做处理
+        2. 否则识别锚点并保留最近 N 个事件
         3. 额外保留锚点附近 ±K 个事件
-        4. 更新 tape_meta.jsonl 的 segment_index
+        4. 确保保留的事件 token 总数 <= 阈值（继续删除最旧事件）
+        5. 更新 tape_meta.jsonl 的 segment_index
 
         SPEC: V3_MEMORY_SYSTEM_SPEC.md §4.3
         V4: Updates tape_meta.jsonl segment_index only (removed manifest.summary)
@@ -459,49 +507,51 @@ class ContextManager:
         keep_recent = self.config.keep_recent_events
         anchor_buffer = self.config.anchor_buffer
 
-        if len(self.events) <= keep_recent:
+        # 检查是否需要 compact：token 超过阈值 或 事件数超过 keep_recent
+        if len(self.events) <= keep_recent and self._calc_total_tokens() <= self.threshold:
             return
 
-        # Track dropped events for V4 segment_index update
-        original_count = len(self.events)
+        # 记录原始事件列表，用于计算 dropped_events
+        original_events = self.events.copy()
 
         # Step 1: 如果未启用锚点感知，直接保留最近N条事件
         if not self.config.enable_anchor_aware:
-            dropped_events = self.events[:-keep_recent]
             self.events = self.events[-keep_recent:]
-            await self._update_segment_index_for_dropped(dropped_events)
-            return
+        else:
+            # Step 2: 锚点感知的滑动窗口
+            # 2a. 识别锚点位置
+            anchor_positions = [
+                i for i, event in enumerate(self.events) if self._is_anchor_event(event)
+            ]
 
-        # Step 2: 锚点感知的滑动窗口
-        # 2a. 识别锚点位置
-        anchor_positions = [
-            i for i, event in enumerate(self.events) if self._is_anchor_event(event)
-        ]
+            # 2b. 确定保留哪些事件
+            keep_indices = set()
 
-        # 4b. 确定保留哪些事件
-        keep_indices = set()
+            # 总是保留最近的事件
+            recent_start = max(0, len(self.events) - keep_recent)
+            keep_indices.update(range(recent_start, len(self.events)))
 
-        # 总是保留最近的事件
-        recent_start = max(0, len(self.events) - keep_recent)
-        keep_indices.update(range(recent_start, len(self.events)))
+            # 保留锚点附近的事件（如果不在最近范围内）
+            for pos in anchor_positions:
+                if pos < recent_start:
+                    buffer_start = max(0, pos - anchor_buffer)
+                    buffer_end = min(recent_start, pos + anchor_buffer + 1)
+                    keep_indices.update(range(buffer_start, buffer_end))
 
-        # 保留锚点附近的事件（如果不在最近范围内）
-        for pos in anchor_positions:
-            if pos < recent_start:
-                buffer_start = max(0, pos - anchor_buffer)
-                buffer_end = min(recent_start, pos + anchor_buffer + 1)
-                keep_indices.update(range(buffer_start, buffer_end))
+            # 过滤事件
+            keep_indices_sorted = sorted(keep_indices)
+            self.events = [self.events[i] for i in keep_indices_sorted]
 
-        # Step 5: 过滤事件
-        keep_indices_sorted = sorted(keep_indices)
+        # Step 3: 如果保留的事件 token 总数仍超过阈值，继续删除最旧事件
+        while self._calc_total_tokens() > self.threshold and len(self.events) > 1:
+            self.events.pop(0)
+            logger.debug(
+                f"保留的事件仍超阈值，继续删除最旧事件，"
+                f"当前事件数: {len(self.events)}, token: {self._calc_total_tokens()}"
+            )
 
-        # Track dropped events for V4 segment_index update
-        dropped_indices = set(range(original_count)) - set(keep_indices_sorted)
-        dropped_events = [self.events[i] for i in sorted(dropped_indices)]
-
-        self.events = [self.events[i] for i in keep_indices_sorted]
-
-        # V4: Update segment_index in tape_meta.jsonl
+        # Step 4: 计算 dropped_events 并更新 segment_index
+        dropped_events = [e for e in original_events if e not in self.events]
         await self._update_segment_index_for_dropped(dropped_events)
 
     def get_context_messages(self) -> list[dict]:
@@ -551,10 +601,17 @@ class ContextManager:
         return messages
 
     def _calc_total_tokens(self) -> int:
-        """计算当前总token数（含摘要）"""
-        event_tokens = sum(e.get("_tokens", e.get("tokens", 0)) for e in self.events)
+        """计算当前总token数（含 system_prompt、摘要、事件）"""
+        # system_prompt token
+        system_prompt_tokens = count_tokens(self._system_prompt) if self._system_prompt else 0
+
+        # summary token
         summary_tokens = count_tokens(self.summary) if self.summary else 0
-        return event_tokens + summary_tokens
+
+        # events token
+        event_tokens = sum(e.get("_tokens", e.get("tokens", 0)) for e in self.events)
+
+        return system_prompt_tokens + summary_tokens + event_tokens
 
     def _is_anchor_event(self, event: dict) -> bool:
         """
@@ -663,13 +720,37 @@ class ContextManager:
             if isinstance(payload, dict):
                 query = payload.get("query", "")
                 intent = payload.get("intent", "")
+                message = payload.get("message", "")
+                narrative = payload.get("narrative", "")
+
                 if query:
                     event_summaries.append(f"{event_type}: {query[:50]}")
                 elif intent:
                     event_summaries.append(f"{event_type}: {intent}")
+                elif message:
+                    event_summaries.append(f"{event_type}: {message[:50]}")
+                elif narrative:
+                    event_summaries.append(f"{event_type}: {narrative[:50]}")
+                else:
+                    # 对于其他类型，使用工具调用信息
+                    if event_type == "tool_result":
+                        result = payload.get("result", "")
+                        if result:
+                            event_summaries.append(f"{event_type}: {str(result)[:50]}")
+                    elif event_type == "assistant_response":
+                        # 检查是否有 tool_calls
+                        if payload.get("tool_calls"):
+                            event_summaries.append(f"{event_type}: (带工具调用)")
+                        else:
+                            response = payload.get("response", "")
+                            if response:
+                                event_summaries.append(f"{event_type}: {response[:50]}")
+                    else:
+                        event_summaries.append(f"{event_type}: (事件)")
 
         if not event_summaries:
-            return None
+            # 如果仍然没有摘要，返回一个简单的统计摘要
+            return f"{len(events)} 个事件已被压缩"
 
         # Use LLM for summary if available
         try:

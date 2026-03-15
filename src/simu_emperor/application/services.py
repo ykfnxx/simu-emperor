@@ -79,12 +79,17 @@ class ApplicationServices:
         # 1. Initialize LLM Provider
         llm_config = settings.llm
         if llm_config.provider == "anthropic":
-            llm_provider = AnthropicProvider(api_key=llm_config.api_key)
+            llm_provider = AnthropicProvider(
+                api_key=llm_config.api_key,
+                model=llm_config.get_model(),
+                context_window=llm_config.context_window,
+            )
         elif llm_config.provider == "openai":
             llm_provider = OpenAIProvider(
                 api_key=llm_config.api_key,
                 model=llm_config.get_model(),
                 base_url=llm_config.api_base,
+                context_window=llm_config.context_window,
             )
         else:
             llm_provider = MockProvider()

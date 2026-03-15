@@ -28,6 +28,7 @@ def create_llm_provider():
         return AnthropicProvider(
             api_key=settings.llm.api_key,
             model=settings.llm.get_model(),
+            context_window=settings.llm.context_window,
         )
 
     elif provider_type == "openai":
@@ -39,6 +40,7 @@ def create_llm_provider():
             api_key=settings.llm.api_key,
             model=settings.llm.get_model(),
             base_url=settings.llm.api_base,
+            context_window=settings.llm.context_window,
         )
 
     else:

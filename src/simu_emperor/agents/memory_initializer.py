@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from simu_emperor.agents.tools.memory_tools import MemoryTools
+from simu_emperor.config import settings
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
 from simu_emperor.memory.tape_writer import TapeWriter
@@ -84,11 +85,17 @@ class MemoryInitializer:
         tape_path = self._tape_writer._get_tape_path(session_id, self.agent_id)
 
         # 2. V4: 初始化 ContextManager（注入所有依赖）
+        # 从 settings 传递记忆上下文配置
+        memory_context = settings.memory.context
         context_manager = ContextManager(
             session_id=session_id,
             agent_id=self.agent_id,
             tape_path=tape_path,
-            config=ContextConfig(),
+            config=ContextConfig(
+                max_tokens=memory_context.max_tokens,
+                threshold_ratio=memory_context.threshold_ratio,
+                keep_recent_events=memory_context.keep_recent_events,
+            ),
             llm_provider=self.llm_provider,
             tape_writer=self._tape_writer,  # V4 新增
             tape_metadata_mgr=self._tape_metadata_mgr,  # V4 新增

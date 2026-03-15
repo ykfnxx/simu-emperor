@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from simu_emperor.common import FileOperationsHelper
+from simu_emperor.config import settings
 from simu_emperor.session.constants import MAX_TASK_DEPTH
 from simu_emperor.session.models import Session
 
@@ -244,11 +245,17 @@ class SessionManager:
             from simu_emperor.memory.context_manager import ContextManager, ContextConfig
 
             tape_path = self.get_tape_path(session_id, agent_id)
+            # 从 settings 传递记忆上下文配置
+            memory_context = settings.memory.context
             cm = ContextManager(
                 session_id=session_id,
                 agent_id=agent_id,
                 tape_path=tape_path,
-                config=ContextConfig(),
+                config=ContextConfig(
+                    max_tokens=memory_context.max_tokens,
+                    threshold_ratio=memory_context.threshold_ratio,
+                    keep_recent_events=memory_context.keep_recent_events,
+                ),
                 llm_provider=self.llm_provider,
                 session_manager=self,
                 # V4: 传递 tape_metadata_mgr 和 tape_writer

@@ -78,6 +78,9 @@ class LLMConfig(BaseSettings):
         default=None, description="API Base URL（用于兼容 OpenAI 格式的服务，如 DeepSeek、智谱等）"
     )
     model: str | None = Field(default=None, description="模型名称（可选，使用默认值）")
+    context_window: int | None = Field(
+        default=128000, description="LLM 上下文窗口大小（token 数），用于调试和测试"
+    )
 
     # 默认模型
     _DEFAULT_MODELS = {

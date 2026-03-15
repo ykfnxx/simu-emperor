@@ -24,37 +24,13 @@ class OpenAIProvider(LLMProvider):
     使用 openai SDK 调用 GPT API。
     """
 
-    # GPT 模型上下文窗口大小（根据官方文档）
-    _CONTEXT_WINDOWS = {
-        # GPT-4o 系列 (2025)
-        "gpt-4o": 128000,
-        "gpt-4o-2024-05-13": 128000,
-        "gpt-4o-mini": 128000,
-        # GPT-4 Turbo 系列
-        "gpt-4-turbo": 128000,
-        "gpt-4-turbo-2024-04-09": 128000,
-        "gpt-4-turbo-preview": 128000,
-        # GPT-4 系列
-        "gpt-4": 8192,
-        "gpt-4-32k": 32768,
-        # GPT-3.5 Turbo 系列
-        "gpt-3.5-turbo": 16385,
-        "gpt-3.5-turbo-16k": 16385,
-        # O 系列 (推理模型)
-        "o1": 200000,
-        "o1-mini": 128000,
-        # 常见中文模型（兼容 OpenAI API）
-        "glm-4": 128000,
-        "glm-4-plus": 128000,
-        "deepseek-chat": 128000,
-        "deepseek-coder": 128000,
-        # 阿里云 MiniMax 系列（六）
-        "mini-max": 128000,
-        "MiniMax-M2.5": 128000,
-        "MiniMax-M3": 128000,
-    }
-
-    def __init__(self, api_key: str, model: str = "gpt-4", base_url: str | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4",
+        base_url: str | None = None,
+        context_window: int | None = None,
+    ):
         """
         初始化 OpenAI 提供商
 
@@ -62,6 +38,7 @@ class OpenAIProvider(LLMProvider):
             api_key: OpenAI API 密钥
             model: 模型名称（默认 gpt-4）
             base_url: API Base URL（可选，用于兼容 OpenAI 格式的服务）
+            context_window: 上下文窗口大小（可选，从配置读取）
         """
         if not OPENAI_AVAILABLE:
             raise ImportError("openai package is required. Install with: pip install openai")
@@ -72,88 +49,25 @@ class OpenAIProvider(LLMProvider):
 
         self.client = openai.AsyncOpenAI(**client_kwargs)
         self.model = model
+        self._context_window = context_window
         logger.info(
             f"OpenAIProvider initialized with model: {model}, base_url: {base_url or 'default'}"
         )
 
     def get_context_window_size(self) -> int:
         """
-        获取当前 GPT 模型的上下文窗口大小
+        获取当前模型的上下文窗口大小
 
-        如果模型在映射表中，返回准确的值。
-        如果不在映射表中，根据模型名称模式智能推测，并记录警告。
+        从配置文件读取统一值。
 
         Returns:
             上下文窗口大小（token 数）
         """
-        # 优先从映射表查找
-        if self.model in self._CONTEXT_WINDOWS:
-            return self._CONTEXT_WINDOWS[self.model]
+        if self._context_window:
+            return self._context_window
 
-        # 智能推测：根据模型名称模式
-        model_lower = self.model.lower()
-
-        # GPT-4o 系列通常有 128K context
-        if "gpt-4o" in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 128K (GPT-4o series)"
-            )
-            return 128000
-
-        # GPT-4 Turbo 系列通常有 128K context
-        if "gpt-4-turbo" in model_lower or "gpt-4-turbo" in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 128K (GPT-4 Turbo series)"
-            )
-            return 128000
-
-        # GPT-4 系列（非32k版本）通常有 8K context
-        if "gpt-4" in model_lower and "32k" not in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 8K (GPT-4 base)"
-            )
-            return 8192
-
-        # GPT-4 32K 系列
-        if "32k" in model_lower:
-            logger.info(f"Model '{self.model}' not in context window table, assuming 32K")
-            return 32768
-
-        # O1 系列通常有 200K context
-        if "o1" in model_lower and "mini" not in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 200K (O1 series)"
-            )
-            return 200000
-
-        # O1-mini 系列通常有 128K context
-        if "o1-mini" in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 128K (O1-mini)"
-            )
-            return 128000
-
-        # GPT-3.5 Turbo 系列通常有 16K context
-        if "gpt-3.5" in model_lower or "gpt-35" in model_lower:
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 16K (GPT-3.5 Turbo)"
-            )
-            return 16385
-
-        # 中文模型（智谱、DeepSeek、通义千问等）通常有 128K context
-        if any(prefix in model_lower for prefix in ["glm", "deepseek", "qwen", "yi", "baichuan"]):
-            logger.info(
-                f"Model '{self.model}' not in context window table, assuming 128K (Chinese model)"
-            )
-            return 128000
-
-        # 无法推测，使用保守默认值并记录警告
-        logger.warning(
-            f"Unknown model '{self.model}', cannot determine context window size. "
-            f"Using conservative default 8192 tokens. "
-            f"Please add this model to _CONTEXT_WINDOWS for accurate sizing."
-        )
-        return 8192
+        # 后备：使用保守默认值
+        return 8000
 
     async def call(
         self,
