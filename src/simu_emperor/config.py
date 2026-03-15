@@ -45,19 +45,6 @@ class LoggingConfig(BaseSettings):
     llm_audit_dir: str = Field(default="data/audit/llm", description="LLM 审计日志目录")
 
 
-class TelegramConfig(BaseSettings):
-    """Telegram Bot 配置。"""
-
-    bot_token: str = Field(default="", description="Telegram Bot Token")
-    mode: Literal["polling", "webhook"] = Field(default="polling", description="运行模式")
-    session_timeout_hours: int = Field(default=24, ge=1, description="会话超时时间（小时）")
-    response_timeout_seconds: int = Field(default=30, ge=5, description="响应超时时间（秒）")
-    max_sessions: int = Field(default=100, ge=1, description="最大会话数")
-    enabled_commands: list[str] = Field(
-        default=["start", "help", "agents", "stat"], description="启用的命令列表"
-    )
-
-
 class AgentConfig(BaseSettings):
     """Agent 子系统配置。"""
 
@@ -113,7 +100,6 @@ class GameConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 
     @classmethod
     def settings_customise_sources(

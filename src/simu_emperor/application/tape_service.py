@@ -226,7 +226,7 @@ class TapeService:
 
     def _is_main_session(self, session_id: str) -> bool:
         """Check if session is a main session."""
-        return session_id.startswith("session:web:") or session_id.startswith("session:telegram:")
+        return session_id.startswith("session:web:")
 
     def _is_task_session(self, session_id: str) -> bool:
         """Check if session is a task session."""

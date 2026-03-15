@@ -17,7 +17,6 @@
 graph TB
     subgraph "Adapter Layer 适配层"
         WEB[Web Adapter]
-        TG[Telegram Adapter]
     end
 
     subgraph "Application Layer 应用层 (V4.1)"
@@ -41,7 +40,6 @@ graph TB
     end
 
     WEB -->|"HTTP Request"| Services
-    TG -->|"Update"| Services
 
     Services -->|"依赖"| GameSvc
     Services -->|"依赖"| SessionSvc

@@ -32,23 +32,6 @@ memory:
   # 存储路径
   memory_dir: "data/memory"       # 记忆存储根目录
 
-# Telegram Bot 配置
-telegram:
-  bot_token: "your_bot_token_here"
-  mode: "polling"
-  session_timeout_hours: 24
-  response_timeout_seconds: 30
-  max_sessions: 100
-  # 启用的命令列表 - 可以根据需要启用或禁用命令
-  # 可用命令: start, help, agents, stat, end_turn
-  # 设为空列表 [] 则禁用所有命令（仅保留消息交互功能）
-  enabled_commands:
-    - start
-    - help
-    - agents
-    - stat
-    - end_turn
-
 # 日志配置
 logging:
   log_level: "INFO"

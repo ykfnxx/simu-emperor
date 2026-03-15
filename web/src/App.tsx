@@ -99,9 +99,9 @@ function normalizeEventType(type: string): string {
 }
 
 function isMainSession(sessionId: string): boolean {
-  // 主会话以 session:web: 或 session:telegram: 开头
+  // 主会话以 session:web: 开头
   // 任务会话以 task: 开头，不在UI中显示
-  return sessionId.startsWith('session:web:') || sessionId.startsWith('session:telegram:');
+  return sessionId.startsWith('session:web:');
 }
 
 type TapeEventStyle = {

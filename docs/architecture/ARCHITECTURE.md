@@ -22,8 +22,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                     Adapter Layer (适配器层)                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │     Web      │  │   Telegram   │  │   Future...  │      │
-│  │   Adapter    │  │   Adapter    │  │              │      │
+│  │     Web      │  │              │  │   Future...  │      │
+│  │   Adapter    │  │              │  │              │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 └────────────────────────────┬────────────────────────────────┘
                              │ 仅协议转换
@@ -852,4 +852,3 @@ soul.md + data_scope.yaml → Agent 行为
 
 - 主会话：`session:web:{agent_id}:{timestamp}:{suffix}`
 - 任务会话：`task:{agent_name}:{timestamp}:{suffix}`
-- Telegram：`session:telegram:{user_id}:{timestamp}:{suffix}`

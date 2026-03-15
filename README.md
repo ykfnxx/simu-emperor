@@ -18,7 +18,6 @@
 - **事件驱动架构**：基于 EventBus 的完全异步通信
 - **Tick 时间系统**：自动推进时间，经济与人口自然增长
 - **持久化记忆**：官员可跨会话回忆历史事件
-- **多端接入**：支持 Web 界面、Telegram Bot
 - **文件驱动配置**：官员定义由 Markdown + YAML 配置，无需修改代码
 
 ### 官员行为特点
@@ -71,7 +70,7 @@ llm:
 
 ### 运行方式
 
-#### Web 界面（推荐）
+#### Web 界面
 
 ```bash
 # 启动后端服务器
@@ -82,18 +81,6 @@ uv run simu-emperor --host 0.0.0.0 --port 8000 --reload
 ```
 
 访问 http://localhost:8000 开始游戏。
-
-#### Telegram Bot
-
-1. 在 `config.yaml` 中配置 Bot Token：
-
-```yaml
-telegram:
-  bot_token: "your_bot_token_here"
-  mode: "polling"
-```
-
-2. 启动服务（Web 模式会同时启用 Bot）
 
 ## 功能介绍
 
