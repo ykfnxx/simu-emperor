@@ -35,6 +35,7 @@ class SegmentSearcher:
         matching_entries: list[TapeMetadataEntry],
         query: StructuredQuery,
         max_results: int = 5,
+        candidate_segment_ids: list[str] | None = None,
     ) -> list[TapeSegment]:
         """
         Search segments within matching tapes.
@@ -44,6 +45,7 @@ class SegmentSearcher:
             matching_entries: TapeMetadataEntry list from Level 1
             query: Parsed query from QueryParser
             max_results: Maximum segments to return
+            candidate_segment_ids: Optional list from vector search for re-ranking
 
         Returns:
             List of TapeSegment, sorted by relevance_score descending
@@ -53,6 +55,8 @@ class SegmentSearcher:
             2. Split into SEGMENT_SIZE chunks
             3. Calculate score for each segment
             4. Merge and sort, return top N
+
+        If candidate_segment_ids provided, boost relevance for matching segments.
         """
         if not matching_entries:
             return []
@@ -77,9 +81,69 @@ class SegmentSearcher:
                 continue
             all_segments.extend(result)
 
+        # Apply vector ranking boost if candidates provided
+        if candidate_segment_ids:
+            all_segments = self._apply_vector_ranking(all_segments, candidate_segment_ids)
+
         # Sort by score and return top N
         all_segments.sort(key=lambda s: s.relevance_score, reverse=True)
         return all_segments[:max_results]
+
+    def _apply_vector_ranking(
+        self,
+        segments: list[TapeSegment],
+        candidate_ids: list[str],
+        boost_factor: float = 2.0,
+    ) -> list[TapeSegment]:
+        """
+        Boost relevance scores for segments that match vector search results.
+
+        Args:
+            segments: List of segments to re-rank
+            candidate_ids: Segment IDs from vector search (ordered by relevance)
+            boost_factor: Score multiplier for vector matches
+
+        Returns:
+            List of segments with updated relevance scores
+        """
+        # Create position map for ranked candidates
+        id_to_rank = {seg_id: idx for idx, seg_id in enumerate(candidate_ids)}
+
+        boosted_segments = []
+        for segment in segments:
+            seg_id = self._make_segment_id(segment)
+            base_score = segment.relevance_score
+
+            if seg_id in id_to_rank:
+                # Boost score based on vector rank (higher rank = bigger boost)
+                rank = id_to_rank[seg_id]
+                rank_bonus = (len(candidate_ids) - rank) / len(candidate_ids)
+                new_score = base_score + (boost_factor * rank_bonus)
+            else:
+                new_score = base_score * 0.5  # Penalize non-vector matches
+
+            # Create new segment with updated score
+            boosted_segments.append(
+                TapeSegment(
+                    session_id=segment.session_id,
+                    agent_id=segment.agent_id,
+                    start_position=segment.start_position,
+                    end_position=segment.end_position,
+                    event_count=segment.event_count,
+                    events=segment.events,
+                    tick_start=segment.tick_start,
+                    tick_end=segment.tick_end,
+                    timestamp_start=segment.timestamp_start,
+                    timestamp_end=segment.timestamp_end,
+                    relevance_score=new_score,
+                )
+            )
+
+        return boosted_segments
+
+    def _make_segment_id(self, segment: TapeSegment) -> str:
+        """Generate segment ID matching VectorSearcher format."""
+        return f"{segment.session_id}:{segment.start_position}:{segment.end_position}"
 
     async def _search_single_tape(
         self,

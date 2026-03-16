@@ -82,6 +82,18 @@ class LLMConfig(BaseSettings):
         return self._DEFAULT_MODELS.get(self.provider, "unknown")
 
 
+class EmbeddingConfig(BaseSettings):
+    """向量检索 Embedding 配置。"""
+
+    provider: Literal["openai", "mock"] = Field(
+        default="openai", description="Embedding 提供商: openai/mock"
+    )
+    api_key: str | None = Field(default=None, description="OpenAI API Key")
+    model: str = Field(default="text-embedding-3-small", description="Embedding 模型")
+    enabled: bool = Field(default=True, description="是否启用向量检索")
+    batch_size: int = Field(default=100, ge=1, description="批量 embedding 大小")
+
+
 class GameConfig(BaseSettings):
     """游戏全局配置。"""
 
@@ -100,6 +112,7 @@ class GameConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
 
     @classmethod
     def settings_customise_sources(

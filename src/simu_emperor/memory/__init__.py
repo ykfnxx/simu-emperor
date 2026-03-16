@@ -14,6 +14,7 @@ from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.tape_metadata_index import TapeMetadataIndex
 from simu_emperor.memory.segment_searcher import SegmentSearcher
 from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
+from simu_emperor.memory.vector_searcher import VectorSearcher
 
 # V3 Components (still used)
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig, count_tokens
@@ -39,6 +40,7 @@ __all__ = [
     "TapeMetadataIndex",
     "SegmentSearcher",
     "TwoLevelSearcher",
+    "VectorSearcher",
     # V3 Components
     "ContextManager",
     "ContextConfig",
