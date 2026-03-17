@@ -57,13 +57,29 @@ class MemoryTools:
         from simu_emperor.memory.tape_metadata_index import TapeMetadataIndex
         from simu_emperor.memory.segment_searcher import SegmentSearcher
         from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
+        from simu_emperor.memory.vector_searcher import VectorSearcher
 
         # Initialize two-level search components
         tape_metadata_index = TapeMetadataIndex(memory_dir=memory_dir)
         segment_searcher = SegmentSearcher(memory_dir=memory_dir)
+
+        # Initialize vector searcher if enabled
+        vector_searcher = None
+        from simu_emperor.config import settings
+        if settings.embedding.enabled:
+            try:
+                vector_searcher = VectorSearcher(
+                    memory_dir=memory_dir,
+                    config=settings.embedding,
+                )
+                logger.info(f"Vector search enabled for agent {agent_id}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize vector search: {e}")
+
         two_level_searcher = TwoLevelSearcher(
             tape_metadata_index=tape_metadata_index,
             segment_searcher=segment_searcher,
+            vector_searcher=vector_searcher,
         )
 
         # Initialize retriever with two-level search

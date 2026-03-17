@@ -9,6 +9,7 @@ from simu_emperor.config import settings
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
 from simu_emperor.memory.tape_writer import TapeWriter
+from simu_emperor.memory.vector_searcher import VectorSearcher
 
 if TYPE_CHECKING:
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
@@ -84,7 +85,19 @@ class MemoryInitializer:
         # 1. 获取 tape 路径
         tape_path = self._tape_writer._get_tape_path(session_id, self.agent_id)
 
-        # 2. V4: 初始化 ContextManager（注入所有依赖）
+        # 2. V4+: 初始化 VectorSearcher（如果启用）
+        vector_searcher = None
+        if settings.embedding.enabled:
+            try:
+                vector_searcher = VectorSearcher(
+                    memory_dir=self.memory_dir,
+                    config=settings.embedding,
+                )
+                logger.info(f"   [Agent:{self.agent_id}] Vector search enabled")
+            except Exception as e:
+                logger.warning(f"   [Agent:{self.agent_id}] Vector search init failed: {e}")
+
+        # 3. V4: 初始化 ContextManager（注入所有依赖）
         # 从 settings 传递记忆上下文配置
         memory_context = settings.memory.context
         context_manager = ContextManager(
@@ -100,6 +113,7 @@ class MemoryInitializer:
             tape_writer=self._tape_writer,  # V4 新增
             tape_metadata_mgr=self._tape_metadata_mgr,  # V4 新增
             system_prompt=system_prompt,  # V4 新增
+            vector_searcher=vector_searcher,  # V4+ 新增
         )
 
         # 3. V4: 初始化 MemoryTools

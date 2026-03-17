@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from simu_emperor.llm.base import LLMProvider
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
     from simu_emperor.memory.tape_writer import TapeWriter
+    from simu_emperor.memory.vector_searcher import VectorSearcher
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class ContextManager:
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
         tape_writer: "TapeWriter | None" = None,
         system_prompt: str | None = None,
+        vector_searcher: "VectorSearcher | None" = None,
     ):
         """
         Initialize ContextManager（V4 重构）。
@@ -84,6 +86,7 @@ class ContextManager:
             tape_metadata_mgr: V4 TapeMetadataManager for segment_index updates
             tape_writer: V4 TapeWriter for synchronous tape writing
             system_prompt: V4 System prompt to store
+            vector_searcher: V4+ VectorSearcher for semantic indexing
         """
         self.session_id = session_id
         self.agent_id = agent_id
@@ -96,6 +99,7 @@ class ContextManager:
         # V4: 新增属性
         self._tape_writer = tape_writer
         self._system_prompt = system_prompt
+        self._vector_searcher = vector_searcher  # V4+ Vector search integration
 
         # 初始化max_tokens（如果为None则查询LLM）
         self.max_tokens = config.max_tokens or self._query_llm_context_window()
@@ -697,6 +701,10 @@ class ContextManager:
                 segment_info=segment_info,
             )
 
+            # V4+: Add segment to vector store for semantic search
+            if self._vector_searcher:
+                await self._add_segment_to_vector_store(dropped_events, start_position, end_position, tick)
+
             # Move window offset forward after recording segment
             self._window_offset += len(dropped_events)
             await self.tape_metadata_mgr.update_window_offset(
@@ -712,6 +720,40 @@ class ContextManager:
             )
         except Exception as e:
             logger.warning(f"Failed to update segment_index: {e}")
+
+    async def _add_segment_to_vector_store(
+        self, events: list[dict], start_pos: int, end_pos: int, tick: int | None
+    ) -> None:
+        """
+        V4+: Add compacted segment to vector store for semantic search.
+
+        Args:
+            events: Dropped events to add
+            start_pos: Start position in tape
+            end_pos: End position in tape
+            tick: Tick number
+        """
+        if not self._vector_searcher:
+            return
+
+        try:
+            from simu_emperor.memory.models import TapeSegment
+
+            segment = TapeSegment(
+                session_id=self.session_id,
+                agent_id=self.agent_id,
+                start_position=start_pos,
+                end_position=end_pos,
+                event_count=len(events),
+                events=events,
+                tick_start=tick,
+                tick_end=tick,
+            )
+
+            await self._vector_searcher.add_segments([segment])
+            logger.debug(f"Added segment to vector store: {self.session_id}:{start_pos}:{end_pos}")
+        except Exception as e:
+            logger.warning(f"Failed to add segment to vector store: {e}")
 
     async def _summarize_events(self, events: list[dict]) -> str | None:
         """
