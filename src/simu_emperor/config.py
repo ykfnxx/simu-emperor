@@ -54,6 +54,22 @@ class AgentConfig(BaseSettings):
     )
 
 
+class IncidentConfig(BaseSettings):
+    """Incident 子系统配置。"""
+
+    enabled: bool = Field(default=True, description="是否启用随机事件生成")
+    check_interval_ticks: int = Field(default=4, ge=1, description="每隔多少 tick 检查一次随机事件（4=每月）")
+    base_trigger_probability: float = Field(
+        default=0.1, ge=0.0, le=1.0, description="基础触发概率"
+    )
+    max_active_system_incidents: int = Field(
+        default=5, ge=1, description="系统生成的最大活跃 incident 数"
+    )
+    llm_beautify_enabled: bool = Field(
+        default=True, description="是否启用 LLM 叙事美化"
+    )
+
+
 class LLMConfig(BaseSettings):
     """LLM Provider 配置。"""
 
@@ -109,6 +125,7 @@ class GameConfig(BaseSettings):
     max_random_events_per_turn: int = Field(default=2, ge=0, description="每回合最大随机事件数")
     log_sensitive_data: bool = Field(default=False, description="敏感数据脱敏开关")
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    incident: IncidentConfig = Field(default_factory=IncidentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
