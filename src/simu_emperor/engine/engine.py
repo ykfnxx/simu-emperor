@@ -34,6 +34,8 @@ class Engine:
         # 存储上一tick的数值，用于计算变化量
         # 格式: {province_id: {field: value}}
         self._previous_tick_values: dict[str, dict[str, Decimal]] = {}
+        # 上一次 apply_tick 中过期的 incidents
+        self._last_expired_incidents: list[Incident] = []
 
         if event_bus:
             event_bus.subscribe("system:engine", self._on_incident_created)
@@ -64,10 +66,13 @@ class Engine:
         self._calculate_tax_and_treasury()
 
         # 4. 刷新 Incident 状态
-        self._refresh_incidents()
+        expired_incidents = self._refresh_incidents()
 
         # 5. 增加 tick 计数
         self.state.turn += 1
+
+        # 保存过期 incidents 供外部查询
+        self._last_expired_incidents = expired_incidents
 
         return self.state
 
@@ -233,18 +238,26 @@ class Engine:
         # imperial_treasury = max(0, imperial_treasury)
         self.state.imperial_treasury = max(Decimal("0"), self.state.imperial_treasury)
 
-    def _refresh_incidents(self) -> None:
+    def _refresh_incidents(self) -> list[Incident]:
         """刷新 Incident 状态
 
         每个 Incident.remaining_ticks -= 1
         移除 remaining_ticks == 0 的 Incident
+
+        Returns:
+            过期的 Incident 列表（用于通知）
         """
         # 减少剩余 tick
         for incident in self.active_incidents:
             incident.remaining_ticks -= 1
 
+        # 收集已到期的 Incident
+        expired = [inc for inc in self.active_incidents if inc.remaining_ticks <= 0]
+
         # 移除已到期的 Incident
         self.active_incidents = [inc for inc in self.active_incidents if inc.remaining_ticks > 0]
+
+        return expired
 
     def _save_previous_values(self) -> None:
         """保存当前省份数值，用于计算变化量"""
@@ -336,6 +349,14 @@ class Engine:
             Copy of active incidents list
         """
         return self.active_incidents.copy()
+
+    def get_last_expired_incidents(self) -> List[Incident]:
+        """获取上一次 apply_tick 中过期的 Incident
+
+        Returns:
+            Copy of last expired incidents list
+        """
+        return self._last_expired_incidents.copy()
 
     def get_province_incident_effects(self, province_id: str) -> dict[str, Decimal]:
         """获取省份的事件影响（incident叠加效果）

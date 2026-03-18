@@ -72,7 +72,7 @@ class GameService:
 
         # Initialize Engine
         from simu_emperor.engine.engine import Engine
-        self._engine = Engine(initial_state)
+        self._engine = Engine(initial_state, self.event_bus)
         logger.info("Engine initialized")
 
         # Initialize and start TickCoordinator

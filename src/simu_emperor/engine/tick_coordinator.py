@@ -98,6 +98,22 @@ class TickCoordinator:
                 # 执行 tick 计算
                 new_state = self.engine.apply_tick()
 
+                # 发布过期 incident 事件
+                for expired_inc in self.engine.get_last_expired_incidents():
+                    expired_event = Event(
+                        src="system:engine",
+                        dst=["*"],
+                        type="incident_expired",
+                        payload={
+                            "incident_id": expired_inc.incident_id,
+                            "title": expired_inc.title,
+                            "source": expired_inc.source,
+                        },
+                        session_id=self.session_id,
+                    )
+                    await self.event_bus.send_event(expired_event)
+                    logger.info(f"Incident expired: {expired_inc.incident_id} ({expired_inc.title})")
+
                 # 持久化新状态
                 await self._persist_state(new_state)
 
