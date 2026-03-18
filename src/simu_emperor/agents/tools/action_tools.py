@@ -38,11 +38,13 @@ class ActionTools:
         event_bus: EventBus,
         data_dir: Path,
         session_manager=None,
+        on_soul_updated=None,
     ):
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.data_dir = data_dir
         self.session_manager = session_manager
+        self.on_soul_updated = on_soul_updated
 
     async def send_message(self, args: dict, event: Event) -> str | tuple:
         """统一的消息发送函数
@@ -145,6 +147,64 @@ class ActionTools:
         self._cleanup_old_memories(recent_dir, turn)
 
         logger.info(f"✅ Agent {self.agent_id} wrote memory for turn {turn}")
+
+    async def write_long_term_memory(self, args: dict, event: Event) -> str:
+        """Write long-term memory to MEMORY.md"""
+        content = args.get("content", "")
+        if not content.strip():
+            return "❌ 长期记忆内容不能为空"
+
+        tick = event.payload.get("tick", 0)
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+        memory_dir = self.data_dir / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        memory_file = memory_dir / "MEMORY.md"
+
+        # Read existing or create header
+        if memory_file.exists():
+            existing = memory_file.read_text(encoding="utf-8")
+        else:
+            existing = f"# {self.agent_id} 长期记忆\n\n"
+
+        # Append new entry
+        entry = f"## Tick {tick} - {timestamp}\n\n{content}\n\n"
+        memory_file.write_text(existing + entry, encoding="utf-8")
+
+        logger.info(f"✅ Agent {self.agent_id} wrote long-term memory at tick {tick}")
+        return f"✅ 长期记忆已写入 MEMORY.md (Tick {tick})"
+
+    async def update_soul(self, args: dict, event: Event) -> str:
+        """Append personality evolution record to soul.md"""
+        content = args.get("content", "")
+        if not content.strip():
+            return "❌ 性格变化内容不能为空"
+
+        tick = event.payload.get("tick", 0)
+        soul_path = self.data_dir / "soul.md"
+
+        if not soul_path.exists():
+            return f"❌ soul.md 不存在: {soul_path}"
+
+        soul_content = soul_path.read_text(encoding="utf-8")
+
+        # Check if evolution section exists, add if not
+        section_header = "## 性格变化记录"
+        if section_header not in soul_content:
+            soul_content = soul_content.rstrip() + f"\n\n{section_header}\n\n"
+
+        # Append entry under the section
+        entry = f"### Tick {tick}\n\n{content}\n\n"
+        soul_content += entry
+        soul_path.write_text(soul_content, encoding="utf-8")
+
+        logger.info(f"✅ Agent {self.agent_id} updated soul at tick {tick}")
+
+        # Trigger callback to reload soul in agent
+        if self.on_soul_updated:
+            self.on_soul_updated()
+
+        return f"✅ 性格变化已记录到 soul.md (Tick {tick})"
 
     @staticmethod
     def _cleanup_old_memories(recent_dir: Path, current_turn: int) -> None:
