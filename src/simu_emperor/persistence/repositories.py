@@ -311,15 +311,13 @@ class IncidentRepository:
             return await get_connection()
         return self.conn
 
-    async def save_incident(self, incident: "Incident", tick: int) -> None:
+    async def save_incident(self, incident, tick: int) -> None:
         """保存或更新 Incident.
 
         Args:
             incident: Incident 对象
             tick: 当前 tick 数
         """
-        from simu_emperor.engine.models.incident import Incident  # noqa: F811
-
         conn = await self._get_conn()
 
         effects_json = json.dumps([

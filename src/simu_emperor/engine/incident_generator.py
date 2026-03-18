@@ -5,7 +5,7 @@
 
 import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 
 from simu_emperor.config import IncidentConfig
