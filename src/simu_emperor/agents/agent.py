@@ -60,6 +60,7 @@ class Agent:
         # V4.1: 注入全局共享实例
         tape_writer=None,
         tape_metadata_mgr=None,
+        engine=None,
     ):
         """
         初始化 Agent
@@ -75,6 +76,7 @@ class Agent:
             session_manager: SessionManager（V4 Task Session 支持）
             tape_writer: V4.1 全局共享的 TapeWriter 实例
             tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
+            engine: Engine 实例（用于 incident 查询）
         """
         self.agent_id = agent_id
         self.event_bus = event_bus
@@ -103,6 +105,7 @@ class Agent:
             agent_id=self.agent_id,
             repository=self.repository,
             data_dir=self.data_dir,
+            engine=engine,
         )
         self._action_tools = ActionTools(
             agent_id=self.agent_id,
@@ -251,6 +254,28 @@ class Agent:
                 "required": ["agent_id"],
             },
             handler=self._query_tools.get_agent_info,
+            category="query",
+        ))
+
+        # query_incidents
+        self._tool_registry.register(Tool(
+            name="query_incidents",
+            description="查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "filter_province": {
+                        "type": "string",
+                        "description": "按省份 ID 过滤（可选）",
+                    },
+                    "filter_source": {
+                        "type": "string",
+                        "description": "按来源过滤（可选）",
+                    },
+                },
+                "required": [],
+            },
+            handler=self._query_tools.query_incidents,
             category="query",
         ))
 

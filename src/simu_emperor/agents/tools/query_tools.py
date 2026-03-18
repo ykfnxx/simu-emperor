@@ -35,6 +35,7 @@ class QueryTools:
         agent_id: str,
         repository: Any,
         data_dir: Path,
+        engine: Any = None,
     ):
         """
         Initialize QueryTools
@@ -43,10 +44,12 @@ class QueryTools:
             agent_id: Agent unique identifier
             repository: GameRepository for data queries
             data_dir: Data directory path
+            engine: Engine instance for incident queries (optional)
         """
         self.agent_id = agent_id
         self.repository = repository
         self.data_dir = data_dir
+        self.engine = engine
         self._role_map_parser = RoleMapParser(data_dir)
 
     async def query_province_data(self, args: dict, event: Event) -> str:
@@ -185,3 +188,46 @@ class QueryTools:
         commands = agent.get("commands", "暂无适用命令")
 
         return f"## {title} {name}\n**职责**: {duty}\n**适用命令**: {commands}"
+
+    async def query_incidents(self, args: dict, event: Event) -> str:
+        """Query active incidents, optionally filtered by province or source."""
+        if not self.engine:
+            return "❌ Engine not available"
+
+        filter_province = args.get("filter_province")
+        filter_source = args.get("filter_source")
+
+        incidents = self.engine.get_active_incidents()
+
+        if filter_province:
+            incidents = [
+                inc for inc in incidents
+                if any(
+                    f"provinces.{filter_province}." in eff.target_path
+                    for eff in inc.effects
+                )
+            ]
+
+        if filter_source:
+            incidents = [inc for inc in incidents if inc.source == filter_source]
+
+        if not incidents:
+            return "当前没有活跃的事件。"
+
+        lines = [f"当前活跃事件（共 {len(incidents)} 个）："]
+        for inc in incidents:
+            effects_desc = []
+            for eff in inc.effects:
+                if eff.add is not None:
+                    effects_desc.append(f"{eff.target_path} +{eff.add}")
+                elif eff.factor is not None:
+                    pct = float(eff.factor) * 100
+                    effects_desc.append(f"{eff.target_path} {pct:+.1f}%")
+            lines.append(
+                f"- **{inc.title}**（剩余 {inc.remaining_ticks} tick）: {inc.description}\n"
+                f"  效果: {', '.join(effects_desc)}\n"
+                f"  来源: {inc.source}"
+            )
+
+        logger.info(f"Agent {self.agent_id} queried incidents: {len(incidents)} results")
+        return "\n".join(lines)

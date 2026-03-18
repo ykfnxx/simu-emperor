@@ -42,6 +42,7 @@ class AgentManager:
         # V4.1: 注入全局共享实例
         tape_writer: "TapeWriter | None" = None,
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
+        engine=None,
     ):
         """
         初始化 AgentManager
@@ -56,6 +57,7 @@ class AgentManager:
             session_manager: SessionManager（用于 task sessions）
             tape_writer: V4.1 全局共享的 TapeWriter 实例
             tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
+            engine: Engine 实例（用于 incident 查询）
         """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
@@ -66,6 +68,7 @@ class AgentManager:
         self.session_manager = session_manager
         self.tape_writer = tape_writer
         self.tape_metadata_mgr = tape_metadata_mgr
+        self.engine = engine
 
         self._active_agents: dict[str, Any] = {}
 
@@ -155,6 +158,7 @@ class AgentManager:
             session_manager=self.session_manager,
             tape_writer=self.tape_writer,
             tape_metadata_mgr=self.tape_metadata_mgr,
+            engine=self.engine,
         )
 
         # 启动 Agent

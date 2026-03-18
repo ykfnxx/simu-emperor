@@ -85,6 +85,8 @@ class AgentService:
         self._agent_generator: "AgentGenerator | None" = agent_generator
         # Task tracker for background jobs (lazy initialized)
         self._task_tracker: "TaskTracker | None" = None
+        # Engine reference (set by ApplicationServices.start() after game_service.initialize())
+        self.engine = None
 
     async def initialize_agents(self, agent_ids: list[str] | None = None) -> None:
         """Initialize and start agents.
@@ -113,6 +115,7 @@ class AgentService:
             session_manager=self.session_manager,
             tape_writer=self.tape_writer,
             tape_metadata_mgr=self.tape_metadata_mgr,
+            engine=self.engine,
         )
 
         # Initialize and start agents

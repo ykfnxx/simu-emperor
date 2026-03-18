@@ -53,6 +53,12 @@ class MessageConverter:
         if event.type == EventType.TICK_COMPLETED:
             return await self._convert_tick_completed(event)
 
+        if event.type == EventType.INCIDENT_CREATED:
+            return self._convert_incident_created(event)
+
+        if event.type == EventType.INCIDENT_EXPIRED:
+            return self._convert_incident_expired(event)
+
         if event.type == EventType.SESSION_STATE:
             return self._convert_session_state(event)
 
@@ -183,6 +189,35 @@ class MessageConverter:
                 "turn": turn,
                 "treasury": int(treasury),
                 "population": int(population_total),
+            },
+        }
+
+    def _convert_incident_created(self, event: Event) -> dict[str, Any]:
+        """转换 incident_created 事件"""
+        payload = event.payload
+        return {
+            "kind": "incident_created",
+            "data": {
+                "incident_id": payload.get("incident_id", ""),
+                "title": payload.get("title", ""),
+                "description": payload.get("description", ""),
+                "source": payload.get("source", ""),
+                "remaining_ticks": payload.get("remaining_ticks", 0),
+                "effects": payload.get("effects", []),
+                "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
+            },
+        }
+
+    def _convert_incident_expired(self, event: Event) -> dict[str, Any]:
+        """转换 incident_expired 事件"""
+        payload = event.payload
+        return {
+            "kind": "incident_expired",
+            "data": {
+                "incident_id": payload.get("incident_id", ""),
+                "title": payload.get("title", ""),
+                "source": payload.get("source", ""),
+                "timestamp": event.timestamp or datetime.now(timezone.utc).isoformat(),
             },
         }
 

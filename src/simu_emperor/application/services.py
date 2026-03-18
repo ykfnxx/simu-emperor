@@ -213,6 +213,9 @@ class ApplicationServices:
         if self.game_service:
             await self.game_service.initialize()
         if self.agent_service:
+            # Pass engine reference to agent_service after game_service creates it
+            if self.game_service and self.game_service.engine:
+                self.agent_service.engine = self.game_service.engine
             await self.agent_service.initialize_agents()
 
     async def shutdown(self) -> None:
