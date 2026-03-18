@@ -468,6 +468,38 @@ await self._tape_writer.write_event(
 )
 ```
 
+### Autonomous Memory System
+
+Agent 自主记忆系统，让 Agent 在 tick 推进过程中定期反思，记录长期记忆并演化性格。
+
+**配置** (`config.py` → `AutonomousMemoryConfig`):
+
+```yaml
+autonomous_memory:
+  enabled: true                # 是否启用自主记忆反思
+  check_interval_ticks: 4      # 每隔多少 tick 反思一次（4 = 每月）
+  soul_evolution_enabled: true  # 是否允许 soul.md 性格演化
+```
+
+**触发机制**:
+- `agent.py` 中 `_memory_tick_counter` 每收到 TICK_COMPLETED 事件递增
+- 当 `counter % check_interval_ticks == 0` 时触发 LLM 反思（复用 `_process_event_with_llm`）
+- 反思由 TICK_COMPLETED 系统 prompt 引导，流程：retrieve_memory → query → write_long_term_memory → (可选) update_soul → finish_loop
+
+**工具** (`action_tools.py`):
+
+| 工具 | 功能 | 存储位置 |
+|------|------|----------|
+| `write_memory` | 短期记忆（保留最近3回合） | `data/agent/{id}/memory/recent/turn_*.md` |
+| `write_long_term_memory` | 长期记忆（永久保存） | `data/agent/{id}/memory/MEMORY.md` |
+| `update_soul` | 性格演化（追加式，不破坏原始人设） | `data/agent/{id}/soul.md` → `## 性格变化记录` 段 |
+
+**Soul 演化机制**:
+- `update_soul` 在 `soul.md` 末尾追加 `## 性格变化记录` 段落
+- 每次追加 `### Tick {n}` 子段落，记录性格变化原因和结果
+- 写入后触发 `on_soul_updated` 回调，Agent 自动重新加载 soul
+- 系统 prompt 强调仅在重大事件（被斥责、重大灾难、重大成就）时使用
+
 **CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
 
 **Persistence** (`persistence/`) — Data access layer. Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, event_log. Shared by all modules for reads, exclusive writes by Engine.
@@ -558,6 +590,7 @@ Game state updates → tick_completed event → Agents notified
 - **File-driven agents:** Personality/permissions defined by markdown/YAML, not code
 - **V2 Memory:** Dual-layer — long-term (summary.md, agent-maintained) + short-term (recent/, 3-turn sliding window)
 - **V3 Memory:** Event-based retrieval with tape.jsonl logs + manifest.json index
+- **Autonomous Memory:** Tick-interval self-reflection with long-term memory (MEMORY.md) and soul evolution (soul.md append)
 - **Context Management:** Sliding window with automatic summarization (Tiktoken token counting)
 - **Natural Language Queries:** LLM-based query parsing with entity extraction
 - **Cross-Session Retrieval:** Manifest-based candidate selection + tape-based search
@@ -691,6 +724,16 @@ V4 implementation follows the design defined in `.plan/engine-refactor-v4-design
 - ✅ Natural language query parsing (LLM-based)
 - ✅ tiktoken dependency added
 - ✅ `retrieve_memory` tool registered in function handlers
+
+**Autonomous Memory System (Completed 2026-03-18):**
+- ✅ `AutonomousMemoryConfig` in config.py (enabled, check_interval_ticks, soul_evolution_enabled)
+- ✅ `write_long_term_memory` tool (MEMORY.md persistent storage)
+- ✅ `update_soul` tool (soul.md append-only personality evolution with reload callback)
+- ✅ `write_memory` tool registered (previously implemented but unregistered)
+- ✅ Tick-interval reflection logic (_memory_tick_counter, conditional LLM trigger)
+- ✅ TICK_COMPLETED system prompt rewritten for reflection workflow
+- ✅ on_tick_completed.md skill updated to v2.0
+- ✅ 20 new tests (unit + integration), 610 total tests passing
 
 When implementing features:
 1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`, `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md`)
