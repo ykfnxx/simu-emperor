@@ -213,7 +213,7 @@ class ContextManager:
             else:
                 return []
         else:
-            return [{"role": "system", "content": f"[{event_type}] {str(payload)}"}]
+            return [{"role": "user", "content": f"[{event_type}] {str(payload)}"}]
 
     def _query_llm_context_window(self) -> int:
         """查询LLM API获取context window大小"""
