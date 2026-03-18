@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from simu_emperor.config import GameConfig
+from simu_emperor.config import GameConfig, IncidentConfig
 from simu_emperor.application.game_service import GameService
 from simu_emperor.engine.models.base_data import NationData, ProvinceData
 
@@ -21,6 +21,8 @@ def mock_settings(tmp_path: Path) -> GameConfig:
     settings.llm.api_key = "test-key"
     settings.memory = MagicMock()
     settings.memory.memory_dir = str(tmp_path / "memory")
+    settings.incident = IncidentConfig(enabled=False)
+    settings.seed = None
     return settings
 
 

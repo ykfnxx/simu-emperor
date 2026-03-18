@@ -88,9 +88,30 @@ class GameService:
 
         # Initialize and start TickCoordinator
         from simu_emperor.engine.tick_coordinator import TickCoordinator
+
+        # Initialize IncidentGenerator if enabled
+        incident_generator = None
+        if self.settings.incident.enabled:
+            import random as random_mod
+            from simu_emperor.engine.incident_generator import IncidentGenerator
+
+            rng = random_mod.Random(self.settings.seed)
+            province_names = {
+                pid: p.name for pid, p in initial_state.provinces.items()
+            }
+            incident_generator = IncidentGenerator(
+                config=self.settings.incident,
+                rng=rng,
+                province_names=province_names,
+            )
+            logger.info("IncidentGenerator initialized")
+
         self._tick_coordinator = TickCoordinator(
             self.event_bus, self._engine, self.repository,
             incident_repo=self.incident_repo,
+            incident_generator=incident_generator,
+            incident_config=self.settings.incident,
+            llm_provider=self.llm_provider,
         )
         await self._tick_coordinator.start()
         logger.info("TickCoordinator started")

@@ -40,6 +40,9 @@ class TickCoordinator:
         game_repo: GameStateRepository,
         tick_interval_seconds: int = 5,
         incident_repo=None,
+        incident_generator=None,
+        incident_config=None,
+        llm_provider=None,
     ):
         """初始化 TickCoordinator
 
@@ -49,6 +52,9 @@ class TickCoordinator:
             game_repo: GameStateRepository 实例，用于持久化游戏状态
             tick_interval_seconds: 每个 tick 间隔秒数（默认 5 秒）
             incident_repo: IncidentRepository 实例（可选），用于持久化 incident
+            incident_generator: IncidentGenerator 实例（可选），用于随机事件生成
+            incident_config: IncidentConfig 实例（可选），用于配置检查间隔
+            llm_provider: LLMProvider 实例（可选），用于 LLM 叙事美化
 
         Note:
             TickCoordinator 会自动生成唯一的 session_id，用于事件隔离。
@@ -58,10 +64,14 @@ class TickCoordinator:
         self.engine = engine
         self.game_repo = game_repo
         self.incident_repo = incident_repo
+        self.incident_generator = incident_generator
+        self.incident_config = incident_config
+        self.llm_provider = llm_provider
         self.session_id = _generate_session_id()
         self.tick_interval = tick_interval_seconds
         self._running = False
         self._task: asyncio.Task | None = None
+        self._tick_counter = 0
 
     def get_session_id(self) -> str:
         """获取当前会话标识符.
@@ -136,6 +146,36 @@ class TickCoordinator:
 
                 logger.info(f"Tick {new_state.turn} completed and persisted")
 
+                # 随机 incident 生成（按配置间隔检查）
+                self._tick_counter += 1
+                check_interval = self.incident_config.check_interval_ticks if self.incident_config else 4
+                if (
+                    self.incident_generator
+                    and self._tick_counter % check_interval == 0
+                ):
+                    active_system_count = sum(
+                        1 for inc in self.engine.active_incidents
+                        if inc.source == "system:incident_generator"
+                    )
+                    new_incidents = self.incident_generator.generate(
+                        new_state, active_system_count
+                    )
+                    for inc in new_incidents:
+                        self.engine.add_incident(inc)
+                        # 发布 INCIDENT_CREATED 事件
+                        await self._publish_incident_created(inc)
+                        # 持久化
+                        if self.incident_repo:
+                            await self.incident_repo.save_incident(inc, new_state.turn)
+                        # 异步 LLM 美化
+                        if (
+                            self.incident_config
+                            and self.incident_config.llm_beautify_enabled
+                            and self.llm_provider
+                        ):
+                            asyncio.create_task(self._beautify_narrative(inc, new_state.turn))
+                        logger.info(f"Random incident generated: {inc.incident_id} ({inc.title})")
+
                 # 计算剩余等待时间，保证固定间隔
                 elapsed = time.monotonic() - start_time
                 sleep_time = max(0, self.tick_interval - elapsed)
@@ -163,3 +203,47 @@ class TickCoordinator:
         except Exception as e:
             logger.error(f"Failed to persist state: {e}")
             # 持久化失败不应中断 tick 循环
+
+    async def _publish_incident_created(self, incident) -> None:
+        """发布 INCIDENT_CREATED 事件（广播给所有订阅者）."""
+        event = Event(
+            src="system:incident_generator",
+            dst=["*"],
+            type="incident_created",
+            payload={
+                "incident_id": incident.incident_id,
+                "title": incident.title,
+                "description": incident.description,
+                "source": incident.source,
+                "remaining_ticks": incident.remaining_ticks,
+                "effects": [
+                    {
+                        "target_path": eff.target_path,
+                        "add": str(eff.add) if eff.add is not None else None,
+                        "factor": str(eff.factor) if eff.factor is not None else None,
+                    }
+                    for eff in incident.effects
+                ],
+            },
+            session_id=self.session_id,
+        )
+        await self.event_bus.send_event(event)
+
+    async def _beautify_narrative(self, incident, tick: int) -> None:
+        """Fire-and-forget: 调用 LLM 美化 incident 的描述."""
+        try:
+            prompt = (
+                f"你是一个古代中国宫廷史官。请为以下游戏事件生成一段生动的叙事描述（50-100字），"
+                f"使用文言白话混合风格：\n"
+                f"标题: {incident.title}\n"
+                f"描述: {incident.description}\n"
+                f"只输出美化后的描述文本，不要加任何前缀。"
+            )
+            result = await self.llm_provider.call(prompt, max_tokens=200)
+            if result and incident in self.engine.active_incidents:
+                incident.description = result.strip()
+                if self.incident_repo:
+                    await self.incident_repo.save_incident(incident, tick)
+                logger.debug(f"LLM beautified incident {incident.incident_id}")
+        except Exception as e:
+            logger.warning(f"LLM beautify failed for {incident.incident_id}: {e}")
