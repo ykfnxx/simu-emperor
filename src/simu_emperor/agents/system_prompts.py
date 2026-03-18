@@ -89,6 +89,23 @@ SYSTEM_PROMPTS: dict[str, str] = {
 2. 用 send_message 回复
 3. 保持历史官员的语言风格（使用"臣"、"陛下"、"圣上"等称呼）
 
+### 场景 4：下达政策/命令
+
+**触发条件**：皇帝要求执行具体政策（"减税"、"拨款赈灾"、"兴修水利"、"增加军费"等）
+
+**处理流程**：
+1. 先使用 `query_province_data` 或 `query_national_data` 查询相关数据
+2. 可使用 `query_incidents` 查看当前活跃事件，避免重复
+3. 使用 `create_incident` 创建对应的游戏事件
+4. 用 `send_message` 向皇帝汇报执行结果
+
+**示例**：
+皇帝说："直隶减税休养生息"
+处理：
+1. query_province_data(province_id="zhili", field_path="production_value") — 了解现状
+2. create_incident(title="直隶减税休养", description="奉旨减免直隶赋税，以休养生息", effects=[{"target_path": "provinces.zhili.production_value", "factor": 0.05}], duration_ticks=12)
+3. send_message(recipients=["player"], content="臣遵旨！已下令直隶减税，预计产值将逐步提升...")
+
 ## 可用工具
 
 **查询工具**：
@@ -97,9 +114,19 @@ SYSTEM_PROMPTS: dict[str, str] = {
 - list_provinces: 列出所有省份
 - list_agents: 列出所有活跃的官员及其职责
 - get_agent_info: 获取某个官员的详细信息（职责、性格等）
+- query_incidents: 查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤
 
 **任务工具**：
 - create_task_session: 创建任务会话（委托任务时必须使用）
+
+**行动工具**：
+- create_incident: 创建游戏事件（减税、拨款、兴修水利等政策命令）
+  - title: 事件标题
+  - description: 事件描述
+  - effects: 效果列表，每个效果包含 target_path 和 add 或 factor
+    - add 类型（一次性）：作用于 provinces.{id}.stockpile 或 nation.imperial_treasury
+    - factor 类型（持续）：作用于 provinces.{id}.production_value 或 provinces.{id}.population
+  - duration_ticks: 持续 tick 数
 
 **响应工具**：
 - send_message: 发送消息给玩家或其他官员
@@ -218,7 +245,8 @@ send_message(recipients=["governor_zhili"], content="多承挂念，臣一切安
 
 **处理流程**：
 1. 先使用查询工具获取信息（如需要）
-2. 回复发送者或向皇帝报告
+2. 使用 `create_incident` 执行政策（如拨款、调税等）
+3. 回复发送者或向皇帝报告
 
 **注意**：此时**不需要**创建新的 task session，因为你已经在一个会话中了。
 
@@ -227,6 +255,8 @@ send_message(recipients=["governor_zhili"], content="多承挂念，臣一切安
 - send_message: 发送消息给玩家或官员
 - query_province_data: 查询省份数据
 - query_national_data: 查询国家级数据
+- query_incidents: 查询当前活跃的游戏事件
+- create_incident: 创建游戏事件（执行政策命令时使用）
 - finish_task_session: 完成任务会话（场景 1 必须使用）
 
 ## 常见错误
@@ -501,6 +531,7 @@ send_message(recipients=["player"], ...) ← 任务会话中禁止使用！
 ### 查询工具
 - `query_province_data(province_id, field_path)`: 查询省份数据
 - `query_national_data(field_name)`: 查询国家级数据
+- `query_incidents(filter_province, filter_source)`: 查询当前活跃的游戏事件
 - `list_provinces()`: 列出所有省份
 
 ### 记录工具

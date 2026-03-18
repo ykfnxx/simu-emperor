@@ -38,3 +38,11 @@ logging:
   log_json_format: false
   llm_audit_enabled: false
   llm_audit_dir: "data/audit/llm"
+
+# 随机事件配置
+incident:
+  enabled: true                       # 是否启用随机事件生成
+  check_interval_ticks: 4             # 每隔多少 tick 检查一次（4 = 每月）
+  base_trigger_probability: 0.1       # 基础触发概率
+  max_active_system_incidents: 5      # 系统生成的最大活跃事件数
+  llm_beautify_enabled: true          # 是否启用 LLM 叙事美化
