@@ -112,6 +112,7 @@ class Agent:
             event_bus=self.event_bus,
             data_dir=self.data_dir,
             session_manager=self.session_manager,
+            on_soul_updated=self._load_soul,
         )
 
         # ContextManager - 用于当前session的上下文管理
@@ -346,6 +347,51 @@ class Agent:
                 "required": ["title", "description", "effects", "duration_ticks"],
             },
             handler=self._action_tools.create_incident,
+            category="action",
+        ))
+
+        # write_memory (短期记忆，turn_*.md)
+        self._tool_registry.register(Tool(
+            name="write_memory",
+            description="写入短期记忆摘要（turn_*.md，保留最近3回合）",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "记忆内容"},
+                },
+                "required": ["content"],
+            },
+            handler=self._action_tools.write_memory,
+            category="action",
+        ))
+
+        # write_long_term_memory (长期记忆，MEMORY.md)
+        self._tool_registry.register(Tool(
+            name="write_long_term_memory",
+            description="写入长期记忆（MEMORY.md，永久保存的重要记忆）",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "长期记忆内容（重要事件、关键决策、深刻感悟）"},
+                },
+                "required": ["content"],
+            },
+            handler=self._action_tools.write_long_term_memory,
+            category="action",
+        ))
+
+        # update_soul (性格演化，soul.md 追加)
+        self._tool_registry.register(Tool(
+            name="update_soul",
+            description="记录性格变化（追加到 soul.md，仅在重大转变时使用）",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "性格变化描述（什么事件导致了什么性格转变）"},
+                },
+                "required": ["content"],
+            },
+            handler=self._action_tools.update_soul,
             category="action",
         ))
 
