@@ -149,6 +149,9 @@ class Agent:
             tape_metadata_mgr=self._tape_metadata_mgr,
         )
 
+        # 自主记忆反思计数器
+        self._memory_tick_counter = 0
+
         logger.info(f"Agent {agent_id} initialized")
 
     def _init_agent_logger(self) -> None:
@@ -670,7 +673,11 @@ class Agent:
         # 2. V4: Tick 驱动的元数据刷新（在 LLM 处理之前）
         if event.type == EventType.TICK_COMPLETED:
             await self._refresh_memory_metadata(event)
-            return  # Tick 事件不需要 LLM 处理
+            self._memory_tick_counter += 1
+            if self._should_do_memory_reflection():
+                await self._ensure_memory_components(event.session_id)
+                await self._process_event_with_llm(event, event.session_id)
+            return
 
         # 3. 记录日志和初始化记忆组件
         session_id = event.session_id
@@ -1359,6 +1366,13 @@ class Agent:
         else:
             logger.warning(f"Data scope file not found: {scope_path}")
             self._data_scope = {}
+
+    def _should_do_memory_reflection(self) -> bool:
+        """检查是否应该进行自主记忆反思"""
+        config = settings.autonomous_memory
+        if not config.enabled:
+            return False
+        return self._memory_tick_counter % config.check_interval_ticks == 0
 
     async def _refresh_memory_metadata(self, event: Event) -> None:
         """
