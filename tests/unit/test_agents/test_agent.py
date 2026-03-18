@@ -849,9 +849,9 @@ class TestTickCompletedEvent:
 
         prompt = agent._get_system_prompt_for_event(EventType.TICK_COMPLETED)
 
-        assert "Tick 完成通知" in prompt
+        assert "自主记忆反思" in prompt
         assert "query_province_data" in prompt
-        assert "write_memory" in prompt
+        assert "write_long_term_memory" in prompt
         assert "finish_loop" in prompt
 
     @pytest.mark.asyncio
