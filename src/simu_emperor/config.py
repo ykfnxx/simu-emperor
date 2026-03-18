@@ -54,6 +54,14 @@ class AgentConfig(BaseSettings):
     )
 
 
+class AutonomousMemoryConfig(BaseSettings):
+    """Agent 自主记忆配置。"""
+
+    enabled: bool = Field(default=True, description="是否启用自主记忆反思")
+    check_interval_ticks: int = Field(default=4, ge=1, description="每隔多少 tick 反思一次（4=每月）")
+    soul_evolution_enabled: bool = Field(default=True, description="是否允许 soul.md 性格演化")
+
+
 class IncidentConfig(BaseSettings):
     """Incident 子系统配置。"""
 
@@ -125,6 +133,7 @@ class GameConfig(BaseSettings):
     max_random_events_per_turn: int = Field(default=2, ge=0, description="每回合最大随机事件数")
     log_sensitive_data: bool = Field(default=False, description="敏感数据脱敏开关")
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    autonomous_memory: AutonomousMemoryConfig = Field(default_factory=AutonomousMemoryConfig)
     incident: IncidentConfig = Field(default_factory=IncidentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

@@ -46,3 +46,9 @@ incident:
   base_trigger_probability: 0.1       # 基础触发概率
   max_active_system_incidents: 5      # 系统生成的最大活跃事件数
   llm_beautify_enabled: true          # 是否启用 LLM 叙事美化
+
+# Agent 自主记忆配置
+autonomous_memory:
+  enabled: true                       # 是否启用自主记忆反思
+  check_interval_ticks: 4             # 每隔多少 tick 反思一次（4 = 每月）
+  soul_evolution_enabled: true        # 是否允许 soul.md 性格演化
