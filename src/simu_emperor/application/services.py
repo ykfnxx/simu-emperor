@@ -139,12 +139,16 @@ class ApplicationServices:
             )
 
         # 7. Initialize services in dependency order
+        from simu_emperor.persistence.repositories import IncidentRepository
+        incident_repo = IncidentRepository(conn)
+
         game_service = GameService(
             settings=settings,
             repository=repository,
             event_bus=event_bus,
             llm_provider=llm_provider,
             memory_dir=memory_dir,
+            incident_repo=incident_repo,
         )
 
         agent_service = AgentService(

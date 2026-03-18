@@ -3,8 +3,10 @@
 V4 数据模型：
 - GameRepository - NationData 持久化
 - AgentRepository - Agent 状态管理
+- IncidentRepository - Incident 持久化
 """
 
+import json
 import logging
 import warnings
 from datetime import datetime, timezone
@@ -290,3 +292,172 @@ class AgentRepository:
             "soul_markdown": row[0],
             "data_scope_yaml": row[1],
         }
+
+
+class IncidentRepository:
+    """Incident 持久化 Repository (V4).
+
+    负责：
+    - 保存/加载 Incident
+    - 标记 Incident 过期
+    - 查询 Incident 历史
+    """
+
+    def __init__(self, conn: Connection | None = None):
+        self.conn = conn
+
+    async def _get_conn(self) -> Connection:
+        if self.conn is None:
+            return await get_connection()
+        return self.conn
+
+    async def save_incident(self, incident: "Incident", tick: int) -> None:
+        """保存或更新 Incident.
+
+        Args:
+            incident: Incident 对象
+            tick: 当前 tick 数
+        """
+        from simu_emperor.engine.models.incident import Incident  # noqa: F811
+
+        conn = await self._get_conn()
+
+        effects_json = json.dumps([
+            {
+                "target_path": eff.target_path,
+                "add": str(eff.add) if eff.add is not None else None,
+                "factor": str(eff.factor) if eff.factor is not None else None,
+            }
+            for eff in incident.effects
+        ])
+
+        await conn.execute(
+            """
+            INSERT INTO incidents (
+                incident_id, title, description, source,
+                created_tick, remaining_ticks, status, effects_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            ON CONFLICT(incident_id) DO UPDATE SET
+                remaining_ticks = excluded.remaining_ticks,
+                title = excluded.title,
+                description = excluded.description
+            """,
+            (
+                incident.incident_id,
+                incident.title,
+                incident.description,
+                incident.source,
+                tick,
+                incident.remaining_ticks,
+                effects_json,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        await conn.commit()
+        logger.debug(f"Incident saved: {incident.incident_id}")
+
+    async def expire_incident(self, incident_id: str, tick: int) -> None:
+        """标记 Incident 为过期.
+
+        Args:
+            incident_id: Incident ID
+            tick: 过期时的 tick 数
+        """
+        conn = await self._get_conn()
+        await conn.execute(
+            """
+            UPDATE incidents SET
+                status = 'expired',
+                expired_tick = ?,
+                expired_at = ?
+            WHERE incident_id = ?
+            """,
+            (tick, datetime.now(timezone.utc).isoformat(), incident_id),
+        )
+        await conn.commit()
+        logger.debug(f"Incident expired: {incident_id}")
+
+    async def load_active_incidents(self) -> list:
+        """加载所有活跃的 Incident.
+
+        Returns:
+            Incident 对象列表
+        """
+        from decimal import Decimal
+        from simu_emperor.engine.models.incident import Incident, Effect
+
+        conn = await self._get_conn()
+        cursor = await conn.execute(
+            "SELECT incident_id, title, description, source, remaining_ticks, effects_json "
+            "FROM incidents WHERE status = 'active'"
+        )
+        rows = await cursor.fetchall()
+
+        incidents = []
+        for row in rows:
+            incident_id, title, description, source, remaining_ticks, effects_json_str = row
+            effects_data = json.loads(effects_json_str)
+            effects = []
+            for eff_data in effects_data:
+                effects.append(Effect(
+                    target_path=eff_data["target_path"],
+                    add=Decimal(eff_data["add"]) if eff_data.get("add") else None,
+                    factor=Decimal(eff_data["factor"]) if eff_data.get("factor") else None,
+                ))
+            incidents.append(Incident(
+                incident_id=incident_id,
+                title=title,
+                description=description,
+                effects=effects,
+                source=source,
+                remaining_ticks=remaining_ticks,
+                applied=True,  # 从 DB 恢复的 incident，add 效果已经应用过
+            ))
+
+        logger.debug(f"Loaded {len(incidents)} active incidents")
+        return incidents
+
+    async def get_incident_history(
+        self, limit: int = 20, source: str | None = None
+    ) -> list[dict]:
+        """查询 Incident 历史.
+
+        Args:
+            limit: 最大返回数
+            source: 按来源过滤（可选）
+
+        Returns:
+            Incident 历史记录列表
+        """
+        conn = await self._get_conn()
+
+        if source:
+            cursor = await conn.execute(
+                "SELECT incident_id, title, description, source, status, "
+                "created_tick, expired_tick, created_at, expired_at "
+                "FROM incidents WHERE source = ? ORDER BY created_at DESC LIMIT ?",
+                (source, limit),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT incident_id, title, description, source, status, "
+                "created_tick, expired_tick, created_at, expired_at "
+                "FROM incidents ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+
+        rows = await cursor.fetchall()
+        return [
+            {
+                "incident_id": row[0],
+                "title": row[1],
+                "description": row[2],
+                "source": row[3],
+                "status": row[4],
+                "created_tick": row[5],
+                "expired_tick": row[6],
+                "created_at": row[7],
+                "expired_at": row[8],
+            }
+            for row in rows
+        ]

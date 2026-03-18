@@ -39,6 +39,7 @@ class TickCoordinator:
         engine: Engine,
         game_repo: GameStateRepository,
         tick_interval_seconds: int = 5,
+        incident_repo=None,
     ):
         """初始化 TickCoordinator
 
@@ -47,6 +48,7 @@ class TickCoordinator:
             engine: Engine 实例，用于执行 tick 计算
             game_repo: GameStateRepository 实例，用于持久化游戏状态
             tick_interval_seconds: 每个 tick 间隔秒数（默认 5 秒）
+            incident_repo: IncidentRepository 实例（可选），用于持久化 incident
 
         Note:
             TickCoordinator 会自动生成唯一的 session_id，用于事件隔离。
@@ -55,6 +57,7 @@ class TickCoordinator:
         self.event_bus = event_bus
         self.engine = engine
         self.game_repo = game_repo
+        self.incident_repo = incident_repo
         self.session_id = _generate_session_id()
         self.tick_interval = tick_interval_seconds
         self._running = False
@@ -98,7 +101,7 @@ class TickCoordinator:
                 # 执行 tick 计算
                 new_state = self.engine.apply_tick()
 
-                # 发布过期 incident 事件
+                # 发布过期 incident 事件 + 持久化
                 for expired_inc in self.engine.get_last_expired_incidents():
                     expired_event = Event(
                         src="system:engine",
@@ -112,6 +115,10 @@ class TickCoordinator:
                         session_id=self.session_id,
                     )
                     await self.event_bus.send_event(expired_event)
+                    if self.incident_repo:
+                        await self.incident_repo.expire_incident(
+                            expired_inc.incident_id, new_state.turn
+                        )
                     logger.info(f"Incident expired: {expired_inc.incident_id} ({expired_inc.title})")
 
                 # 持久化新状态

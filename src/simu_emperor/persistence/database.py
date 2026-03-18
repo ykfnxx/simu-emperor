@@ -81,6 +81,21 @@ async def _create_schema(conn: Connection) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Incident 持久化（V4 Incident/Effect 系统）
+        CREATE TABLE IF NOT EXISTS incidents (
+            incident_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_tick INTEGER NOT NULL,
+            expired_tick INTEGER,
+            remaining_ticks INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            effects_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expired_at TEXT
+        );
+
         -- 插入默认游戏状态
         INSERT OR IGNORE INTO game_state (id, game_id, turn, state_json)
         VALUES (1, 'default', 0, '{}');
@@ -95,6 +110,7 @@ async def _create_schema(conn: Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_events_parent ON events(parent_event_id);
         CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
         CREATE INDEX IF NOT EXISTS idx_events_src_dst ON events(src, dst);
+        CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
     """)
     await conn.commit()
     logger.info("Database schema created")

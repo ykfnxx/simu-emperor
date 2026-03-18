@@ -8,7 +8,7 @@ from simu_emperor.common.utils import FileOperationsHelper
 from simu_emperor.config import GameConfig
 
 if TYPE_CHECKING:
-    from simu_emperor.persistence.repositories import GameRepository
+    from simu_emperor.persistence.repositories import GameRepository, IncidentRepository
     from simu_emperor.event_bus.core import EventBus
     from simu_emperor.llm.base import LLMProvider
     from simu_emperor.engine.engine import Engine
@@ -35,6 +35,7 @@ class GameService:
         event_bus: "EventBus",
         llm_provider: "LLMProvider",
         memory_dir: Path,
+        incident_repo: "IncidentRepository | None" = None,
     ) -> None:
         """Initialize GameService.
 
@@ -44,12 +45,14 @@ class GameService:
             event_bus: Event bus for pub/sub
             llm_provider: LLM provider for AI
             memory_dir: Memory storage directory
+            incident_repo: Incident persistence repository (optional)
         """
         self.settings = settings
         self.repository = repository
         self.event_bus = event_bus
         self.llm_provider = llm_provider
         self.memory_dir = memory_dir
+        self.incident_repo = incident_repo
 
         # Core components (lazy initialized)
         self._engine: "Engine | None" = None
@@ -75,10 +78,19 @@ class GameService:
         self._engine = Engine(initial_state, self.event_bus)
         logger.info("Engine initialized")
 
+        # Load active incidents from persistence
+        if self.incident_repo:
+            active_incidents = await self.incident_repo.load_active_incidents()
+            for inc in active_incidents:
+                self._engine.add_incident(inc)
+            if active_incidents:
+                logger.info(f"Loaded {len(active_incidents)} active incidents from DB")
+
         # Initialize and start TickCoordinator
         from simu_emperor.engine.tick_coordinator import TickCoordinator
         self._tick_coordinator = TickCoordinator(
-            self.event_bus, self._engine, self.repository
+            self.event_bus, self._engine, self.repository,
+            incident_repo=self.incident_repo,
         )
         await self._tick_coordinator.start()
         logger.info("TickCoordinator started")
