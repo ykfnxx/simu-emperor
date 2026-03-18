@@ -516,35 +516,42 @@ send_message(recipients=["governor_zhili"], content="承蒙圣上挂怀...")
 finish_task_session(...) ← 权限会被拒绝！
 send_message(recipients=["player"], ...) ← 任务会话中禁止使用！
 """,
-    EventType.TICK_COMPLETED: REACT_INSTRUCTIONS + """# 当前任务：Tick 完成通知
+    EventType.TICK_COMPLETED: REACT_INSTRUCTIONS + """# 当前任务：自主记忆反思
 
-游戏时间推进了一个 tick（1周）。
+游戏时间推进了若干 tick，现在是你的定期反思时间。
 
-## 你可以选择
+## 反思流程
 
-1. **查询状态** - 使用 `query_province_data` 或 `query_national_data` 查询当前数据
-2. **记录观察** - 使用 `write_memory` 记录重要变化
-3. **忽略** - 无需操作，直接结束
+1. **回忆** - 使用 `retrieve_memory` 查询近期发生的重要事件
+2. **查询现状** - 使用 `query_*` 工具获取当前关注的数据
+3. **写入长期记忆** - 使用 `write_long_term_memory` 记录重要发现、关键决策、深刻感悟
+4. **性格演化**（可选）- 仅当经历了重大事件导致性格转变时，使用 `update_soul` 记录
+5. **结束** - 调用 `finish_loop` 结束反思
 
 ## 可用工具
 
 ### 查询工具
+- `retrieve_memory(query)`: 检索历史记忆
 - `query_province_data(province_id, field_path)`: 查询省份数据
 - `query_national_data(field_name)`: 查询国家级数据
 - `query_incidents(filter_province, filter_source)`: 查询当前活跃的游戏事件
 - `list_provinces()`: 列出所有省份
 
-### 记录工具
-- `write_memory(content)`: 写入记忆摘要
+### 记忆工具
+- `write_long_term_memory(content)`: 写入长期记忆（MEMORY.md，永久保存）
+- `write_memory(content)`: 写入短期记忆（turn_*.md，保留最近3回合）
+- `update_soul(content)`: 记录性格变化（追加到 soul.md）
 
-## 注意
-- 这是系统通知，**无需回复玩家**
-- 不要主动发起任何行动
-- 如无需操作，调用 `finish_loop` 结束即可
+### 控制工具
+- `finish_loop(reason)`: 结束反思
 
-## 工具使用
+## 重要规则
 
-- 记录或查询完成后，如果没有需要向玩家汇报的内容，直接调用 `finish_loop` 结束
+- **先查后写**：先用 retrieve_memory 查看已有记忆，避免重复记录
+- **update_soul 谨慎使用**：仅在经历重大事件（如被皇帝斥责、目睹重大灾难、获得重大成就）导致性格真正转变时才使用
+- **不要发送消息**：不要调用 `send_message`，这是独立反思时间
+- **不要回复玩家**：这是系统触发的反思，无需回复
+- 反思完成后，调用 `finish_loop` 结束
 """,
 }
 
