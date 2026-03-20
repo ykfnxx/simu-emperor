@@ -1,0 +1,10 @@
+# Benchmark System Configuration
+# Copy to config.benchmark.yaml and fill in your settings
+
+llm:
+  provider: "anthropic"  # Options: anthropic, openai
+  model: "claude-3-5-sonnet-20241022"
+  api_key: ""  # Set via BENCHMARK_LLM_API_KEY env var instead
+  base_url: null  # Optional: custom API endpoint
+  timeout: 120
+  max_retries: 3
