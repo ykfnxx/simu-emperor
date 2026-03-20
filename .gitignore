@@ -90,3 +90,4 @@ logs/agents/
 src/simu_emperor/adapters/web/static/assets/
 src/simu_emperor/adapters/web/static/index.html
 
+.worktrees/
