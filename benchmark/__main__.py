@@ -45,14 +45,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    """Main entry point."""
     args = parse_args()
 
     try:
-        # Load configuration
         config = BenchmarkConfig.load(args.config)
 
-        # Determine output path
         if args.output:
             output_path = Path(args.output)
         else:
@@ -61,14 +58,27 @@ def main() -> int:
             timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
             output_path = Path(f"benchmark/reports/benchmark-{timestamp}.md")
 
-        # Placeholder - runner not yet implemented
-        print(f"Benchmark CLI ready.")
-        print(f"  Module: {args.module}")
-        print(f"  Repeat: {args.repeat}")
-        print(f"  Output: {output_path}")
-        print(f"  Config: {config.provider}/{config.model}")
-        print()
-        print("Runner not yet implemented. Please implement benchmark/runner.py first.")
+        from benchmark.runner import BenchmarkRunner
+        from benchmark.report import ReportGenerator
+
+        runner = BenchmarkRunner(config)
+        results = asyncio.run(runner.run(module=args.module, repeat=args.repeat))
+
+        json_path = runner.save_results()
+        print(f"Results saved to: {json_path}")
+
+        report_gen = ReportGenerator()
+        report_gen.generate(
+            results,
+            output_path,
+            config={"provider": config.provider, "model": config.model},
+        )
+
+        print(f"\n=== Benchmark Complete ===")
+        print(f"Module: {args.module}")
+        print(f"Repeat: {args.repeat}")
+        print(f"Report: {output_path}")
+        print(f"Config: {config.provider}/{config.model}")
 
         return 0
 

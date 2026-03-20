@@ -60,84 +60,42 @@ class BenchmarkRunner:
         return self.results
 
     async def _run_agent_modules(self) -> list[ModuleResult]:
-        """Run all agent evaluation modules."""
+        from benchmark.agent.intent_accuracy import IntentAccuracyEvaluator
+        from benchmark.agent.response_perf import ResponsePerfEvaluator
+        from benchmark.agent.multi_agent import MultiAgentEvaluator
+
         results = []
+        evaluators = [
+            ("intent_accuracy", IntentAccuracyEvaluator(self.config)),
+            ("response_perf", ResponsePerfEvaluator(self.config)),
+            ("multi_agent", MultiAgentEvaluator(self.config)),
+        ]
 
-        # Placeholder results until actual evaluators are implemented
-        modules_to_run = ["intent_accuracy", "response_perf", "multi_agent"]
-
-        for module_name in modules_to_run:
+        for module_name, evaluator in evaluators:
             start = time.perf_counter()
-
-            # Placeholder: create stub result
-            result = ModuleResult(
-                module=module_name,
-                metrics=[
-                    MetricResult(
-                        name="placeholder_metric",
-                        value=0.0,
-                        target=1.0,
-                        unit="score",
-                        passed=False,
-                    )
-                ],
-                details=[
-                    CaseDetail(
-                        case_id="placeholder",
-                        passed=False,
-                        input="Placeholder - evaluator not implemented",
-                        expected=[],
-                        actual=[],
-                        reason="Evaluator module not yet implemented",
-                    )
-                ],
-                duration_seconds=time.perf_counter() - start,
-            )
+            result = await evaluator.evaluate()
             results.append(result)
-            print(
-                f"  [{module_name}] Placeholder result generated ({result.duration_seconds:.2f}s)"
-            )
+            print(f"  [{module_name}] Completed in {result.duration_seconds:.2f}s")
 
         return results
 
     async def _run_memory_modules(self) -> list[ModuleResult]:
-        """Run all memory evaluation modules."""
+        from benchmark.memory.retrieval import RetrievalEvaluator
+        from benchmark.memory.compression import CompressionEvaluator
+        from benchmark.memory.cross_session import CrossSessionEvaluator
+
         results = []
+        evaluators = [
+            ("retrieval", RetrievalEvaluator(self.config)),
+            ("compression", CompressionEvaluator(self.config)),
+            ("cross_session", CrossSessionEvaluator(self.config)),
+        ]
 
-        # Placeholder results until actual evaluators are implemented
-        modules_to_run = ["retrieval", "compression", "cross_session"]
-
-        for module_name in modules_to_run:
+        for module_name, evaluator in evaluators:
             start = time.perf_counter()
-
-            # Placeholder: create stub result
-            result = ModuleResult(
-                module=module_name,
-                metrics=[
-                    MetricResult(
-                        name="placeholder_metric",
-                        value=0.0,
-                        target=1.0,
-                        unit="score",
-                        passed=False,
-                    )
-                ],
-                details=[
-                    CaseDetail(
-                        case_id="placeholder",
-                        passed=False,
-                        input="Placeholder - evaluator not implemented",
-                        expected=[],
-                        actual=[],
-                        reason="Evaluator module not yet implemented",
-                    )
-                ],
-                duration_seconds=time.perf_counter() - start,
-            )
+            result = await evaluator.evaluate()
             results.append(result)
-            print(
-                f"  [{module_name}] Placeholder result generated ({result.duration_seconds:.2f}s)"
-            )
+            print(f"  [{module_name}] Completed in {result.duration_seconds:.2f}s")
 
         return results
 
