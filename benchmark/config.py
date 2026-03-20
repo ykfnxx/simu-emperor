@@ -60,12 +60,12 @@ class BenchmarkConfig:
         env_timeout = os.getenv("BENCHMARK_LLM_TIMEOUT")
         env_max_retries = os.getenv("BENCHMARK_LLM_MAX_RETRIES")
 
-        provider = cls.__annotations__["provider"]
-        model = cls.__annotations__["model"]
-        api_key = cls.__annotations__["api_key"]
-        base_url = cls.__annotations__["base_url"]
-        timeout = cls.__annotations__["timeout"]
-        max_retries = cls.__annotations__["max_retries"]
+        provider = "anthropic"
+        model = "claude-3-5-sonnet-20241022"
+        api_key = ""
+        base_url = None
+        timeout = 120
+        max_retries = 3
 
         if llm_from_source:
             from_file = _from_llm_dict(llm_from_source)
