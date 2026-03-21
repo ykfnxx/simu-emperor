@@ -22,6 +22,7 @@ from simu_emperor.event_bus.event import Event
 from simu_emperor.adapters.web.game_instance import WebGameInstance
 from simu_emperor.adapters.web.connection_manager import ConnectionManager
 from simu_emperor.adapters.web.message_converter import MessageConverter
+from simu_emperor.adapters.web.benchmark_api import router as benchmark_router
 
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Emperor Simulator Web API", lifespan=lifespan)
+
+app.include_router(benchmark_router)
 
 # CORS 配置
 app.add_middleware(
@@ -214,13 +217,17 @@ async def _on_event(event: Event) -> None:
         event: EventBus 事件
     """
     # Logging (INFO level for debugging)
-    logger.info(f"[WS _on_event] Received event: type={event.type}, src={event.src}, dst={event.dst}")
+    logger.info(
+        f"[WS _on_event] Received event: type={event.type}, src={event.src}, dst={event.dst}"
+    )
 
     # 转换为 WSMessage
     ws_message = await message_converter.convert(event)
 
     if ws_message:
-        logger.info(f"[WS _on_event] Broadcasting: kind={ws_message.get('kind')}, connections={connection_manager.connection_count}")
+        logger.info(
+            f"[WS _on_event] Broadcasting: kind={ws_message.get('kind')}, connections={connection_manager.connection_count}"
+        )
         await connection_manager.broadcast(ws_message)
     else:
         logger.info(f"[WS _on_event] Message converter returned None for event type: {event.type}")
@@ -499,7 +506,10 @@ async def list_agents():
     from simu_emperor.common import get_agent_display_name
 
     return [
-        {"agent_id": aid, "agent_name": get_agent_display_name(aid, game_instance.settings.data_dir)}
+        {
+            "agent_id": aid,
+            "agent_name": get_agent_display_name(aid, game_instance.settings.data_dir),
+        }
         for aid in agent_ids
     ]
 

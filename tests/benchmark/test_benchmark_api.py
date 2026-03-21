@@ -1,26 +1,78 @@
 """
-TDD RED tests for Benchmark API.
+TDD tests for Benchmark API.
 
 These tests define the expected API contract for the Benchmark API endpoints.
-All tests should FAIL (RED) because the API doesn't exist yet.
 
 Expected API:
 - POST /api/benchmark/agent/chat - Agent chat benchmark
 - GET /api/benchmark/health - Health check for benchmark mode
 """
 
+import asyncio
+from unittest.mock import MagicMock, AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 import pytest_asyncio
 
-from simu_emperor.adapters.web.server import app
+
+async def _trigger_response(event, handlers):
+    """Trigger response event for benchmark tests."""
+    await asyncio.sleep(0.01)
+
+    for handler in handlers:
+        response_event = MagicMock()
+        response_event.session_id = event.session_id
+        response_event.type = "agent_message"
+        response_event.payload = {"content": "测试响应"}
+        await handler(response_event)
 
 
 @pytest_asyncio.fixture
 async def async_client():
-    """Create async test client for Benchmark API tests."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
+    """Create async test client with mocked game instance."""
+    from simu_emperor.adapters.web.server import app
+
+    mock_instance = MagicMock()
+    mock_instance.is_running = True
+
+    mock_agent_manager = MagicMock()
+    mock_agent = MagicMock()
+    mock_agent.agent_id = "governor_zhili"
+
+    def get_agent_side_effect(agent_id):
+        if agent_id == "nonexistent_agent_xyz":
+            return None
+        return mock_agent
+
+    mock_agent_manager.get_agent.side_effect = get_agent_side_effect
+    mock_instance.agent_manager = mock_agent_manager
+
+    handlers = []
+
+    def mock_subscribe(dst, handler):
+        handlers.append(handler)
+
+    def mock_unsubscribe(dst, handler):
+        if handler in handlers:
+            handlers.remove(handler)
+
+    async def mock_send_event(event):
+        asyncio.get_event_loop().call_soon(
+            lambda: asyncio.create_task(_trigger_response(event, handlers))
+        )
+
+    mock_event_bus = MagicMock()
+    mock_event_bus.subscribe = mock_subscribe
+    mock_event_bus.unsubscribe = mock_unsubscribe
+    mock_event_bus.send_event = AsyncMock(side_effect=mock_send_event)
+    mock_instance.event_bus = mock_event_bus
+
+    with patch(
+        "simu_emperor.adapters.web.benchmark_api._get_game_instance", return_value=mock_instance
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
 
 
 # ============================================================================
@@ -35,24 +87,20 @@ async def test_benchmark_agent_chat_success(async_client):
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 200 with expected response format
     assert response.status_code == 200
     data = response.json()
 
-    # Validate response structure
     assert "response" in data
     assert "tool_calls" in data
     assert "latency_ms" in data
     assert "success" in data
 
-    # Validate types
     assert isinstance(data["response"], str)
     assert isinstance(data["tool_calls"], list)
     assert isinstance(data["latency_ms"], (int, float))
     assert isinstance(data["success"], bool)
     assert data["success"] is True
 
-    # Validate tool_calls structure if present
     for tool_call in data["tool_calls"]:
         assert "name" in tool_call
         assert "args" in tool_call
@@ -70,17 +118,12 @@ async def test_benchmark_agent_chat_success(async_client):
 @pytest.mark.asyncio
 async def test_benchmark_agent_chat_missing_agent_id(async_client):
     """Test error handling when agent_id is missing in request body."""
-    request_body = {
-        "message": "查询直隶省的产值"
-        # Missing agent_id
-    }
+    request_body = {"message": "查询直隶省的产值"}
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 422 (Validation Error) or 400 (Bad Request)
     assert response.status_code in [400, 422]
 
-    # Error response should have detail
     data = response.json()
     assert "detail" in data
 
@@ -88,14 +131,10 @@ async def test_benchmark_agent_chat_missing_agent_id(async_client):
 @pytest.mark.asyncio
 async def test_benchmark_agent_chat_missing_message(async_client):
     """Test error handling when message is missing in request body."""
-    request_body = {
-        "agent_id": "governor_zhili"
-        # Missing message
-    }
+    request_body = {"agent_id": "governor_zhili"}
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 422 (Validation Error) or 400 (Bad Request)
     assert response.status_code in [400, 422]
 
     data = response.json()
@@ -107,7 +146,6 @@ async def test_benchmark_agent_chat_empty_request_body(async_client):
     """Test error handling when request body is empty."""
     response = await async_client.post("/api/benchmark/agent/chat", json={})
 
-    # Should return 422 (Validation Error)
     assert response.status_code == 422
 
     data = response.json()
@@ -121,18 +159,14 @@ async def test_benchmark_agent_chat_invalid_agent(async_client):
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 404 (Not Found) or error response with success=False
-    # API could return 404 directly, or 200 with success=False
     assert response.status_code in [200, 404]
 
     data = response.json()
 
     if response.status_code == 200:
-        # If 200, success should be False
         assert data.get("success") is False
         assert "error" in data or "response" in data
     else:
-        # If 404, should have detail
         assert "detail" in data
 
 
@@ -143,7 +177,6 @@ async def test_benchmark_agent_chat_empty_agent_id(async_client):
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 422 or 400
     assert response.status_code in [400, 422]
 
 
@@ -154,7 +187,6 @@ async def test_benchmark_agent_chat_empty_message(async_client):
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # Should return 422 or 400
     assert response.status_code in [400, 422]
 
 
@@ -168,25 +200,20 @@ async def test_benchmark_health(async_client):
     """Test health check endpoint returns ok status and config."""
     response = await async_client.get("/api/benchmark/health")
 
-    # Should return 200
     assert response.status_code == 200
 
     data = response.json()
 
-    # Validate response structure
     assert "status" in data
     assert data["status"] == "ok"
 
-    # Should include benchmark config
     assert "config" in data
     config = data["config"]
     assert isinstance(config, dict)
 
-    # Config should contain test_mode flag
     assert "test_mode" in config
     assert isinstance(config["test_mode"], bool)
 
-    # Config should contain database setting
     assert "database" in config
     assert isinstance(config["database"], str)
 
@@ -201,10 +228,8 @@ async def test_benchmark_health_config_values(async_client):
     data = response.json()
     config = data.get("config", {})
 
-    # In benchmark mode, test_mode should be True
     assert config.get("test_mode") is True
 
-    # Database should be a test database
     database = config.get("database", "")
     assert "test" in database.lower() or database.endswith(".db")
 
@@ -221,12 +246,10 @@ async def test_benchmark_agent_chat_response_has_latency(async_client):
 
     response = await async_client.post("/api/benchmark/agent/chat", json=request_body)
 
-    # This test will fail if endpoint doesn't exist
     assert response.status_code == 200
 
     data = response.json()
 
-    # latency_ms should be a positive number
     assert "latency_ms" in data
     latency = data["latency_ms"]
     assert isinstance(latency, (int, float))
@@ -244,7 +267,6 @@ async def test_benchmark_agent_chat_response_has_tool_calls(async_client):
 
     data = response.json()
 
-    # tool_calls should always be present (array, can be empty)
     assert "tool_calls" in data
     assert isinstance(data["tool_calls"], list)
 
@@ -266,47 +288,34 @@ async def test_benchmark_agent_chat_tool_call_format(async_client):
     data = response.json()
     tool_calls = data.get("tool_calls", [])
 
-    # If there are tool calls, validate their format
     for tool_call in tool_calls:
-        # Each tool call should have name, args, result
         assert "name" in tool_call
         assert "args" in tool_call
         assert "result" in tool_call
 
-        # Types should be correct
         assert isinstance(tool_call["name"], str)
         assert isinstance(tool_call["args"], dict)
         assert isinstance(tool_call["result"], str)
 
-        # Name should be a valid tool name (non-empty)
         assert len(tool_call["name"]) > 0
 
 
 # ============================================================================
-# Non-existent Endpoint Check
+# Endpoints Exist Check
 # ============================================================================
 
 
 @pytest.mark.asyncio
-async def test_benchmark_endpoints_not_yet_implemented(async_client):
-    """
-    META TEST: Verify benchmark endpoints don't exist yet (TDD RED phase).
-
-    This test confirms we're in the RED phase - endpoints should return 404/405
-    because they haven't been implemented yet.
-
-    Remove or update this test once endpoints are implemented.
-    """
-    # POST endpoint should return 404 or 405 (not implemented yet)
+async def test_benchmark_endpoints_exist(async_client):
+    """Verify benchmark endpoints exist and return valid responses."""
     post_response = await async_client.post(
-        "/api/benchmark/agent/chat", json={"agent_id": "test", "message": "test"}
+        "/api/benchmark/agent/chat", json={"agent_id": "governor_zhili", "message": "test"}
     )
-    assert post_response.status_code in [404, 405], (
-        f"Expected 404/405 for unimplemented POST /api/benchmark/agent/chat, got {post_response.status_code}"
+    assert post_response.status_code in [200, 400, 422, 503], (
+        f"Expected valid response for POST /api/benchmark/agent/chat, got {post_response.status_code}"
     )
 
-    # GET endpoint should return 404 (not implemented yet)
     get_response = await async_client.get("/api/benchmark/health")
-    assert get_response.status_code == 404, (
-        f"Expected 404 for unimplemented GET /api/benchmark/health, got {get_response.status_code}"
+    assert get_response.status_code == 200, (
+        f"Expected 200 for GET /api/benchmark/health, got {get_response.status_code}"
     )
