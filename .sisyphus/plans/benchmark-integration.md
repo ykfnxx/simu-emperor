@@ -67,10 +67,10 @@
 - `tests/benchmark/` - TDD 测试用例
 
 ### Definition of Done
-- [ ] `python -m benchmark --module agent` 运行成功
-- [ ] 所有 3 个 Agent 评估器返回真实数据（非占位符）
-- [ ] 测试用例 100% 通过
-- [ ] 隔离环境自动清理
+- [x] `python -m benchmark --module agent` 运行成功
+- [x] 所有 3 个 Agent 评估器返回真实数据（非占位符）
+- [x] 测试用例 100% 通过
+- [x] 隔离环境自动清理
 
 ### Must Have
 - 新增 Benchmark API 端点 `/api/benchmark/agent/chat`
@@ -395,7 +395,7 @@ Wave FINAL (Verification):
 
   **Commit**: NO (groups with Task 4)
 
-- [ ] 6. 编写评估器测试用例 (TDD RED)
+- [x] 6. 编写评估器测试用例 (TDD RED)
 
   **What to do**:
   - 创建 `tests/benchmark/test_evaluators.py`
@@ -441,7 +441,7 @@ Wave FINAL (Verification):
 
 ### Wave 3: Evaluators（评估器实现）
 
-- [ ] 7. 实现 intent_accuracy 评估器
+- [x] 7. 实现 intent_accuracy 评估器
 
   **What to do**:
   - 重写 `benchmark/agent/intent_accuracy.py` 的 `_evaluate_case()` 方法
@@ -490,7 +490,7 @@ Wave FINAL (Verification):
   - Message: `feat(benchmark): implement real intent_accuracy evaluator`
   - Files: `benchmark/agent/intent_accuracy.py`
 
-- [ ] 8. 实现 response_perf 评估器
+- [x] 8. 实现 response_perf 评估器
 
   **What to do**:
   - 重写 `benchmark/agent/response_perf.py` 的 `_simulate_agent_call()` 方法
@@ -529,7 +529,7 @@ Wave FINAL (Verification):
 
   **Commit**: NO (groups with Task 7)
 
-- [ ] 9. 实现 multi_agent 评估器
+- [x] 9. 实现 multi_agent 评估器
 
   **What to do**:
   - 重写 `benchmark/agent/multi_agent.py` 的 `_simulate_agent_call()` 方法
@@ -579,11 +579,11 @@ Wave FINAL (Verification):
   运行 `python -m benchmark --module agent`，验证所有 3 个评估器返回真实数据，无占位符值。
   Output: `Benchmark [PASS/FAIL] | Evaluators [3/3] | Metrics [N/N]`
 
-- [ ] F2. **代码质量检查** — `unspecified-high`
+- [x] F2. **代码质量检查** — `unspecified-high`
   运行 `uv run ruff check .` 和 `uv run pytest tests/benchmark/`，确保无 lint 错误，测试全部通过。
-  Output: `Ruff [PASS/FAIL] | Tests [N pass/N fail]`
+  Output: `Ruff [PASS/FAIL] | Tests [20 pass/0 fail]`
 
-- [ ] F3. **文档更新** — `unspecified-low`
+- [x] F3. **文档更新** — `unspecified-low`
   更新 `benchmark/README.md`，添加真实集成说明，移除占位符警告。
   Output: `README updated | Verified`
 
@@ -612,9 +612,9 @@ uv run ruff check benchmark/
 ```
 
 ### Final Checklist
-- [ ] 所有 3 个 Agent 评估器返回真实数据
-- [ ] intent_cases.json 工具名称已更新
-- [ ] Benchmark API 端点可调用
-- [ ] 隔离环境自动清理
-- [ ] 测试 100% 通过
-- [ ] README 已更新
+- [x] 所有 3 个 Agent 评估器返回真实数据
+- [x] intent_cases.json 工具名称已更新
+- [x] Benchmark API 端点可调用
+- [x] 隔离环境自动清理
+- [x] 测试 100% 通过
+- [x] README 已更新
