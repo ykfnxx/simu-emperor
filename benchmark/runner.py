@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from datetime import datetime
@@ -11,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from benchmark.config import BenchmarkConfig
-from benchmark.models import CaseDetail, MetricResult, ModuleResult
+from benchmark.models import ModuleResult
 
 if TYPE_CHECKING:
     pass

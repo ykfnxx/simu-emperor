@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from benchmark.config import BenchmarkConfig
 from benchmark.models import CaseDetail, MetricResult, ModuleResult
@@ -16,6 +19,7 @@ class IntentAccuracyEvaluator:
 
     def __init__(self, config: BenchmarkConfig | None = None):
         self.config = config or BenchmarkConfig.load()
+        self.api_base_url = os.getenv("BENCHMARK_API_URL", "http://localhost:8000")
 
     async def evaluate(self) -> ModuleResult:
         start = time.perf_counter()
@@ -100,18 +104,94 @@ class IntentAccuracyEvaluator:
             },
         ]
 
+    async def _call_api(self, message: str) -> dict[str, Any]:
+        """Call the benchmark API endpoint and return the response data."""
+        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            response = await client.post(
+                f"{self.api_base_url}/api/benchmark/agent/chat",
+                json={
+                    "agent_id": "governor_zhili",
+                    "message": message,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def _evaluate_case(self, case: dict[str, Any]) -> CaseDetail:
-        return CaseDetail(
-            case_id=case["id"],
-            passed=True,
-            input=case["input"],
-            expected=case["must_have_tools"],
-            actual=case["must_have_tools"],
-            reason="Placeholder - evaluator skeleton",
-        )
+        """Evaluate a single test case by calling the API and checking tool calls."""
+        try:
+            api_response = await self._call_api(case["input"])
+
+            actual_tool_calls = api_response.get("tool_calls", [])
+            actual_tools = [tc.get("name", "") for tc in actual_tool_calls if tc.get("name")]
+
+            must_have = set(case.get("must_have_tools", []))
+
+            actual_set = set(actual_tools)
+            must_have_matched = must_have.issubset(actual_set) if must_have else True
+            passed = must_have_matched
+
+            if passed:
+                reason = f"All required tools called: {actual_tools}"
+            else:
+                missing = must_have - actual_set
+                reason = f"Missing required tools: {missing}. Got: {actual_tools}"
+
+            must_have_args = case.get("must_have_args", {})
+            self._check_args_correctness(actual_tool_calls, must_have_args)
+
+            return CaseDetail(
+                case_id=case["id"],
+                passed=passed,
+                input=case["input"],
+                expected=list(must_have),
+                actual=actual_tools,
+                reason=reason,
+            )
+
+        except Exception as e:
+            return CaseDetail(
+                case_id=case["id"],
+                passed=False,
+                input=case["input"],
+                expected=case.get("must_have_tools", []),
+                actual=[],
+                reason=f"API call failed: {str(e)}",
+            )
+
+    def _check_args_correctness(
+        self, tool_calls: list[dict[str, Any]], expected_args: dict[str, Any]
+    ) -> bool:
+        """Check if the expected arguments are present in the tool calls."""
+        if not expected_args:
+            return True
+
+        for tool_call in tool_calls:
+            args = tool_call.get("args", {})
+            for key, expected_value in expected_args.items():
+                if key in args:
+                    actual_value = args[key]
+                    if isinstance(expected_value, (int, float)) and isinstance(
+                        actual_value, (int, float)
+                    ):
+                        if abs(actual_value - expected_value) < 0.01 * abs(expected_value):
+                            return True
+                    elif actual_value == expected_value:
+                        return True
+        return False
 
     def _calc_tool_success(self, details: list[CaseDetail]) -> float:
-        return 95.0
+        """Calculate the percentage of cases where tool calls were successful."""
+        if not details:
+            return 0.0
+
+        successful = sum(1 for d in details if d.passed)
+        return (successful / len(details)) * 100
 
     def _calc_param_correctness(self, details: list[CaseDetail]) -> float:
-        return 90.0
+        """Calculate parameter correctness based on matched cases."""
+        if not details:
+            return 0.0
+
+        correct = sum(1 for d in details if d.passed)
+        return (correct / len(details)) * 100

@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import statistics
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from benchmark.models import CaseDetail, MetricResult, ModuleResult
+from benchmark.models import MetricResult, ModuleResult
 
 if TYPE_CHECKING:
     pass

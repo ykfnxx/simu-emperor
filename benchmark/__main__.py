@@ -74,7 +74,7 @@ def main() -> int:
             config={"provider": config.provider, "model": config.model},
         )
 
-        print(f"\n=== Benchmark Complete ===")
+        print("\n=== Benchmark Complete ===")
         print(f"Module: {args.module}")
         print(f"Repeat: {args.repeat}")
         print(f"Report: {output_path}")

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
-from typing import Any
+
+import httpx
 
 from benchmark.config import BenchmarkConfig
 from benchmark.models import CaseDetail, MetricResult, ModuleResult
@@ -15,6 +17,7 @@ class MultiAgentEvaluator:
 
     def __init__(self, config: BenchmarkConfig | None = None):
         self.config = config or BenchmarkConfig.load()
+        self.api_base_url = os.getenv("BENCHMARK_API_URL", "http://localhost:8000")
         self.agent_counts = [2, 5, 10]
 
     async def evaluate(self) -> ModuleResult:
@@ -81,5 +84,16 @@ class MultiAgentEvaluator:
 
         return (time.perf_counter() - start) * 1000
 
-    async def _simulate_agent_call(self) -> None:
-        await asyncio.sleep(0.05)
+    async def _simulate_agent_call(self) -> float:
+        """Make real API call to benchmark endpoint and return latency_ms."""
+        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            response = await client.post(
+                f"{self.api_base_url}/api/benchmark/agent/chat",
+                json={
+                    "agent_id": "governor_zhili",
+                    "message": "Concurrency test",
+                },
+            )
+
+        data = response.json()
+        return data.get("latency_ms", 0.0)

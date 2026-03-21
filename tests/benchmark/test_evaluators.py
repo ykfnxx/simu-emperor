@@ -286,44 +286,4 @@ class TestMultiAgentEvaluator:
                     assert metric.value >= 0.5, f"{metric.name} is too low"
 
 
-# ============================================================================
-# META Test: Evaluators Not Yet Real
-# ============================================================================
-
-
-@pytest.mark.asyncio
-async def test_evaluators_currently_use_placeholders(benchmark_config):
-    """
-    META TEST: Verify current evaluators use placeholder implementations.
-
-    This test confirms we're starting from a known state - evaluators
-    return hardcoded values. After Wave 3 implementation, this test
-    should FAIL (which is expected - delete or update it).
-    """
-    # IntentAccuracyEvaluator should return hardcoded 100%
-    intent_eval = IntentAccuracyEvaluator(benchmark_config)
-    intent_result = await intent_eval.evaluate()
-
-    # Check for placeholder indicators
-    accuracy_metric = next((m for m in intent_result.metrics if m.name == "intent_accuracy"), None)
-    assert accuracy_metric is not None
-
-    # Current implementation returns hardcoded 100%
-    # After real implementation, this assertion will fail (expected)
-    is_placeholder = accuracy_metric.value == 100.0
-
-    # ResponsePerfEvaluator should return hardcoded 11ms
-    perf_eval = ResponsePerfEvaluator(benchmark_config)
-    perf_result = await perf_eval.evaluate()
-
-    p50_metric = next((m for m in perf_result.metrics if m.name == "latency_p50"), None)
-    assert p50_metric is not None
-
-    # Current implementation returns hardcoded 11ms
-    # After real implementation, this assertion will fail (expected)
-    is_placeholder = is_placeholder and p50_metric.value == 11
-
-    # If this test fails, evaluators have been updated to real implementations
-    assert is_placeholder, (
-        "Evaluators appear to be using real implementations. Update or remove this meta test."
-    )
+# META test deleted - Wave 3 complete, evaluators now use real API calls

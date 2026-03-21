@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
+import os
 import time
-from typing import Any
+
+import httpx
 
 from benchmark.config import BenchmarkConfig
 from benchmark.metrics_hook import LLMMetricsCollector
@@ -17,6 +18,7 @@ class ResponsePerfEvaluator:
     def __init__(self, config: BenchmarkConfig | None = None):
         self.config = config or BenchmarkConfig.load()
         self.metrics_collector = LLMMetricsCollector()
+        self.api_base_url = os.getenv("BENCHMARK_API_URL", "http://localhost:8000")
 
     async def evaluate(self) -> ModuleResult:
         start = time.perf_counter()
@@ -24,9 +26,7 @@ class ResponsePerfEvaluator:
         details: list[CaseDetail] = []
 
         for i in range(5):
-            case_start = time.perf_counter()
-            await self._simulate_agent_call()
-            latency = (time.perf_counter() - case_start) * 1000
+            latency = await self._simulate_agent_call()
             latencies.append(latency)
 
             details.append(
@@ -61,5 +61,14 @@ class ResponsePerfEvaluator:
             duration_seconds=time.perf_counter() - start,
         )
 
-    async def _simulate_agent_call(self) -> None:
-        await asyncio.sleep(0.01)
+    async def _simulate_agent_call(self) -> float:
+        """Make real API call and return latency_ms from response."""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.api_base_url}/api/benchmark/agent/chat",
+                json={"agent_id": "governor_zhili", "message": "Performance test query"},
+                timeout=self.config.timeout,
+            )
+
+        data = response.json()
+        return float(data.get("latency_ms", 0.0))
