@@ -32,6 +32,7 @@ data/agent/*
 data/log/
 data/logs/
 data/saves/
+data/reports/
 
 # Runtime memory data (V3 Memory System)
 data/memory/
@@ -64,6 +65,7 @@ htmlcov/
 .coverage.*
 
 # Internal docs (plans, proposals, summaries, surveys)
+.sisyphus/
 .plan/
 .proposal/
 .summary/
@@ -79,6 +81,7 @@ htmlcov/
 
 # Config
 config.yaml
+config.benchmark.*.yaml
 prometheus.yml
 
 # Frontend
