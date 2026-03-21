@@ -194,252 +194,306 @@ class Agent:
     def _register_query_tools(self) -> None:
         """注册 Query 类型工具"""
         # query_province_data
-        self._tool_registry.register(Tool(
-            name="query_province_data",
-            description="查询某个省份的特定数据字段",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "province_id": {
-                        "type": "string",
-                        "enum": ["zhili", "jiangsu", "zhejiang", "fujian", "huguang", "sichuan", "shaanxi", "shandong", "jiangxi"],
+        self._tool_registry.register(
+            Tool(
+                name="query_province_data",
+                description="查询某个省份的特定数据字段",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "province_id": {
+                            "type": "string",
+                            "enum": [
+                                "zhili",
+                                "jiangsu",
+                                "zhejiang",
+                                "fujian",
+                                "huguang",
+                                "sichuan",
+                                "shaanxi",
+                                "shandong",
+                                "jiangxi",
+                            ],
+                        },
+                        "field_path": {"type": "string"},
                     },
-                    "field_path": {"type": "string"},
+                    "required": ["province_id", "field_path"],
                 },
-                "required": ["province_id", "field_path"],
-            },
-            handler=self._query_tools.query_province_data,
-            category="query",
-        ))
+                handler=self._query_tools.query_province_data,
+                category="query",
+            )
+        )
 
         # query_national_data
-        self._tool_registry.register(Tool(
-            name="query_national_data",
-            description="查询国家级数据",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "field_name": {
-                        "type": "string",
-                        "enum": ["imperial_treasury", "turn", "base_tax_rate", "tribute_rate", "fixed_expenditure"],
-                    }
+        self._tool_registry.register(
+            Tool(
+                name="query_national_data",
+                description="查询国家级数据",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "field_name": {
+                            "type": "string",
+                            "enum": [
+                                "imperial_treasury",
+                                "turn",
+                                "base_tax_rate",
+                                "tribute_rate",
+                                "fixed_expenditure",
+                            ],
+                        }
+                    },
+                    "required": ["field_name"],
                 },
-                "required": ["field_name"],
-            },
-            handler=self._query_tools.query_national_data,
-            category="query",
-        ))
+                handler=self._query_tools.query_national_data,
+                category="query",
+            )
+        )
 
         # list_provinces
-        self._tool_registry.register(Tool(
-            name="list_provinces",
-            description="列出所有可访问的省份 ID",
-            parameters={"type": "object", "properties": {}, "required": []},
-            handler=self._query_tools.list_provinces,
-            category="query",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="list_provinces",
+                description="列出所有可访问的省份 ID",
+                parameters={"type": "object", "properties": {}, "required": []},
+                handler=self._query_tools.list_provinces,
+                category="query",
+            )
+        )
 
         # list_agents
-        self._tool_registry.register(Tool(
-            name="list_agents",
-            description="列出所有活跃的官员",
-            parameters={"type": "object", "properties": {}, "required": []},
-            handler=self._query_tools.list_agents,
-            category="query",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="list_agents",
+                description="列出所有活跃的官员",
+                parameters={"type": "object", "properties": {}, "required": []},
+                handler=self._query_tools.list_agents,
+                category="query",
+            )
+        )
 
         # get_agent_info
-        self._tool_registry.register(Tool(
-            name="get_agent_info",
-            description="获取某个官员的详细信息",
-            parameters={
-                "type": "object",
-                "properties": {"agent_id": {"type": "string"}},
-                "required": ["agent_id"],
-            },
-            handler=self._query_tools.get_agent_info,
-            category="query",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="get_agent_info",
+                description="获取某个官员的详细信息",
+                parameters={
+                    "type": "object",
+                    "properties": {"agent_id": {"type": "string"}},
+                    "required": ["agent_id"],
+                },
+                handler=self._query_tools.get_agent_info,
+                category="query",
+            )
+        )
 
         # query_incidents
-        self._tool_registry.register(Tool(
-            name="query_incidents",
-            description="查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filter_province": {
-                        "type": "string",
-                        "description": "按省份 ID 过滤（可选）",
+        self._tool_registry.register(
+            Tool(
+                name="query_incidents",
+                description="查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "filter_province": {
+                            "type": "string",
+                            "description": "按省份 ID 过滤（可选）",
+                        },
+                        "filter_source": {
+                            "type": "string",
+                            "description": "按来源过滤（可选）",
+                        },
                     },
-                    "filter_source": {
-                        "type": "string",
-                        "description": "按来源过滤（可选）",
-                    },
+                    "required": [],
                 },
-                "required": [],
-            },
-            handler=self._query_tools.query_incidents,
-            category="query",
-        ))
+                handler=self._query_tools.query_incidents,
+                category="query",
+            )
+        )
 
     def _register_memory_tools(self) -> None:
         """注册 Memory 类型工具"""
-        self._tool_registry.register(Tool(
-            name="retrieve_memory",
-            description="检索历史记忆",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "max_results": {"type": "integer", "default": 5},
+        self._tool_registry.register(
+            Tool(
+                name="retrieve_memory",
+                description="检索历史记忆",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "max_results": {"type": "integer", "default": 5},
+                    },
+                    "required": ["query"],
                 },
-                "required": ["query"],
-            },
-            handler=self._retrieve_memory_wrapper,
-            category="memory",
-        ))
+                handler=self._retrieve_memory_wrapper,
+                category="memory",
+            )
+        )
 
     def _register_action_tools(self) -> None:
         """注册 Action 类型工具"""
         # send_message (统一的消息发送接口)
-        self._tool_registry.register(Tool(
-            name="send_message",
-            description="发送消息（统一接口）",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "recipients": {
-                        "type": "array",
-                        "items": {"type": "string"},
+        self._tool_registry.register(
+            Tool(
+                name="send_message",
+                description="发送消息（统一接口）",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "recipients": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "content": {"type": "string"},
+                        "await_reply": {"type": "boolean", "default": False},
                     },
-                    "content": {"type": "string"},
-                    "await_reply": {"type": "boolean", "default": False},
+                    "required": ["recipients", "content"],
                 },
-                "required": ["recipients", "content"],
-            },
-            handler=self._action_tools.send_message,
-            category="action",
-        ))
+                handler=self._action_tools.send_message,
+                category="action",
+            )
+        )
 
         # finish_loop
-        self._tool_registry.register(Tool(
-            name="finish_loop",
-            description="结束当前 agent loop",
-            parameters={
-                "type": "object",
-                "properties": {"reason": {"type": "string"}},
-                "required": ["reason"],
-            },
-            handler=self._action_tools.finish_loop,
-            category="action",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="finish_loop",
+                description="结束当前 agent loop",
+                parameters={
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}},
+                    "required": ["reason"],
+                },
+                handler=self._action_tools.finish_loop,
+                category="action",
+            )
+        )
 
         # create_incident
-        self._tool_registry.register(Tool(
-            name="create_incident",
-            description="创建持续 N 个 tick 的游戏事件",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "effects": {"type": "array", "items": {"type": "object"}},
-                    "duration_ticks": {"type": "integer", "minimum": 1},
+        self._tool_registry.register(
+            Tool(
+                name="create_incident",
+                description="创建持续 N 个 tick 的游戏事件",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "effects": {"type": "array", "items": {"type": "object"}},
+                        "duration_ticks": {"type": "integer", "minimum": 1},
+                    },
+                    "required": ["title", "description", "effects", "duration_ticks"],
                 },
-                "required": ["title", "description", "effects", "duration_ticks"],
-            },
-            handler=self._action_tools.create_incident,
-            category="action",
-        ))
+                handler=self._action_tools.create_incident,
+                category="action",
+            )
+        )
 
         # write_memory (短期记忆，turn_*.md)
-        self._tool_registry.register(Tool(
-            name="write_memory",
-            description="写入短期记忆摘要（turn_*.md，保留最近3回合）",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string", "description": "记忆内容"},
+        self._tool_registry.register(
+            Tool(
+                name="write_memory",
+                description="写入短期记忆摘要（turn_*.md，保留最近3回合）",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "记忆内容"},
+                    },
+                    "required": ["content"],
                 },
-                "required": ["content"],
-            },
-            handler=self._action_tools.write_memory,
-            category="action",
-        ))
+                handler=self._action_tools.write_memory,
+                category="action",
+            )
+        )
 
         # write_long_term_memory (长期记忆，MEMORY.md)
-        self._tool_registry.register(Tool(
-            name="write_long_term_memory",
-            description="写入长期记忆（MEMORY.md，永久保存的重要记忆）",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string", "description": "长期记忆内容（重要事件、关键决策、深刻感悟）"},
+        self._tool_registry.register(
+            Tool(
+                name="write_long_term_memory",
+                description="写入长期记忆（MEMORY.md，永久保存的重要记忆）",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "长期记忆内容（重要事件、关键决策、深刻感悟）",
+                        },
+                    },
+                    "required": ["content"],
                 },
-                "required": ["content"],
-            },
-            handler=self._action_tools.write_long_term_memory,
-            category="action",
-        ))
+                handler=self._action_tools.write_long_term_memory,
+                category="action",
+            )
+        )
 
         # update_soul (性格演化，soul.md 追加)
-        self._tool_registry.register(Tool(
-            name="update_soul",
-            description="记录性格变化（追加到 soul.md，仅在重大转变时使用）",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string", "description": "性格变化描述（什么事件导致了什么性格转变）"},
+        self._tool_registry.register(
+            Tool(
+                name="update_soul",
+                description="记录性格变化（追加到 soul.md，仅在重大转变时使用）",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "性格变化描述（什么事件导致了什么性格转变）",
+                        },
+                    },
+                    "required": ["content"],
                 },
-                "required": ["content"],
-            },
-            handler=self._action_tools.update_soul,
-            category="action",
-        ))
+                handler=self._action_tools.update_soul,
+                category="action",
+            )
+        )
 
     def _register_session_tools(self) -> None:
         """注册 Session 类型工具"""
-        self._tool_registry.register(Tool(
-            name="create_task_session",
-            description="创建任务会话",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "timeout_seconds": {"type": "integer", "default": 300},
-                    "description": {"type": "string"},
-                    "goal": {"type": "string"},
-                    "constraints": {"type": "string"},
+        self._tool_registry.register(
+            Tool(
+                name="create_task_session",
+                description="创建任务会话",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "timeout_seconds": {"type": "integer", "default": 300},
+                        "description": {"type": "string"},
+                        "goal": {"type": "string"},
+                        "constraints": {"type": "string"},
+                    },
+                    "required": [],
                 },
-                "required": [],
-            },
-            handler=self._wrap_create_task_session,
-            category="session",
-        ))
+                handler=self._wrap_create_task_session,
+                category="session",
+            )
+        )
 
-        self._tool_registry.register(Tool(
-            name="finish_task_session",
-            description="完成任务会话",
-            parameters={
-                "type": "object",
-                "properties": {"result": {"type": "string"}},
-                "required": ["result"],
-            },
-            handler=self._wrap_finish_task_session,
-            category="session",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="finish_task_session",
+                description="完成任务会话",
+                parameters={
+                    "type": "object",
+                    "properties": {"result": {"type": "string"}},
+                    "required": ["result"],
+                },
+                handler=self._wrap_finish_task_session,
+                category="session",
+            )
+        )
 
-        self._tool_registry.register(Tool(
-            name="fail_task_session",
-            description="任务会话失败",
-            parameters={
-                "type": "object",
-                "properties": {"reason": {"type": "string"}},
-                "required": ["reason"],
-            },
-            handler=self._wrap_fail_task_session,
-            category="session",
-        ))
+        self._tool_registry.register(
+            Tool(
+                name="fail_task_session",
+                description="任务会话失败",
+                parameters={
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}},
+                    "required": ["reason"],
+                },
+                handler=self._wrap_fail_task_session,
+                category="session",
+            )
+        )
 
     async def _wrap_create_task_session(self, args: dict, event: Event) -> str:
         """包装 create_task_session 以符合 Agent 调用约定"""
@@ -786,9 +840,7 @@ class Agent:
 
         return True
 
-    async def _process_event_with_llm(
-        self, event: Event, session_id: str
-    ) -> None:
+    async def _process_event_with_llm(self, event: Event, session_id: str) -> None:
         """
         使用 LLM 处理事件（ReAct Observation 模式）。
 
@@ -999,10 +1051,12 @@ class Agent:
                 result_str, result_event = result
 
             # 记录 action
-            observation["actions"].append({
-                "tool": function_name,
-                "result": result_str,
-            })
+            observation["actions"].append(
+                {
+                    "tool": function_name,
+                    "result": result_str,
+                }
+            )
 
             # 检查函数是否成功执行
             if function_name == "finish_loop":
@@ -1040,18 +1094,20 @@ class Agent:
 
         return observation
 
-    async def _add_observation_to_tape(self, event: Event, session_id: str, observation: dict) -> None:
+    async def _add_observation_to_tape(
+        self, event: Event, session_id: str, observation: dict
+    ) -> None:
         """
-        将 Observation 添加到 tape
+        将 Observation 添加到 tape 并发送到 EventBus
 
         Args:
             event: 当前事件
             session_id: 会话 ID
             observation: Observation dict
         """
-        observation_event = TapeEvent(
+        observation_event = Event(
             src=f"agent:{self.agent_id}",
-            dst=["*"],
+            dst=[f"benchmark:{session_id}"],
             type=EventType.OBSERVATION,
             payload=observation,
             session_id=event.session_id,
@@ -1059,6 +1115,7 @@ class Agent:
             root_event_id=event.root_event_id,
         )
         await self._context_manager.add_event_and_maybe_compact(observation_event)
+        await self.event_bus.send_event(observation_event)
 
     async def _handle_no_tool_calls(
         self, event: Event, session_id: str, response_text: str
@@ -1398,4 +1455,3 @@ class Agent:
             )
         except Exception as e:
             logger.warning(f"Failed to refresh metadata: {e}")
-
