@@ -105,7 +105,6 @@ class IntentAccuracyEvaluator(BaseEvaluator):
         ]
 
     async def _evaluate_case(self, ctx, case: dict[str, Any]) -> CaseDetail:
-        """Evaluate a single test case by sending a message and checking tool calls."""
         try:
             api_response = await ctx.send_message(case["input"])
 
@@ -125,7 +124,7 @@ class IntentAccuracyEvaluator(BaseEvaluator):
                 reason = f"Missing required tools: {missing}. Got: {actual_tools}"
 
             must_have_args = case.get("must_have_args", {})
-            self._check_args_correctness(actual_tool_calls, must_have_args)
+            args_correct = self._check_args_correctness(actual_tool_calls, must_have_args)
 
             return CaseDetail(
                 case_id=case["id"],
@@ -134,6 +133,7 @@ class IntentAccuracyEvaluator(BaseEvaluator):
                 expected=list(must_have),
                 actual=actual_tools,
                 reason=reason,
+                args_correct=args_correct,
             )
 
         except Exception as e:
@@ -144,6 +144,7 @@ class IntentAccuracyEvaluator(BaseEvaluator):
                 expected=case.get("must_have_tools", []),
                 actual=[],
                 reason=f"Error: {str(e)}",
+                args_correct=False,
             )
 
     def _check_args_correctness(
@@ -176,9 +177,12 @@ class IntentAccuracyEvaluator(BaseEvaluator):
         return (successful / len(details)) * 100
 
     def _calc_param_correctness(self, details: list[CaseDetail]) -> float:
-        """Calculate parameter correctness based on matched cases."""
         if not details:
             return 0.0
 
-        correct = sum(1 for d in details if d.passed)
-        return (correct / len(details)) * 100
+        cases_with_args = [d for d in details if d.expected]
+        if not cases_with_args:
+            return 100.0
+
+        correct = sum(1 for d in cases_with_args if d.args_correct)
+        return (correct / len(cases_with_args)) * 100

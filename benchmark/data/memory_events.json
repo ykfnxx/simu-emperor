@@ -19,10 +19,35 @@
     {"id": "e015", "content": "直隶的盐税征收有没有问题？", "session_id": "session_3", "event_type": "chat", "src": "player"},
     {"id": "e016", "content": "盐税方面，今年共征收十二万两，但有几处盐场私盐泛滥，臣正在严查。已查获私盐三千斤，拘捕盐贩七人。", "session_id": "session_3", "event_type": "chat", "src": "agent:governor_zhili"},
     {"id": "e017", "content": "军费开支多少？驻军情况如何？", "session_id": "session_3", "event_type": "chat", "src": "player"},
-    {"id": "e018", "content": "直隶驻军八千人，月军费开支六万两。边防稳固，但北部有匪患，臣已派兵围剿，预计月内可平定。", "session_id": "session_3", "event_type": "chat", "src": "agent:governor_zhili"}
+    {"id": "e018", "content": "直隶驻军八千人，月军费开支六万两。边防稳固，但北部有匪患，臣已派兵围剿，预计月内可平定。", "session_id": "session_3", "event_type": "chat", "src": "agent:governor_zhili"},
+
+    {"id": "e019", "content": "直隶的商业发展如何？", "session_id": "session_4", "event_type": "chat", "src": "player"},
+    {"id": "e020", "content": "回陛下，直隶商业繁荣，商户已增至三千户。今年贸易额达八十万两，较去年增长两成。保定、天津商埠最为兴盛。", "session_id": "session_4", "event_type": "chat", "src": "agent:governor_zhili"},
+    {"id": "e021", "content": "天津港口的货物吞吐量如何？", "session_id": "session_4", "event_type": "chat", "src": "player"},
+    {"id": "e022", "content": "天津港口年吞吐货物五十万吨，主要为粮食、布匹和盐。今年新增商船三十艘，港口扩建已完成。", "session_id": "session_4", "event_type": "chat", "src": "agent:governor_zhili"},
+
+    {"id": "e023", "content": "直隶的教育情况怎么样？", "session_id": "session_5", "event_type": "chat", "src": "player"},
+    {"id": "e024", "content": "回陛下，直隶现有书院五所，私塾三百余间。今年科举中举者五十人，较去年增加十人。文教之风渐盛。", "session_id": "session_5", "event_type": "chat", "src": "agent:governor_zhili"},
+    {"id": "e025", "content": "保定书院办得如何？", "session_id": "session_5", "event_type": "chat", "src": "player"},
+    {"id": "e026", "content": "保定莲池书院学子三百人，师资雄厚。今年有十人考中进士，声名远播。臣建议增设奖学金以励学子。", "session_id": "session_5", "event_type": "chat", "src": "agent:governor_zhili"},
+
+    {"id": "e027", "content": "直隶的水利工程需要多少银子？", "session_id": "session_6", "event_type": "chat", "src": "player"},
+    {"id": "e028", "content": "回陛下，直隶水利年需银十五万两。今年河堤修缮已用十万两，尚需五万两用于疏浚河道。", "session_id": "session_6", "event_type": "chat", "src": "agent:governor_zhili"},
+    {"id": "e029", "content": "那就再拨五万两。水利工程务必保质保量。", "session_id": "session_6", "event_type": "chat", "src": "player"},
+    {"id": "e030", "content": "臣遵旨！五万两定用于河道疏浚，决不挪用。工程预计三个月完工，届时漕运将更加通畅。", "session_id": "session_6", "event_type": "chat", "src": "agent:governor_zhili"},
+
+    {"id": "e031", "content": "直隶的治安情况如何？", "session_id": "session_7", "event_type": "chat", "src": "player"},
+    {"id": "e032", "content": "回陛下，直隶治安总体良好。但北部山区有土匪盘踞，约有三百人，常劫掠商旅。臣已派兵围剿，已擒获匪首。", "session_id": "session_7", "event_type": "chat", "src": "agent:governor_zhili"},
+    {"id": "e033", "content": "匪患根除了吗？", "session_id": "session_7", "event_type": "chat", "src": "player"},
+    {"id": "e034", "content": "回陛下，匪首已擒，残匪四散。臣正在加强巡逻，确保商旅安全。预计年内可彻底平定匪患。", "session_id": "session_7", "event_type": "chat", "src": "agent:governor_zhili"},
+
+    {"id": "e035", "content": "直隶今年的粮食产量如何？", "session_id": "session_8", "event_type": "chat", "src": "player"},
+    {"id": "e036", "content": "回陛下，直隶今年粮食产量三百万石，较去年增产一成。粮仓储备充足，可供两年之需。", "session_id": "session_8", "event_type": "chat", "src": "agent:governor_zhili"},
+    {"id": "e037", "content": "粮价稳定吗？", "session_id": "session_8", "event_type": "chat", "src": "player"},
+    {"id": "e038", "content": "回陛下，粮价平稳，每石约一两银子。臣已设平籴仓，丰年收粮、荒年平价出售，以稳粮价。", "session_id": "session_8", "event_type": "chat", "src": "agent:governor_zhili"}
   ],
   "test_queries": [
-    {"id": "q01", "query": "之前给直隶拨款多少？", "relevant_event_ids": ["e003", "e004"], "difficulty": "easy"},
+    {"id": "q01", "query": "之前给直隶拨款多少？", "relevant_event_ids": ["e003", "e004", "e029", "e030"], "difficulty": "easy"},
     {"id": "q02", "query": "直隶税收是多少？", "relevant_event_ids": ["e001", "e002", "e015", "e016"], "difficulty": "easy"},
     {"id": "q03", "query": "直隶发生过什么灾害？", "relevant_event_ids": ["e007", "e008", "e013", "e014"], "difficulty": "easy"},
     {"id": "q04", "query": "直隶人口有多少？", "relevant_event_ids": ["e005", "e006"], "difficulty": "easy"},
@@ -31,6 +56,20 @@
     {"id": "q07", "query": "赈灾的银子够吗？", "relevant_event_ids": ["e009", "e010", "e014"], "difficulty": "medium"},
     {"id": "q08", "query": "私盐的事查得怎么样？", "relevant_event_ids": ["e015", "e016"], "difficulty": "medium"},
     {"id": "q09", "query": "直隶驻军和军费情况", "relevant_event_ids": ["e017", "e018"], "difficulty": "easy"},
-    {"id": "q10", "query": "直隶花了多少银两？", "relevant_event_ids": ["e003", "e004", "e010", "e018"], "difficulty": "hard"}
+    {"id": "q10", "query": "直隶花了多少银两？", "relevant_event_ids": ["e003", "e004", "e010", "e018", "e028", "e030"], "difficulty": "hard"},
+    {"id": "q11", "query": "直隶商业发展如何？", "relevant_event_ids": ["e019", "e020"], "difficulty": "easy"},
+    {"id": "q12", "query": "天津港口的情况", "relevant_event_ids": ["e021", "e022"], "difficulty": "easy"},
+    {"id": "q13", "query": "直隶教育情况怎么样？", "relevant_event_ids": ["e023", "e024", "e025", "e026"], "difficulty": "medium"},
+    {"id": "q14", "query": "保定书院办得如何？", "relevant_event_ids": ["e025", "e026"], "difficulty": "easy"},
+    {"id": "q15", "query": "水利工程需要多少钱？", "relevant_event_ids": ["e027", "e028"], "difficulty": "easy"},
+    {"id": "q16", "query": "河道疏浚拨款了吗？", "relevant_event_ids": ["e029", "e030"], "difficulty": "medium"},
+    {"id": "q17", "query": "直隶治安情况如何？", "relevant_event_ids": ["e031", "e032", "e033", "e034"], "difficulty": "medium"},
+    {"id": "q18", "query": "匪患平定了吗？", "relevant_event_ids": ["e033", "e034"], "difficulty": "easy"},
+    {"id": "q19", "query": "直隶粮食产量多少？", "relevant_event_ids": ["e035", "e036"], "difficulty": "easy"},
+    {"id": "q20", "query": "粮价稳定吗？", "relevant_event_ids": ["e037", "e038"], "difficulty": "easy"},
+    {"id": "q21", "query": "直隶总共获得了多少拨款？", "relevant_event_ids": ["e003", "e004", "e029", "e030"], "difficulty": "hard"},
+    {"id": "q22", "query": "直隶有哪些工程项目？", "relevant_event_ids": ["e003", "e004", "e011", "e012", "e027", "e028", "e029", "e030"], "difficulty": "hard"},
+    {"id": "q23", "query": "直隶商人和贸易情况", "relevant_event_ids": ["e019", "e020", "e021", "e022"], "difficulty": "medium"},
+    {"id": "q24", "query": "直隶的储备情况如何？", "relevant_event_ids": ["e035", "e036", "e037", "e038"], "difficulty": "medium"}
   ]
 }

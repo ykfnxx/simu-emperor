@@ -54,6 +54,7 @@ class CaseDetail:
     expected: List[str]
     actual: List[str]
     reason: str
+    args_correct: bool = True  # Whether tool call arguments match expected
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +64,7 @@ class CaseDetail:
             "expected": list(self.expected),
             "actual": list(self.actual),
             "reason": self.reason,
+            "args_correct": self.args_correct,
         }
 
     @classmethod
@@ -74,6 +76,7 @@ class CaseDetail:
             expected=list(data["expected"]),
             actual=list(data["actual"]),
             reason=data["reason"],
+            args_correct=data.get("args_correct", True),
         )
 
 
