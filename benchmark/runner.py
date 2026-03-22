@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -42,36 +41,38 @@ class BenchmarkRunner:
         Returns:
             List of ModuleResult from all runs
         """
+        from benchmark.base import BaseEvaluator
+
         self.results = []
 
-        for i in range(repeat):
-            if repeat > 1:
-                print(f"\n=== Run {i + 1}/{repeat} ===")
+        try:
+            for i in range(repeat):
+                if repeat > 1:
+                    print(f"\n=== Run {i + 1}/{repeat} ===")
 
-            if module in ("agent", "all"):
-                agent_results = await self._run_agent_modules()
-                self.results.extend(agent_results)
+                if module in ("agent", "all"):
+                    agent_results = await self._run_agent_modules()
+                    self.results.extend(agent_results)
 
-            if module in ("memory", "all"):
-                memory_results = await self._run_memory_modules()
-                self.results.extend(memory_results)
+                if module in ("memory", "all"):
+                    memory_results = await self._run_memory_modules()
+                    self.results.extend(memory_results)
+        finally:
+            await BaseEvaluator.cleanup()
 
         return self.results
 
     async def _run_agent_modules(self) -> list[ModuleResult]:
         from benchmark.agent.intent_accuracy import IntentAccuracyEvaluator
         from benchmark.agent.response_perf import ResponsePerfEvaluator
-        from benchmark.agent.multi_agent import MultiAgentEvaluator
 
         results = []
         evaluators = [
             ("intent_accuracy", IntentAccuracyEvaluator(self.config)),
             ("response_perf", ResponsePerfEvaluator(self.config)),
-            ("multi_agent", MultiAgentEvaluator(self.config)),
         ]
 
         for module_name, evaluator in evaluators:
-            start = time.perf_counter()
             result = await evaluator.evaluate()
             results.append(result)
             print(f"  [{module_name}] Completed in {result.duration_seconds:.2f}s")
@@ -91,7 +92,6 @@ class BenchmarkRunner:
         ]
 
         for module_name, evaluator in evaluators:
-            start = time.perf_counter()
             result = await evaluator.evaluate()
             results.append(result)
             print(f"  [{module_name}] Completed in {result.duration_seconds:.2f}s")

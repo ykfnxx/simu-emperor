@@ -321,7 +321,7 @@ class TestAgent:
         # 应该发送消息给其他 agent 和玩家
         assert agent.event_bus.send_event.called
         calls = agent.event_bus.send_event.call_args_list
-        assert len(calls) == 2  # send_message to governor_zhili + send_message to player
+        assert len(calls) == 3  # send_message to governor_zhili + send_message to player + observation
 
     @pytest.mark.asyncio
     async def test_get_system_prompt_for_event(self, agent):

@@ -46,10 +46,13 @@ class VectorSearcher:
         if config.provider == "openai":
             if not config.api_key:
                 raise ValueError("OpenAI API key is required when provider is 'openai'")
-            self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=config.api_key,
-                model_name=config.model,
-            )
+            kwargs = {
+                "api_key": config.api_key,
+                "model_name": config.model,
+            }
+            if config.api_base:
+                kwargs["api_base"] = config.api_base
+            self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(**kwargs)
         elif config.provider == "mock":
             self.embedding_fn = _MockEmbeddingFunction(dimension=1536)
         else:

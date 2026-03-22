@@ -22,7 +22,6 @@ from simu_emperor.event_bus.event import Event
 from simu_emperor.adapters.web.game_instance import WebGameInstance
 from simu_emperor.adapters.web.connection_manager import ConnectionManager
 from simu_emperor.adapters.web.message_converter import MessageConverter
-from simu_emperor.adapters.web.benchmark_api import router as benchmark_router
 
 
 logger = logging.getLogger(__name__)
@@ -108,8 +107,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Emperor Simulator Web API", lifespan=lifespan)
-
-app.include_router(benchmark_router)
 
 # CORS 配置
 app.add_middleware(

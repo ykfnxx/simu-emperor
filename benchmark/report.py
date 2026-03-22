@@ -81,7 +81,7 @@ class ReportGenerator:
     def _generate_agent_section(self, results: list[ModuleResult]) -> str:
         """Generate agent evaluation section."""
         agent_modules = [
-            r for r in results if r.module in ("intent_accuracy", "response_perf", "multi_agent")
+            r for r in results if r.module in ("intent_accuracy", "response_perf")
         ]
 
         if not agent_modules:
@@ -110,18 +110,6 @@ class ReportGenerator:
                     "### 2.2 响应性能",
                     "",
                     self._format_metrics_table(perf.metrics),
-                ]
-            )
-
-        # Multi-agent
-        multi = next((r for r in agent_modules if r.module == "multi_agent"), None)
-        if multi:
-            lines.extend(
-                [
-                    "",
-                    "### 2.3 多 Agent 并发",
-                    "",
-                    self._format_metrics_table(multi.metrics),
                 ]
             )
 

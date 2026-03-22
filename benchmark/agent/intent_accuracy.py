@@ -3,32 +3,32 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
-import httpx
-
+from benchmark.base import BaseEvaluator
 from benchmark.config import BenchmarkConfig
 from benchmark.models import CaseDetail, MetricResult, ModuleResult
 
 
-class IntentAccuracyEvaluator:
+class IntentAccuracyEvaluator(BaseEvaluator):
     """Evaluates Agent's ability to correctly identify user intent and call appropriate tools."""
 
     def __init__(self, config: BenchmarkConfig | None = None):
-        self.config = config or BenchmarkConfig.load()
-        self.api_base_url = os.getenv("BENCHMARK_API_URL", "http://localhost:8000")
+        super().__init__(config)
 
     async def evaluate(self) -> ModuleResult:
         start = time.perf_counter()
 
+        ctx = await self.get_context(self.config)
         cases = self._load_test_cases()
         details: list[CaseDetail] = []
 
+        # Sequential: agent has a single context_manager per session,
+        # concurrent calls to the same agent would thrash it.
         for case in cases:
-            detail = await self._evaluate_case(case)
+            detail = await self._evaluate_case(ctx, case)
             details.append(detail)
 
         total = len(details)
@@ -104,23 +104,10 @@ class IntentAccuracyEvaluator:
             },
         ]
 
-    async def _call_api(self, message: str) -> dict[str, Any]:
-        """Call the benchmark API endpoint and return the response data."""
-        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
-            response = await client.post(
-                f"{self.api_base_url}/api/benchmark/agent/chat",
-                json={
-                    "agent_id": "governor_zhili",
-                    "message": message,
-                },
-            )
-            response.raise_for_status()
-            return response.json()
-
-    async def _evaluate_case(self, case: dict[str, Any]) -> CaseDetail:
-        """Evaluate a single test case by calling the API and checking tool calls."""
+    async def _evaluate_case(self, ctx, case: dict[str, Any]) -> CaseDetail:
+        """Evaluate a single test case by sending a message and checking tool calls."""
         try:
-            api_response = await self._call_api(case["input"])
+            api_response = await ctx.send_message(case["input"])
 
             actual_tool_calls = api_response.get("tool_calls", [])
             actual_tools = [tc.get("name", "") for tc in actual_tool_calls if tc.get("name")]
@@ -156,7 +143,7 @@ class IntentAccuracyEvaluator:
                 input=case["input"],
                 expected=case.get("must_have_tools", []),
                 actual=[],
-                reason=f"API call failed: {str(e)}",
+                reason=f"Error: {str(e)}",
             )
 
     def _check_args_correctness(

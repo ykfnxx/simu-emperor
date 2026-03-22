@@ -113,6 +113,7 @@ class EmbeddingConfig(BaseSettings):
         default="openai", description="Embedding 提供商: openai/mock"
     )
     api_key: str | None = Field(default=None, description="OpenAI API Key")
+    api_base: str | None = Field(default=None, description="API Base URL（兼容 OpenAI 格式的服务）")
     model: str = Field(default="text-embedding-3-small", description="Embedding 模型")
     enabled: bool = Field(default=True, description="是否启用向量检索")
     batch_size: int = Field(default=100, ge=1, description="批量 embedding 大小")

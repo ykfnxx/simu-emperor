@@ -53,6 +53,16 @@ class BenchmarkConfig:
                 if isinstance(data, dict):
                     llm_from_source = data.get("llm", {})
 
+        # Fallback: read from project config.yaml (same LLM settings as the game)
+        if not llm_from_source:
+            repo_root = Path(__file__).resolve().parents[1]
+            candidate = repo_root / "config.yaml"
+            if candidate.exists():
+                with open(candidate, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if isinstance(data, dict):
+                    llm_from_source = data.get("llm", {})
+
         env_provider = os.getenv("BENCHMARK_LLM_PROVIDER")
         env_model = os.getenv("BENCHMARK_LLM_MODEL")
         env_api_key = os.getenv("BENCHMARK_LLM_API_KEY")

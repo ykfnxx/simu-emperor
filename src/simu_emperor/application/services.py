@@ -101,7 +101,7 @@ class ApplicationServices:
         )
 
         # 2. Initialize Database
-        db_path = str(settings.data_dir / "game.db")
+        db_path = settings.db_path if settings.db_path == ":memory:" else str(settings.data_dir / "game.db")
         conn = await init_database(db_path)
         repository = GameRepository(conn)
 

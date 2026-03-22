@@ -2,31 +2,32 @@
 
 from __future__ import annotations
 
-import os
 import time
 
-import httpx
-
+from benchmark.base import BaseEvaluator
 from benchmark.config import BenchmarkConfig
 from benchmark.metrics_hook import LLMMetricsCollector
 from benchmark.models import CaseDetail, MetricResult, ModuleResult
 
 
-class ResponsePerfEvaluator:
+class ResponsePerfEvaluator(BaseEvaluator):
     """Evaluates Agent response latency and token consumption."""
 
     def __init__(self, config: BenchmarkConfig | None = None):
-        self.config = config or BenchmarkConfig.load()
+        super().__init__(config)
         self.metrics_collector = LLMMetricsCollector()
-        self.api_base_url = os.getenv("BENCHMARK_API_URL", "http://localhost:8000")
 
     async def evaluate(self) -> ModuleResult:
         start = time.perf_counter()
         latencies: list[float] = []
         details: list[CaseDetail] = []
 
-        for i in range(5):
-            latency = await self._simulate_agent_call()
+        ctx = await self.get_context(self.config)
+
+        # Sequential: agent has a single context_manager per session,
+        # concurrent calls to the same agent would thrash it.
+        for i in range(2):
+            latency = await self._simulate_agent_call(ctx)
             latencies.append(latency)
 
             details.append(
@@ -61,14 +62,7 @@ class ResponsePerfEvaluator:
             duration_seconds=time.perf_counter() - start,
         )
 
-    async def _simulate_agent_call(self) -> float:
-        """Make real API call and return latency_ms from response."""
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base_url}/api/benchmark/agent/chat",
-                json={"agent_id": "governor_zhili", "message": "Performance test query"},
-                timeout=self.config.timeout,
-            )
-
-        data = response.json()
-        return float(data.get("latency_ms", 0.0))
+    async def _simulate_agent_call(self, ctx) -> float:
+        """Send a real message via BenchmarkContext and return latency_ms."""
+        result = await ctx.send_message("你好")
+        return result.get("latency_ms", 0.0)

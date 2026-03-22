@@ -11,6 +11,7 @@ from simu_emperor.config import GameConfig
 def mock_settings(tmp_path: Path) -> GameConfig:
     """Create mock game settings."""
     settings = MagicMock(spec=GameConfig)
+    settings.db_path = "game.db"
     settings.data_dir = tmp_path
     settings.log_dir = tmp_path / "logs"
     settings.llm = MagicMock()
