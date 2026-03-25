@@ -77,9 +77,15 @@ class ActionTools:
         if self_agent in normalized_recipients:
             return "❌ 不能向自己发送消息"
 
+        session = None
+        if self.session_manager:
+            session = await self.session_manager.get_session(event.session_id)
+
+        if session and session.is_task and "player" in normalized_recipients:
+            return "❌ 任务会话中禁止向 player 发送消息，请在主会话中汇报。"
+
         # 处理 await_reply
         if await_reply and self.session_manager:
-            session = await self.session_manager.get_session(event.session_id)
             if not session or not session.is_task:
                 return "❌ await_reply=true 只能在任务会话中使用"
             await self.session_manager.increment_async_replies(
