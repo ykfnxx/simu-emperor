@@ -197,6 +197,33 @@ class TestSendMessage:
         assert "❌" in result
         assert "await_reply=true 只能用于 agent 间消息" in result
 
+    @pytest.mark.asyncio
+    async def test_send_message_rejects_player_in_task_session(
+        self, mock_event_bus, sample_event, tmp_path
+    ):
+        """Test that task sessions cannot send messages directly to player."""
+        mock_session = MagicMock()
+        mock_session.is_task = True
+
+        mock_session_manager = MagicMock()
+        mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+
+        action_tools = ActionTools(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            data_dir=tmp_path,
+            session_manager=mock_session_manager,
+        )
+
+        result = await action_tools.send_message(
+            {"recipients": ["player"], "content": "任务内回复给玩家"},
+            sample_event,
+        )
+
+        assert "❌" in result
+        assert "任务会话中禁止向 player 发送消息" in result
+        assert not mock_event_bus.send_event.called
+
 
 
 class TestCreateIncident:

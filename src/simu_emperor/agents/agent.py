@@ -21,13 +21,15 @@ from simu_emperor.agents.tools.tool_registry import Tool, ToolRegistry
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
-from simu_emperor.event_bus.event import Event as TapeEvent
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.session.manager import SessionManager
 
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_ITERATIONS = 10
+TASK_SESSION_MAX_ITERATIONS = 8
 
 
 class Agent:
@@ -503,8 +505,44 @@ class Agent:
             timeout_seconds=args.get("timeout_seconds", 300),
             description=args.get("description", ""),
             current_session_id=event.session_id,
+            goal=args.get("goal", ""),
+            constraints=args.get("constraints", ""),
         )
         return json.dumps(result, ensure_ascii=False)
+
+    async def _infer_task_session_phase(self, session_id: str) -> str:
+        """基于 task session 事件序列推导当前阶段（运行时推导，不持久化）。
+
+        Returns:
+            PLAN: 尚未发送首条 await_reply 委托消息
+            EXECUTE_WAITING_REPLY: 已委托但尚未收到有效回复
+            EXECUTE_READY_TO_FINISH: 已收到来自其他 agent 的有效回复
+        """
+        events = []
+        if self._context_manager and self._context_manager.session_id == session_id:
+            events = getattr(self._context_manager, "events", []) or []
+
+        self_src = f"agent:{self.agent_id}"
+        has_delegation = False
+        has_incoming_reply = False
+
+        for tape_event in events:
+            if tape_event.get("type") != EventType.AGENT_MESSAGE:
+                continue
+
+            src = tape_event.get("src", "")
+            payload = tape_event.get("payload", {})
+
+            if src == self_src and isinstance(payload, dict) and payload.get("await_reply") is True:
+                has_delegation = True
+            elif src and src != self_src:
+                has_incoming_reply = True
+
+        if not has_delegation:
+            return "PLAN"
+        if has_incoming_reply:
+            return "EXECUTE_READY_TO_FINISH"
+        return "EXECUTE_WAITING_REPLY"
 
     async def _wrap_finish_task_session(self, args: dict, event: Event) -> str:
         """包装 finish_task_session 以符合 Agent 调用约定
@@ -528,6 +566,24 @@ class Agent:
                 {
                     "success": False,
                     "error": "finish_task_session can only be called from a task session, not from main session",
+                },
+                ensure_ascii=False,
+            )
+
+        phase = await self._infer_task_session_phase(event.session_id)
+        if phase == "PLAN":
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "finish_task_session blocked: 当前处于 Plan 阶段，必须先执行委托再结束任务。",
+                },
+                ensure_ascii=False,
+            )
+        if phase == "EXECUTE_WAITING_REPLY":
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "finish_task_session blocked: 尚未收到有效回复，不能提前结束任务。",
                 },
                 ensure_ascii=False,
             )
@@ -561,6 +617,16 @@ class Agent:
                 {
                     "success": False,
                     "error": "fail_task_session can only be called from a task session, not from main session",
+                },
+                ensure_ascii=False,
+            )
+
+        phase = await self._infer_task_session_phase(event.session_id)
+        if phase == "PLAN":
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "fail_task_session blocked: 当前处于 Plan 阶段，必须先进入执行阶段后才能失败收口。",
                 },
                 ensure_ascii=False,
             )
@@ -790,6 +856,7 @@ class Agent:
                 EventType.AGENT_MESSAGE,  # 其他 agent 的回复
                 EventType.TASK_FINISHED,  # 任务完成
                 EventType.TASK_FAILED,  # 任务失败
+                EventType.TASK_TIMEOUT,  # 任务超时
             )
 
         return True
@@ -875,7 +942,14 @@ class Agent:
         await self._context_manager.add_event_and_maybe_compact(event)
 
         # 多轮 function calling 循环
-        max_iterations = 10  # 防止无限循环
+        is_task_session = False
+        max_iterations = DEFAULT_MAX_ITERATIONS
+        if self.session_manager:
+            session = await self.session_manager.get_session(session_id)
+            if session and session.is_task:
+                is_task_session = True
+                max_iterations = TASK_SESSION_MAX_ITERATIONS
+
         iteration = 0
 
         while iteration < max_iterations:
@@ -950,6 +1024,43 @@ class Agent:
         if iteration >= max_iterations:
             logger.warning(
                 f"⚠️  [Agent:{self.agent_id}:{session_id}] Reached max iterations ({max_iterations})"
+            )
+            if is_task_session:
+                await self._auto_fail_task_session_on_iteration_cap(session_id, max_iterations)
+
+    async def _auto_fail_task_session_on_iteration_cap(
+        self, session_id: str, max_iterations: int
+    ) -> None:
+        """Task session 到达迭代上限时自动失败收口，避免悬挂。"""
+        if not self._task_session_tools or not self.session_manager:
+            return
+
+        session = await self.session_manager.get_session(session_id)
+        if not session or not session.is_task:
+            return
+
+        if session.status in ("FINISHED", "FAILED"):
+            return
+
+        if session.created_by != f"agent:{self.agent_id}":
+            logger.warning(
+                f"⚠️ [Agent:{self.agent_id}:{session_id}] Iteration cap reached but current agent "
+                "is not the task creator, skip auto-fail."
+            )
+            return
+
+        try:
+            await self._task_session_tools.fail_task_session(
+                task_session_id=session_id,
+                reason=f"达到最大迭代次数 {max_iterations}，自动终止任务会话以避免长循环。",
+            )
+            logger.warning(
+                f"⚠️ [Agent:{self.agent_id}:{session_id}] Task session auto-failed due to iteration cap {max_iterations}."
+            )
+        except Exception as exc:
+            logger.error(
+                f"❌ [Agent:{self.agent_id}:{session_id}] Failed to auto-fail task session on cap: {exc}",
+                exc_info=True,
             )
 
     async def _call_llm(
