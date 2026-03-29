@@ -166,6 +166,13 @@ class AgentQueueConfig(BaseSettings):
     max_size: int = Field(default=0, ge=0, description="队列最大容量（0 = 无界）")
 
 
+class MonitoringConfig(BaseSettings):
+    """Prometheus 监控配置（V4.3 新增）。"""
+
+    enabled: bool = Field(default=False, description="是否启用 Prometheus 监控")
+    port: int = Field(default=8000, ge=1024, le=65535, description="Metrics HTTP 端口")
+
+
 class GameConfig(BaseSettings):
     """游戏全局配置。"""
 
@@ -190,6 +197,7 @@ class GameConfig(BaseSettings):
     chromadb: ChromaDBConfig = Field(default_factory=ChromaDBConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     agent_queue: AgentQueueConfig = Field(default_factory=AgentQueueConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
     @classmethod
     def settings_customise_sources(

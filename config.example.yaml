@@ -57,6 +57,11 @@ agent_queue:
   enabled: true                     # 是否启用消息队列（背压处理）
   max_size: 0                       # 队列最大容量（0 = 无界）
 
+# Prometheus 监控配置（V4.3）
+monitoring:
+  enabled: false                    # 是否启用 Prometheus 监控
+  port: 8000                        # Metrics HTTP 端口
+
 # V3 记忆系统配置
 memory:
   enabled: true
