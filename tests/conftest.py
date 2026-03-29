@@ -43,9 +43,7 @@ async def event_bus_cleanup():
         pass
 
 
-def make_province(
-    province_id: str = "zhili", name: str = "直隶", **overrides
-) -> ProvinceData:
+def make_province(province_id: str = "zhili", name: str = "直隶", **overrides) -> ProvinceData:
     """创建省份数据 (V4)."""
     defaults = {
         "province_id": province_id,

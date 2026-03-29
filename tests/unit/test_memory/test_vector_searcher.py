@@ -7,9 +7,7 @@ from simu_emperor.memory.models import TapeSegment
 from simu_emperor.memory.vector_searcher import VectorSearcher, CHROMADB_AVAILABLE
 
 
-pytestmark = pytest.mark.skipif(
-    not CHROMADB_AVAILABLE, reason="chromadb not installed"
-)
+pytestmark = pytest.mark.skipif(not CHROMADB_AVAILABLE, reason="chromadb not installed")
 
 
 @pytest.fixture
@@ -113,7 +111,9 @@ class TestVectorSearcher:
         # but we verify the search mechanism works
 
     @pytest.mark.asyncio
-    async def test_search_empty_query(self, temp_memory_dir, mock_embedding_config, sample_segments):
+    async def test_search_empty_query(
+        self, temp_memory_dir, mock_embedding_config, sample_segments
+    ):
         """Test empty query returns empty list."""
         searcher = VectorSearcher(temp_memory_dir, mock_embedding_config)
 

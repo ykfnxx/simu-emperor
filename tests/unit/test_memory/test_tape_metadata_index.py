@@ -73,9 +73,7 @@ class TestTapeMetadataIndex:
     """Test TapeMetadataIndex functionality."""
 
     @pytest.mark.asyncio
-    async def test_search_tape_metadata_returns_matches(
-        self, metadata_index, sample_entries
-    ):
+    async def test_search_tape_metadata_returns_matches(self, metadata_index, sample_entries):
         """Test searching returns matching entries."""
         agent_id, entries = sample_entries
 
@@ -165,9 +163,7 @@ class TestTapeMetadataIndex:
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[
-                {"start": 0, "end": 10, "summary": "讨论拨款赈灾事宜", "tick": 12}
-            ],
+            segment_index=[{"start": 0, "end": 10, "summary": "讨论拨款赈灾事宜", "tick": 12}],
         )
 
         entities = {"action": ["拨款"], "target": [], "time": ""}

@@ -34,10 +34,7 @@ class TestFastAPIServer:
 
     def test_send_command_missing_agent(self, client):
         """测试发送命令（缺少 agent）"""
-        response = client.post(
-            "/api/command",
-            json={"command": "test"}
-        )
+        response = client.post("/api/command", json={"command": "test"})
         # Pydantic 验证应该返回 422
         assert response.status_code == 422
 
@@ -78,8 +75,7 @@ class TestFastAPIServer:
         """测试创建会话响应格式是否包含前端需要的字段"""
         # 测试请求体格式验证（Pydantic会自动验证）
         response = client.post(
-            "/api/sessions",
-            json={"name": "测试会话", "agent_id": "governor_zhili"}
+            "/api/sessions", json={"name": "测试会话", "agent_id": "governor_zhili"}
         )
         # 游戏未初始化，应该返回错误或 503
         # 这里主要测试请求格式正确，能通过 Pydantic 验证

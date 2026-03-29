@@ -13,6 +13,7 @@ from simu_emperor.adapters.web.game_instance import WebGameInstance
 
 class MockLLMConfig(BaseModel):
     """Mock LLM 配置"""
+
     provider: str = "mock"
     api_key: str = "test_key"
     api_base: str | None = None
@@ -25,6 +26,7 @@ class TestWebGameInstance:
     @pytest.fixture
     def settings(self, tmp_path):
         """创建测试配置"""
+
         class MockSettings:
             def __init__(self, tmp_path):
                 self.data_dir = tmp_path / "data"

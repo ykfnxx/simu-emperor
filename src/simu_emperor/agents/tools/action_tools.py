@@ -295,3 +295,17 @@ class ActionTools:
                 raise ValueError(f"Effect 必须指定 add 或 factor 其中之一: {target_path}")
 
         return effects
+
+    async def summarize_segment(self, args: dict, event: Event) -> str:
+        """Summarize an event segment for vector storage."""
+        start = args.get("start", 0)
+        end = args.get("end", 0)
+        summary = args.get("summary", "")
+
+        if not summary.strip():
+            return "❌ 摘要内容不能为空"
+
+        logger.info(
+            f"[Agent:{self.agent_id}] Summarized segment [{start}:{end}]: {summary[:50]}..."
+        )
+        return f"✅ 段落摘要已保存 [{start}:{end}]"

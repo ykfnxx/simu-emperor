@@ -46,7 +46,14 @@ def mock_session_manager():
 class TestAgentService:
     """Test AgentService."""
 
-    def test_init(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    def test_init(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test agent service initialization."""
         service = AgentService(
             settings=mock_settings,
@@ -61,7 +68,14 @@ class TestAgentService:
         assert service.llm_provider == mock_llm_provider
         assert not service.is_initialized
 
-    async def test_initialize_agents_default(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_initialize_agents_default(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test initializing default agents."""
         with patch("simu_emperor.agents.manager.AgentManager") as mock_mgr_cls:
             mock_mgr = MagicMock()
@@ -83,7 +97,14 @@ class TestAgentService:
             assert service.agent_manager == mock_mgr
             assert mock_mgr.initialize_agent.call_count == len(AgentService.DEFAULT_AGENTS)
 
-    async def test_initialize_agents_custom_list(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_initialize_agents_custom_list(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test initializing custom agent list."""
         with patch("simu_emperor.agents.manager.AgentManager") as mock_mgr_cls:
             mock_mgr = MagicMock()
@@ -105,7 +126,14 @@ class TestAgentService:
             for agent_id in custom_agents:
                 mock_mgr.initialize_agent.assert_any_call(agent_id)
 
-    async def test_initialize_agents_idempotent(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_initialize_agents_idempotent(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test that initializing twice doesn't recreate manager."""
         with patch("simu_emperor.agents.manager.AgentManager") as mock_mgr_cls:
             mock_mgr = MagicMock()
@@ -128,10 +156,19 @@ class TestAgentService:
 
             assert first_manager == second_manager
 
-    async def test_get_available_agents(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_get_available_agents(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test getting available agents."""
         mock_mgr = MagicMock()
-        mock_mgr.get_active_agents = MagicMock(return_value=["governor_zhili", "minister_of_revenue"])
+        mock_mgr.get_active_agents = MagicMock(
+            return_value=["governor_zhili", "minister_of_revenue"]
+        )
         service = AgentService(
             settings=mock_settings,
             event_bus=mock_event_bus,
@@ -145,7 +182,14 @@ class TestAgentService:
 
         assert result == ["governor_zhili", "minister_of_revenue"]
 
-    async def test_get_available_agents_no_manager(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_get_available_agents_no_manager(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test getting available agents when manager not initialized."""
         service = AgentService(
             settings=mock_settings,
@@ -159,7 +203,14 @@ class TestAgentService:
 
         assert result == []
 
-    async def test_get_active_agents(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_get_active_agents(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test getting active agents."""
         mock_mgr = MagicMock()
         mock_mgr.get_active_agents = MagicMock(return_value=["governor_zhili"])
@@ -176,10 +227,19 @@ class TestAgentService:
 
         assert result == ["governor_zhili"]
 
-    async def test_is_agent_available_true(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_is_agent_available_true(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test checking if agent is available returns True."""
         mock_mgr = MagicMock()
-        mock_mgr.get_active_agents = MagicMock(return_value=["governor_zhili", "minister_of_revenue"])
+        mock_mgr.get_active_agents = MagicMock(
+            return_value=["governor_zhili", "minister_of_revenue"]
+        )
         service = AgentService(
             settings=mock_settings,
             event_bus=mock_event_bus,
@@ -193,7 +253,14 @@ class TestAgentService:
 
         assert result is True
 
-    async def test_is_agent_available_false(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_is_agent_available_false(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test checking if agent is available returns False."""
         mock_mgr = MagicMock()
         mock_mgr.get_active_agents = MagicMock(return_value=["governor_zhili"])
@@ -210,7 +277,14 @@ class TestAgentService:
 
         assert result is False
 
-    def test_get_agent(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    def test_get_agent(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test getting agent instance."""
         mock_agent = MagicMock()
         mock_mgr = MagicMock()
@@ -229,9 +303,17 @@ class TestAgentService:
         assert result == mock_agent
         mock_mgr.get_agent.assert_called_once_with("governor_zhili")
 
-    async def test_stop_all(self, mock_settings, mock_event_bus, mock_llm_provider, mock_repository, mock_session_manager):
+    async def test_stop_all(
+        self,
+        mock_settings,
+        mock_event_bus,
+        mock_llm_provider,
+        mock_repository,
+        mock_session_manager,
+    ):
         """Test stopping all agents."""
         mock_mgr = MagicMock()
+        mock_mgr.stop_all = AsyncMock()
         service = AgentService(
             settings=mock_settings,
             event_bus=mock_event_bus,

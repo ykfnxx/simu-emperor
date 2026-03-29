@@ -58,7 +58,9 @@ class AutonomousMemoryConfig(BaseSettings):
     """Agent 自主记忆配置。"""
 
     enabled: bool = Field(default=True, description="是否启用自主记忆反思")
-    check_interval_ticks: int = Field(default=4, ge=1, description="每隔多少 tick 反思一次（4=每月）")
+    check_interval_ticks: int = Field(
+        default=4, ge=1, description="每隔多少 tick 反思一次（4=每月）"
+    )
     soul_evolution_enabled: bool = Field(default=True, description="是否允许 soul.md 性格演化")
 
 
@@ -66,16 +68,14 @@ class IncidentConfig(BaseSettings):
     """Incident 子系统配置。"""
 
     enabled: bool = Field(default=True, description="是否启用随机事件生成")
-    check_interval_ticks: int = Field(default=4, ge=1, description="每隔多少 tick 检查一次随机事件（4=每月）")
-    base_trigger_probability: float = Field(
-        default=0.1, ge=0.0, le=1.0, description="基础触发概率"
+    check_interval_ticks: int = Field(
+        default=4, ge=1, description="每隔多少 tick 检查一次随机事件（4=每月）"
     )
+    base_trigger_probability: float = Field(default=0.1, ge=0.0, le=1.0, description="基础触发概率")
     max_active_system_incidents: int = Field(
         default=5, ge=1, description="系统生成的最大活跃 incident 数"
     )
-    llm_beautify_enabled: bool = Field(
-        default=True, description="是否启用 LLM 叙事美化"
-    )
+    llm_beautify_enabled: bool = Field(default=True, description="是否启用 LLM 叙事美化")
 
 
 class LLMConfig(BaseSettings):
@@ -107,7 +107,7 @@ class LLMConfig(BaseSettings):
 
 
 class EmbeddingConfig(BaseSettings):
-    """向量检索 Embedding 配置。"""
+    """向量检索 Embedding 配置（V4.2 增强）。"""
 
     provider: Literal["openai", "mock"] = Field(
         default="openai", description="Embedding 提供商: openai/mock"
@@ -117,6 +117,32 @@ class EmbeddingConfig(BaseSettings):
     model: str = Field(default="text-embedding-3-small", description="Embedding 模型")
     enabled: bool = Field(default=True, description="是否启用向量检索")
     batch_size: int = Field(default=100, ge=1, description="批量 embedding 大小")
+    dimensions: int = Field(default=1536, ge=1, description="向量维度")
+    timeout: int = Field(default=30, ge=1, description="API 超时（秒）")
+    max_retries: int = Field(default=3, ge=0, description="失败重试次数")
+    retry_delay: float = Field(default=1.0, ge=0.0, description="重试延迟（秒），指数退避")
+
+
+class ChromaDBConfig(BaseSettings):
+    """ChromaDB 向量数据库配置（V4.2 新增）。"""
+
+    enabled: bool = Field(default=True, description="是否启用 ChromaDB")
+    persist_directory: str = Field(default="data/chroma", description="持久化目录")
+    collection_name: str = Field(default="memory_segments", description="集合名称")
+    distance_metric: Literal["cosine", "l2", "ip"] = Field(default="cosine", description="距离度量")
+
+
+class DebugConfig(BaseSettings):
+    """调试配置（V4.2 新增）。"""
+
+    enable_jsonl: bool = Field(default=True, description="同时写入 tape.jsonl（调试用）")
+
+
+class AgentQueueConfig(BaseSettings):
+    """Agent 事件队列配置（V4.2 新增）。"""
+
+    enabled: bool = Field(default=True, description="是否启用消息队列（背压处理）")
+    max_size: int = Field(default=0, ge=0, description="队列最大容量（0 = 无界）")
 
 
 class GameConfig(BaseSettings):
@@ -140,6 +166,9 @@ class GameConfig(BaseSettings):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    chromadb: ChromaDBConfig = Field(default_factory=ChromaDBConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
+    agent_queue: AgentQueueConfig = Field(default_factory=AgentQueueConfig)
 
     @classmethod
     def settings_customise_sources(

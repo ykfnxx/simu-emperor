@@ -44,9 +44,7 @@ class TestV4MemoryIntegration:
     """Integration tests for V4 memory system end-to-end workflows."""
 
     @pytest.mark.asyncio
-    async def test_end_to_end_memory_retrieval(
-        self, memory_dir, agent_id, session_id, mock_llm
-    ):
+    async def test_end_to_end_memory_retrieval(self, memory_dir, agent_id, session_id, mock_llm):
         """
         Test end-to-end memory retrieval flow (V4).
 
@@ -79,13 +77,15 @@ class TestV4MemoryIntegration:
 
         events = []
         for i in range(12):  # More than SEGMENT_SIZE (10)
-            events.append({
-                "event_id": f"evt_{i:03d}",
-                "type": "command",
-                "payload": {"query": f"调整税收操作{i}", "action": "税收"},
-                "timestamp": f"2026-03-11T10:{i:02d}:00Z",
-                "tick": 10 + i,
-            })
+            events.append(
+                {
+                    "event_id": f"evt_{i:03d}",
+                    "type": "command",
+                    "payload": {"query": f"调整税收操作{i}", "action": "税收"},
+                    "timestamp": f"2026-03-11T10:{i:02d}:00Z",
+                    "tick": 10 + i,
+                }
+            )
 
         with open(tape_path, "w", encoding="utf-8") as f:
             for event in events:
@@ -126,9 +126,7 @@ class TestV4MemoryIntegration:
         assert found_tax_event, "Should find tax adjustment event"
 
     @pytest.mark.asyncio
-    async def test_tick_driven_metadata_refresh(
-        self, memory_dir, agent_id, session_id, mock_llm
-    ):
+    async def test_tick_driven_metadata_refresh(self, memory_dir, agent_id, session_id, mock_llm):
         """
         Test tick-driven metadata refresh (V4).
 
@@ -212,9 +210,7 @@ class TestV4MemoryIntegration:
         assert entry.segment_index[0]["tick"] == 5
 
     @pytest.mark.asyncio
-    async def test_multi_session_retrieval(
-        self, memory_dir, agent_id
-    ):
+    async def test_multi_session_retrieval(self, memory_dir, agent_id):
         """
         Test retrieval across multiple sessions (V4).
 
@@ -264,13 +260,15 @@ class TestV4MemoryIntegration:
             # Create multiple events to fill a segment
             events = []
             for i in range(12):  # More than SEGMENT_SIZE (10)
-                events.append({
-                    "event_id": f"evt_{i:03d}",
-                    "type": "command",
-                    "payload": {"query": f"{query_text} - 操作 {i}", "action": query_text[:2]},
-                    "timestamp": f"2026-03-11T10:0{i}:00Z",
-                    "tick": 10 + i,
-                })
+                events.append(
+                    {
+                        "event_id": f"evt_{i:03d}",
+                        "type": "command",
+                        "payload": {"query": f"{query_text} - 操作 {i}", "action": query_text[:2]},
+                        "timestamp": f"2026-03-11T10:0{i}:00Z",
+                        "tick": 10 + i,
+                    }
+                )
 
             with open(tape_path, "w", encoding="utf-8") as f:
                 for event in events:
@@ -284,7 +282,9 @@ class TestV4MemoryIntegration:
             segment_searcher=segment_searcher,
         )
 
-        query = self._create_structured_query(entities={"action": ["税收"], "target": [], "time": ""})
+        query = self._create_structured_query(
+            entities={"action": ["税收"], "target": [], "time": ""}
+        )
 
         results = await two_level_searcher.search(
             query=query,

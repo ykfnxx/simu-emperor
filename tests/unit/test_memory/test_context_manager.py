@@ -83,7 +83,11 @@ class TestContextManager:
             tokens=15,
         )
         context_mgr.add_event(
-            {"event_type": EventType.RESPONSE, "src": "agent:revenue_minister", "content": {"narrative": "好的，我将拨款。"}},
+            {
+                "event_type": EventType.RESPONSE,
+                "src": "agent:revenue_minister",
+                "content": {"narrative": "好的，我将拨款。"},
+            },
             tokens=20,
         )
 

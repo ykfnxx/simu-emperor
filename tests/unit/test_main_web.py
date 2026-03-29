@@ -8,7 +8,7 @@ from unittest.mock import patch
 class TestCLIWebCommand:
     """测试 CLI web 命令"""
 
-    @patch('simu_emperor.main.asyncio.run')
+    @patch("simu_emperor.main.asyncio.run")
     def test_web_command_calls_main_web(self, mock_run):
         """测试 web 命令调用 main_web"""
         import sys
@@ -26,7 +26,7 @@ class TestCLIWebCommand:
         finally:
             sys.argv = original_argv
 
-    @patch('simu_emperor.main.asyncio.run')
+    @patch("simu_emperor.main.asyncio.run")
     def test_web_command_with_host_port(self, mock_run):
         """测试 web 命令带 host 和 port 参数"""
         import sys
@@ -44,7 +44,7 @@ class TestCLIWebCommand:
         finally:
             sys.argv = original_argv
 
-    @patch('simu_emperor.main.asyncio.run')
+    @patch("simu_emperor.main.asyncio.run")
     def test_web_command_with_reload(self, mock_run):
         """测试 web 命令带 reload 参数"""
         import sys
@@ -62,7 +62,7 @@ class TestCLIWebCommand:
         finally:
             sys.argv = original_argv
 
-    @patch('simu_emperor.main.asyncio.run')
+    @patch("simu_emperor.main.asyncio.run")
     def test_default_command_runs_cli(self, mock_run):
         """测试默认命令运行 CLI"""
         import sys

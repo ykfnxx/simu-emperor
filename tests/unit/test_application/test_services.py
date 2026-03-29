@@ -31,12 +31,14 @@ class TestApplicationServices:
     async def test_resolve_memory_dir_from_config(self, mock_settings):
         """Test memory directory resolution from config."""
         from simu_emperor.application.services import ApplicationServices
+
         result = ApplicationServices._resolve_memory_dir(mock_settings)
         assert result == Path(mock_settings.memory.memory_dir)
 
     async def test_resolve_memory_dir_default(self, mock_settings):
         """Test default memory directory resolution."""
         from simu_emperor.application.services import ApplicationServices
+
         mock_settings.memory = None
         result = ApplicationServices._resolve_memory_dir(mock_settings)
         assert result == mock_settings.data_dir / "memory"
@@ -46,7 +48,12 @@ class TestApplicationServices:
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_create_initializes_all_services(
-        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_init_db, mock_settings
+        self,
+        mock_session_mgr,
+        mock_tape_writer,
+        mock_tape_metadata_mgr,
+        mock_init_db,
+        mock_settings,
     ):
         """Test create() factory initializes all services."""
         from simu_emperor.application.services import ApplicationServices
@@ -76,7 +83,13 @@ class TestApplicationServices:
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_start_and_shutdown(
-        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_close_db, mock_init_db, mock_settings
+        self,
+        mock_session_mgr,
+        mock_tape_writer,
+        mock_tape_metadata_mgr,
+        mock_close_db,
+        mock_init_db,
+        mock_settings,
     ):
         """Test start() and shutdown() lifecycle methods."""
         from simu_emperor.application.services import ApplicationServices
@@ -105,7 +118,12 @@ class TestApplicationServices:
     @patch("simu_emperor.memory.tape_writer.TapeWriter")
     @patch("simu_emperor.session.manager.SessionManager")
     async def test_property_accessors(
-        self, mock_session_mgr, mock_tape_writer, mock_tape_metadata_mgr, mock_init_db, mock_settings
+        self,
+        mock_session_mgr,
+        mock_tape_writer,
+        mock_tape_metadata_mgr,
+        mock_init_db,
+        mock_settings,
     ):
         """Test property accessors for infrastructure components."""
         from simu_emperor.application.services import ApplicationServices

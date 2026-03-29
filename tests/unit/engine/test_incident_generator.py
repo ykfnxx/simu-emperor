@@ -94,8 +94,12 @@ class TestIncidentGenerator:
 
     def test_generate_deterministic_with_seed(self, config, province_names, sample_nation):
         """Same seed produces same results."""
-        gen1 = IncidentGenerator(config=config, rng=random.Random(42), province_names=province_names)
-        gen2 = IncidentGenerator(config=config, rng=random.Random(42), province_names=province_names)
+        gen1 = IncidentGenerator(
+            config=config, rng=random.Random(42), province_names=province_names
+        )
+        gen2 = IncidentGenerator(
+            config=config, rng=random.Random(42), province_names=province_names
+        )
         result1 = gen1.generate(sample_nation, active_count=0)
         result2 = gen2.generate(sample_nation, active_count=0)
         assert len(result1) == len(result2)

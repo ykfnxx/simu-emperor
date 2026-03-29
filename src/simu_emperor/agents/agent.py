@@ -8,6 +8,7 @@ Agent 基类 - 文件驱动的 AI 官员
 - LLM 自主决定调用哪些 functions
 """
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -21,7 +22,6 @@ from simu_emperor.agents.tools.tool_registry import Tool, ToolRegistry
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
-from simu_emperor.event_bus.event import Event as TapeEvent
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.session.manager import SessionManager
@@ -151,6 +151,11 @@ class Agent:
 
         # 自主记忆反思计数器
         self._memory_tick_counter = 0
+
+        # V4.2: Event queue for backpressure
+        self._event_queue: asyncio.Queue | None = None
+        self._queue_task: asyncio.Task | None = None
+        self._running = False
 
         logger.info(f"Agent {agent_id} initialized")
 
@@ -446,6 +451,25 @@ class Agent:
             )
         )
 
+        # summarize_segment (段落摘要，用于向量存储)
+        self._tool_registry.register(
+            Tool(
+                name="summarize_segment",
+                description="总结指定范围的事件段并生成向量存储",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "start": {"type": "integer", "description": "起始事件序号（0-based）"},
+                        "end": {"type": "integer", "description": "结束事件序号（0-based）"},
+                        "summary": {"type": "string", "description": "摘要内容"},
+                    },
+                    "required": ["start", "end", "summary"],
+                },
+                handler=self._action_tools.summarize_segment,
+                category="action",
+            )
+        )
+
     def _register_session_tools(self) -> None:
         """注册 Session 类型工具"""
         self._tool_registry.register(
@@ -679,17 +703,16 @@ class Agent:
         """
         logger.info(f"🚀 [Agent:{self.agent_id}] Starting agent...")
 
+        handler = self._enqueue_event if settings.agent_queue.enabled else self._on_event
+
         # 只订阅精确匹配（发给自己的事件）
-        # 广播事件（dst=["*"]）会通过 EventBus 的特殊逻辑处理
-        self.event_bus.subscribe(f"agent:{self.agent_id}", self._on_event)
+        self.event_bus.subscribe(f"agent:{self.agent_id}", handler)
         logger.debug(f"  ✅ [Agent:{self.agent_id}] Subscribed to agent:{self.agent_id}")
 
         # 检查事件dst是否为["*"]（广播），如果是则处理
-        # 这样避免发给特定agent的事件被 '*' 重复路由
         async def conditional_handler(event: Event) -> None:
-            # 只处理真正的广播事件（dst只有"*"）
             if event.dst == ["*"]:
-                await self._on_event(event)
+                await handler(event)
 
         self.event_bus.subscribe("*", conditional_handler)
         logger.debug(f"  ✅ [Agent:{self.agent_id}] Subscribed to * (broadcast only)")
@@ -698,14 +721,73 @@ class Agent:
 
     def stop(self) -> None:
         """停止 Agent"""
-        # 取消订阅
-        self.event_bus.unsubscribe(f"agent:{self.agent_id}", self._on_event)
-
-        # 注意：conditional_handler 是局部变量，无法取消订阅
-        # 实际使用中，Agent 通常是长期运行的，stop() 很少调用
-        # 如果需要正确取消订阅，可以将 conditional_handler 保存为实例变量
-
+        handler = self._enqueue_event if settings.agent_queue.enabled else self._on_event
+        self.event_bus.unsubscribe(f"agent:{self.agent_id}", handler)
         logger.info(f"Agent {self.agent_id} stopped")
+
+    def start_queue_consumer(self) -> None:
+        """V4.2: Start the event queue consumer for backpressure handling."""
+        if not settings.agent_queue.enabled:
+            return
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        max_size = settings.agent_queue.max_size
+        self._event_queue = asyncio.Queue(maxsize=max_size if max_size > 0 else 0)
+        self._running = True
+        self._queue_task = asyncio.create_task(self._queue_consumer_loop())
+        logger.info(f"Agent {self.agent_id} queue consumer started (max_size={max_size})")
+
+    async def stop_queue_consumer(self) -> None:
+        """V4.2: Stop the event queue consumer gracefully."""
+        if not self._running:
+            return
+
+        self._running = False
+
+        if self._queue_task and not self._queue_task.done():
+            self._queue_task.cancel()
+            try:
+                await self._queue_task
+            except asyncio.CancelledError:
+                pass
+
+        self._event_queue = None
+        self._queue_task = None
+        logger.info(f"Agent {self.agent_id} queue consumer stopped")
+
+    async def _enqueue_event(self, event: Event) -> None:
+        """V4.2: Enqueue event for serial processing with backpressure."""
+        if not self._event_queue or not self._running:
+            await self._on_event(event)
+            return
+
+        if self._event_queue.full() and self._event_queue.maxsize > 0:
+            try:
+                dropped = self._event_queue.get_nowait()
+                logger.warning(
+                    f"Queue full for agent {self.agent_id}, dropping oldest event {dropped.event_id}"
+                )
+            except asyncio.QueueEmpty:
+                pass
+
+        await self._event_queue.put(event)
+
+    async def _queue_consumer_loop(self) -> None:
+        """V4.2: Consumer loop that processes events serially from the queue."""
+        while self._running:
+            try:
+                event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
+                await self._on_event(event)
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Agent {self.agent_id} queue consumer error: {e}", exc_info=True)
 
     async def _on_event(self, event: Event) -> None:
         """

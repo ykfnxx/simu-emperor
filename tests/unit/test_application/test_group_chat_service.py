@@ -346,10 +346,12 @@ class TestGroupChatService:
         )
 
         mock_chat = MagicMock()
-        mock_chat.to_dict = MagicMock(return_value={
-            "group_id": "group:web:001",
-            "name": "Test Group",
-        })
+        mock_chat.to_dict = MagicMock(
+            return_value={
+                "group_id": "group:web:001",
+                "name": "Test Group",
+            }
+        )
         service._group_chats["group:web:001"] = mock_chat
 
         await service._save_group_chats()

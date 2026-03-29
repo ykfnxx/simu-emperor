@@ -1,6 +1,5 @@
 """Tests for EventTypes V4 extension."""
 
-
 from simu_emperor.event_bus.event_types import EventType
 
 

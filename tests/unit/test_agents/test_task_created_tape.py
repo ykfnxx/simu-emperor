@@ -99,7 +99,9 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
         agent.stop()
 
         # Check tape file
-        tape_path = memory_dir / "agents" / "test_agent" / "sessions" / task_session_id / "tape.jsonl"
+        tape_path = (
+            memory_dir / "agents" / "test_agent" / "sessions" / task_session_id / "tape.jsonl"
+        )
 
         print(f"\n=== Tape path: {tape_path} ===")
         print(f"Tape exists: {tape_path.exists()}")

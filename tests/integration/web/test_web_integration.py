@@ -20,12 +20,7 @@ class TestWebAPIIntegration:
     def test_command_validation(self):
         """测试命令验证（缺少 agent 字段）"""
         with TestClient(app) as client:
-            response = client.post(
-                "/api/command",
-                json={
-                    "command": "test command"
-                }
-            )
+            response = client.post("/api/command", json={"command": "test command"})
 
             # 应该返回 422 验证错误
             assert response.status_code == 422
@@ -48,11 +43,7 @@ class TestWebSocketIntegration:
 
         with client.websocket_connect("/ws") as websocket:
             # 发送命令消息
-            websocket.send_json({
-                "type": "command",
-                "agent": "test_agent",
-                "text": "test command"
-            })
+            websocket.send_json({"type": "command", "agent": "test_agent", "text": "test command"})
 
             # 发送成功，无异常
             pass
@@ -63,11 +54,7 @@ class TestWebSocketIntegration:
 
         with client.websocket_connect("/ws") as websocket:
             # 发送聊天消息
-            websocket.send_json({
-                "type": "chat",
-                "agent": "test_agent",
-                "text": "hello"
-            })
+            websocket.send_json({"type": "chat", "agent": "test_agent", "text": "hello"})
 
             # 发送成功，无异常
             pass
@@ -78,10 +65,7 @@ class TestWebSocketIntegration:
 
         with client.websocket_connect("/ws") as websocket:
             # 发送无效消息类型
-            websocket.send_json({
-                "type": "invalid_type",
-                "text": "test"
-            })
+            websocket.send_json({"type": "invalid_type", "text": "test"})
 
             # 应该被处理（不会崩溃）
             pass
@@ -123,7 +107,7 @@ class TestMessageFlowIntegration:
             dst=["player:web"],
             type=EventType.RESPONSE,
             payload={"narrative": "测试消息"},
-            session_id="session:web:test"
+            session_id="session:web:test",
         )
 
         result = await converter.convert(event)

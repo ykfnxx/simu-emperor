@@ -164,13 +164,16 @@ class AgentManager:
         # 启动 Agent
         agent.start()
 
+        # V4.2: Start queue consumer for backpressure handling
+        agent.start_queue_consumer()
+
         # 添加到活跃列表
         self._active_agents[agent_id] = agent
 
         logger.info(f"Agent {agent_id} added and started")
         return True
 
-    def remove_agent(self, agent_id: str) -> bool:
+    async def remove_agent(self, agent_id: str) -> bool:
         """
         移除并停止 Agent
 
@@ -184,8 +187,11 @@ class AgentManager:
             logger.warning(f"Agent {agent_id} not active")
             return False
 
-        # 停止 Agent
         agent = self._active_agents[agent_id]
+
+        # V4.2: Stop queue consumer before stopping agent
+        await agent.stop_queue_consumer()
+
         agent.stop()
 
         # 从活跃列表移除
@@ -236,7 +242,7 @@ class AgentManager:
 
         return self.add_agent(agent_id)
 
-    def stop_agent(self, agent_id: str) -> bool:
+    async def stop_agent(self, agent_id: str) -> bool:
         """
         停止 Agent（但不移除）
 
@@ -251,6 +257,7 @@ class AgentManager:
             return False
 
         agent = self._active_agents[agent_id]
+        await agent.stop_queue_consumer()
         agent.stop()
 
         # 从活跃列表移除
@@ -259,10 +266,10 @@ class AgentManager:
         logger.info(f"Agent {agent_id} stopped")
         return True
 
-    def stop_all(self) -> None:
+    async def stop_all(self) -> None:
         """停止所有活跃 Agent"""
         for agent_id in list(self._active_agents.keys()):
-            self.stop_agent(agent_id)
+            await self.stop_agent(agent_id)
 
         logger.info("All agents stopped")
 

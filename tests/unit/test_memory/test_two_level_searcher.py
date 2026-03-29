@@ -188,9 +188,7 @@ class TestTwoLevelSearcher:
         mock_segment_searcher.search_segments.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_search_respects_max_results(
-        self, two_level_searcher, mock_segment_searcher
-    ):
+    async def test_search_respects_max_results(self, two_level_searcher, mock_segment_searcher):
         """Test search respects max_results parameter."""
         query = StructuredQuery(
             raw_query="test",
@@ -211,9 +209,7 @@ class TestTwoLevelSearcher:
         assert call_args[1]["max_results"] == 1
 
     @pytest.mark.asyncio
-    async def test_search_propagates_agent_id(
-        self, two_level_searcher, mock_segment_searcher
-    ):
+    async def test_search_propagates_agent_id(self, two_level_searcher, mock_segment_searcher):
         """Test search propagates agent_id to Level 2."""
         query = StructuredQuery(
             raw_query="test",
