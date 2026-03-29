@@ -3,8 +3,15 @@ Anthropic Claude LLM 提供商
 """
 
 import logging
+import time
 
 from simu_emperor.llm.base import LLMProvider
+from simu_emperor.llm.metrics import (
+    llm_requests_total,
+    llm_request_duration_seconds,
+    llm_tokens_used_total,
+    llm_active_requests,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +74,7 @@ class AnthropicProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        task_type: str | None = None,
     ) -> str:
         """
         调用 Claude API
@@ -76,10 +84,15 @@ class AnthropicProvider(LLMProvider):
             system_prompt: 系统提示词（可选）
             temperature: 温度参数（0-1）
             max_tokens: 最大生成 token 数
+            task_type: 任务类型（用于监控）
 
         Returns:
             Claude 响应文本
         """
+        task_label = task_type or "unknown"
+        llm_active_requests.labels(provider="anthropic", model=self.model).inc()
+        start_time = time.time()
+
         try:
             kwargs = {
                 "model": self.model,
@@ -93,13 +106,34 @@ class AnthropicProvider(LLMProvider):
 
             response = await self.client.messages.create(**kwargs)
 
-            # 提取文本内容
+            # 记录 token 使用
+            llm_tokens_used_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, token_type="input"
+            ).inc(response.usage.input_tokens)
+            llm_tokens_used_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, token_type="output"
+            ).inc(response.usage.output_tokens)
+
+            # 记录成功
+            llm_requests_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, status="success"
+            ).inc()
+
             content = response.content[0].text
             return content
 
         except Exception as e:
+            llm_requests_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, status="error"
+            ).inc()
             logger.error(f"Error calling Anthropic API: {e}", exc_info=True)
             raise
+        finally:
+            duration = time.time() - start_time
+            llm_request_duration_seconds.labels(
+                provider="anthropic", model=self.model, task_type=task_label
+            ).observe(duration)
+            llm_active_requests.labels(provider="anthropic", model=self.model).dec()
 
     async def call_with_functions(
         self,
@@ -108,6 +142,7 @@ class AnthropicProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        task_type: str | None = None,
     ) -> dict:
         """
         调用 Claude API 并支持 function calling (tool use)
@@ -118,10 +153,15 @@ class AnthropicProvider(LLMProvider):
             system_prompt: 系统提示词（可选）
             temperature: 温度参数
             max_tokens: 最大生成 token 数
+            task_type: 任务类型（用于监控）
 
         Returns:
             包含 response_text 和 tool_calls 的字典
         """
+        task_label = task_type or "unknown"
+        llm_active_requests.labels(provider="anthropic", model=self.model).inc()
+        start_time = time.time()
+
         try:
             # 转换为 Anthropic 的 tools 格式
             tools = []
@@ -150,6 +190,19 @@ class AnthropicProvider(LLMProvider):
 
             response = await self.client.messages.create(**kwargs)
 
+            # 记录 token 使用
+            llm_tokens_used_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, token_type="input"
+            ).inc(response.usage.input_tokens)
+            llm_tokens_used_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, token_type="output"
+            ).inc(response.usage.output_tokens)
+
+            # 记录成功
+            llm_requests_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, status="success"
+            ).inc()
+
             # 提取文本内容和 tool_calls
             response_text = ""
             tool_calls = []
@@ -165,5 +218,14 @@ class AnthropicProvider(LLMProvider):
             return {"response_text": response_text, "tool_calls": tool_calls}
 
         except Exception as e:
+            llm_requests_total.labels(
+                provider="anthropic", model=self.model, task_type=task_label, status="error"
+            ).inc()
             logger.error(f"Error calling Anthropic API with functions: {e}", exc_info=True)
             raise
+        finally:
+            duration = time.time() - start_time
+            llm_request_duration_seconds.labels(
+                provider="anthropic", model=self.model, task_type=task_label
+            ).observe(duration)
+            llm_active_requests.labels(provider="anthropic", model=self.model).dec()

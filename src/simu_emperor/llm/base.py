@@ -20,6 +20,7 @@ class LLMProvider(ABC):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        task_type: str | None = None,
     ) -> str:
         """
         调用 LLM 生成响应
@@ -29,6 +30,7 @@ class LLMProvider(ABC):
             system_prompt: 系统提示词（可选）
             temperature: 温度参数（0-1，越低越确定性）
             max_tokens: 最大生成 token 数
+            task_type: 任务类型（用于配置和监控）
 
         Returns:
             LLM 响应文本
@@ -42,6 +44,7 @@ class LLMProvider(ABC):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        task_type: str | None = None,
     ) -> dict[str, Any]:
         """
         调用 LLM 并支持 function calling
@@ -52,6 +55,7 @@ class LLMProvider(ABC):
             system_prompt: 系统提示词（可选）
             temperature: 温度参数
             max_tokens: 最大生成 token 数
+            task_type: 任务类型（用于配置和监控）
 
         Returns:
             包含 response_text 和 tool_calls 的字典：
