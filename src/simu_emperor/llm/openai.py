@@ -3,8 +3,15 @@ OpenAI GPT LLM 提供商
 """
 
 import logging
+import time
 
 from simu_emperor.llm.base import LLMProvider
+from simu_emperor.llm.metrics import (
+    llm_requests_total,
+    llm_request_duration_seconds,
+    llm_tokens_used_total,
+    llm_active_requests,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +82,7 @@ class OpenAIProvider(LLMProvider):
         system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        task_type: str | None = None,
     ) -> str:
         """
         调用 GPT API
@@ -84,10 +92,15 @@ class OpenAIProvider(LLMProvider):
             system_prompt: 系统提示词（可选）
             temperature: 温度参数（0-1）
             max_tokens: 最大生成 token 数
+            task_type: 任务类型（用于监控）
 
         Returns:
             GPT 响应文本
         """
+        task_label = task_type or "unknown"
+        llm_active_requests.labels(provider="openai", model=self.model).inc()
+        start_time = time.time()
+
         try:
             messages = []
 
@@ -103,13 +116,35 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=max_tokens,
             )
 
-            # 提取文本内容
+            # 记录 token 使用
+            if response.usage:
+                llm_tokens_used_total.labels(
+                    provider="openai", model=self.model, task_type=task_label, token_type="input"
+                ).inc(response.usage.prompt_tokens)
+                llm_tokens_used_total.labels(
+                    provider="openai", model=self.model, task_type=task_label, token_type="output"
+                ).inc(response.usage.completion_tokens)
+
+            # 记录成功
+            llm_requests_total.labels(
+                provider="openai", model=self.model, task_type=task_label, status="success"
+            ).inc()
+
             content = response.choices[0].message.content
             return content
 
         except Exception as e:
+            llm_requests_total.labels(
+                provider="openai", model=self.model, task_type=task_label, status="error"
+            ).inc()
             logger.error(f"Error calling OpenAI API: {e}", exc_info=True)
             raise
+        finally:
+            duration = time.time() - start_time
+            llm_request_duration_seconds.labels(
+                provider="openai", model=self.model, task_type=task_label
+            ).observe(duration)
+            llm_active_requests.labels(provider="openai", model=self.model).dec()
 
     async def call_with_functions(
         self,
@@ -119,6 +154,7 @@ class OpenAIProvider(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 2000,
         messages: list[dict] | None = None,
+        task_type: str | None = None,
     ) -> dict:
         """
         调用 GPT API 并支持 function calling
@@ -130,10 +166,15 @@ class OpenAIProvider(LLMProvider):
             temperature: 温度参数
             max_tokens: 最大生成 token 数
             messages: 历史消息列表（用于多轮对话）
+            task_type: 任务类型（用于监控）
 
         Returns:
             包含 response_text 和 tool_calls 的字典
         """
+        task_label = task_type or "unknown"
+        llm_active_requests.labels(provider="openai", model=self.model).inc()
+        start_time = time.time()
+
         try:
             # 如果没有提供messages，创建新的
             if messages is None:
@@ -173,6 +214,20 @@ class OpenAIProvider(LLMProvider):
 
             response = await self.client.chat.completions.create(**api_params)
 
+            # 记录 token 使用
+            if response.usage:
+                llm_tokens_used_total.labels(
+                    provider="openai", model=self.model, task_type=task_label, token_type="input"
+                ).inc(response.usage.prompt_tokens)
+                llm_tokens_used_total.labels(
+                    provider="openai", model=self.model, task_type=task_label, token_type="output"
+                ).inc(response.usage.completion_tokens)
+
+            # 记录成功
+            llm_requests_total.labels(
+                provider="openai", model=self.model, task_type=task_label, status="success"
+            ).inc()
+
             message = response.choices[0].message
 
             # 提取 tool_calls
@@ -192,5 +247,14 @@ class OpenAIProvider(LLMProvider):
             return {"response_text": message.content or "", "tool_calls": tool_calls}
 
         except Exception as e:
+            llm_requests_total.labels(
+                provider="openai", model=self.model, task_type=task_label, status="error"
+            ).inc()
             logger.error(f"Error calling OpenAI API with functions: {e}", exc_info=True)
             raise
+        finally:
+            duration = time.time() - start_time
+            llm_request_duration_seconds.labels(
+                provider="openai", model=self.model, task_type=task_label
+            ).observe(duration)
+            llm_active_requests.labels(provider="openai", model=self.model).dec()
