@@ -221,10 +221,32 @@ class GameService:
         # Calculate deltas using engine
         treasury_delta = 0
         population_delta = 0
+        incidents = []
         if self._engine:
             try:
                 treasury_delta = float(self._engine.get_province_delta("_nation", "imperial_treasury"))
                 population_delta = float(self._engine.get_province_delta("_nation", "population"))
+
+                # Get all active incidents
+                active_incidents = self._engine.get_active_incidents()
+                incidents = [
+                    {
+                        "incident_id": inc.incident_id,
+                        "title": inc.title,
+                        "description": inc.description,
+                        "source": inc.source,
+                        "remaining_ticks": inc.remaining_ticks,
+                        "effects": [
+                            {
+                                "target_path": eff.target_path,
+                                "add": str(eff.add) if eff.add is not None else None,
+                                "factor": str(eff.factor) if eff.factor is not None else None,
+                            }
+                            for eff in inc.effects
+                        ],
+                    }
+                    for inc in active_incidents
+                ]
             except Exception as e:
                 logger.debug(f"Failed to get deltas from engine: {e}")
 
@@ -235,6 +257,7 @@ class GameService:
             "province_count": len(provinces_dict),
             "treasury_delta": treasury_delta,
             "population_delta": population_delta,
+            "incidents": incidents,
         }
 
     async def _load_initial_state(self) -> "NationData":
