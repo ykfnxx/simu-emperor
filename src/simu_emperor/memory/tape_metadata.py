@@ -1,5 +1,6 @@
 """TapeMetadataManager for managing tape_meta.jsonl files (V4)."""
 
+import asyncio
 import aiofiles
 import json
 import logging
@@ -113,13 +114,8 @@ class TapeMetadataManager:
             logger.debug(f"Updated tape metadata for {agent_id}/{session_id}")
             return updated_entry
 
-        # Create new entry
-        title = "Untitled (LLM failed)"  # More descriptive fallback for debugging
-        if first_event and llm:
-            try:
-                title = await self._generate_title(first_event, llm)
-            except Exception as e:
-                logger.warning(f"Failed to generate title for session {session_id}: {type(e).__name__}: {e}")
+        # Create new entry with placeholder title
+        title = f"Session {session_id[:8]}"  # Use session ID prefix as temp title
 
         new_entry = TapeMetadataEntry(
             session_id=session_id,
@@ -136,6 +132,13 @@ class TapeMetadataManager:
 
         await self._append_entry_to_file(metadata_path, new_entry)
         logger.info(f"Created tape metadata for {agent_id}/{session_id}: {title}")
+
+        # Generate title asynchronously (non-blocking)
+        if first_event and llm:
+            asyncio.create_task(self._generate_and_update_title(
+                agent_id, session_id, first_event, llm, metadata_path
+            ))
+
         return new_entry
 
     async def update_entry(
@@ -208,6 +211,29 @@ Guidelines:
         except Exception as e:
             logger.warning(f"LLM title generation failed: {type(e).__name__}: {e}")
             return "Untitled (LLM failed)"
+
+    async def _generate_and_update_title(
+        self,
+        agent_id: str,
+        session_id: str,
+        first_event: "Event",
+        llm: "LLMProvider",
+        metadata_path: Path,
+    ) -> None:
+        """Generate title asynchronously and update metadata file."""
+        try:
+            title = await self._generate_title(first_event, llm)
+
+            # Read current entry
+            entries = await self._read_entries_from_file(metadata_path)
+            entry = next((e for e in entries if e.session_id == session_id), None)
+
+            if entry:
+                entry.title = title
+                await self._update_entry_in_file(metadata_path, session_id, entry)
+                logger.info(f"Updated title for {agent_id}/{session_id}: {title}")
+        except Exception as e:
+            logger.warning(f"Failed to update title for {session_id}: {e}")
 
     async def update_segment_index(
         self,
