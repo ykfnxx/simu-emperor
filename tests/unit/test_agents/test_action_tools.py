@@ -135,9 +135,7 @@ class TestSendMessage:
         assert not mock_event_bus.send_event.called
 
     @pytest.mark.asyncio
-    async def test_send_message_to_player(
-        self, action_tools, sample_event, mock_event_bus
-    ):
+    async def test_send_message_to_player(self, action_tools, sample_event, mock_event_bus):
         """Test that send_message can send to player"""
         result = await action_tools.send_message(
             {"recipients": ["player"], "content": "回复给玩家"},
@@ -196,7 +194,6 @@ class TestSendMessage:
         # Should return error message
         assert "❌" in result
         assert "await_reply=true 只能用于 agent 间消息" in result
-
 
 
 class TestCreateIncident:

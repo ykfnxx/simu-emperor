@@ -110,19 +110,21 @@ class TestAgentManager:
 
         assert result is False
 
-    def test_remove_agent(self, manager):
+    @pytest.mark.asyncio
+    async def test_remove_agent(self, manager):
         """测试移除 Agent"""
         manager.initialize_agent("test_agent")
         manager.add_agent("test_agent")
 
-        result = manager.remove_agent("test_agent")
+        result = await manager.remove_agent("test_agent")
 
         assert result is True
         assert "test_agent" not in manager.get_active_agents()
 
-    def test_remove_agent_not_active(self, manager):
+    @pytest.mark.asyncio
+    async def test_remove_agent_not_active(self, manager):
         """测试移除未活跃的 Agent"""
-        result = manager.remove_agent("nonexistent")
+        result = await manager.remove_agent("nonexistent")
 
         assert result is False
 
@@ -157,17 +159,19 @@ class TestAgentManager:
         assert result is True
         assert "test_agent" in manager.get_active_agents()
 
-    def test_stop_agent(self, manager):
+    @pytest.mark.asyncio
+    async def test_stop_agent(self, manager):
         """测试停止 Agent"""
         manager.initialize_agent("test_agent")
         manager.add_agent("test_agent")
 
-        result = manager.stop_agent("test_agent")
+        result = await manager.stop_agent("test_agent")
 
         assert result is True
         assert "test_agent" not in manager.get_active_agents()
 
-    def test_stop_all(self, manager):
+    @pytest.mark.asyncio
+    async def test_stop_all(self, manager):
         """测试停止所有 Agent"""
         manager.initialize_agent("agent1")
         manager.initialize_agent("agent2")
@@ -175,7 +179,7 @@ class TestAgentManager:
         manager.add_agent("agent1")
         manager.add_agent("agent2")
 
-        manager.stop_all()
+        await manager.stop_all()
 
         assert manager.get_active_agents() == []
 

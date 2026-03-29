@@ -174,7 +174,7 @@ class AgentService:
     async def stop_all(self) -> None:
         """Stop all agents."""
         if self.agent_manager:
-            self.agent_manager.stop_all()
+            await self.agent_manager.stop_all()
             logger.info("All agents stopped")
 
     @property

@@ -34,7 +34,9 @@ def memory_dir(tmp_path: Path) -> Path:
 
     # Create tape file with test events
     tape_path = agent_dir / "session:web:main" / "tape.jsonl"
-    tape_path.write_text('{"timestamp": "2026-03-01T12:00:00Z", "event_type": "USER_QUERY", "content": {"query": "test"}}\n')
+    tape_path.write_text(
+        '{"timestamp": "2026-03-01T12:00:00Z", "event_type": "USER_QUERY", "content": {"query": "test"}}\n'
+    )
 
     return memory
 
@@ -121,7 +123,9 @@ class TestTapeService:
         assert result["session_id"] == "session:web:main"
 
     @pytest.mark.asyncio
-    async def test_get_current_tape_with_limit(self, mock_session_manager, mock_tape_writer, memory_dir):
+    async def test_get_current_tape_with_limit(
+        self, mock_session_manager, mock_tape_writer, memory_dir
+    ):
         """Test getting tape with limit."""
         service = TapeService(
             session_manager=mock_session_manager,
@@ -157,19 +161,23 @@ class TestTapeService:
         """Test getting sub-sessions."""
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
+        with patch(
+            "simu_emperor.application.tape_service.FileOperationsHelper"
+        ) as mock_file_helper:
             # V4: Use session_manifest.json format with agent_states
-            mock_file_helper.read_json_file = AsyncMock(return_value={
-                "sessions": {
-                    "session:web:main": {"parent_id": None},
-                    "task:001": {
-                        "parent_id": "session:web:main",
-                        "status": "ACTIVE",
-                        "created_at": "2026-03-01T12:00:00Z",
-                        "agent_states": {"agent:governor_zhili": "ACTIVE"}
-                    },
+            mock_file_helper.read_json_file = AsyncMock(
+                return_value={
+                    "sessions": {
+                        "session:web:main": {"parent_id": None},
+                        "task:001": {
+                            "parent_id": "session:web:main",
+                            "status": "ACTIVE",
+                            "created_at": "2026-03-01T12:00:00Z",
+                            "agent_states": {"agent:governor_zhili": "ACTIVE"},
+                        },
+                    }
                 }
-            })
+            )
 
             service = TapeService(
                 session_manager=mock_session_manager,
@@ -184,28 +192,34 @@ class TestTapeService:
             assert result[0]["parent_id"] == "session:web:main"
 
     @pytest.mark.asyncio
-    async def test_get_sub_sessions_with_agent_filter(self, mock_session_manager, mock_tape_writer, memory_dir):
+    async def test_get_sub_sessions_with_agent_filter(
+        self, mock_session_manager, mock_tape_writer, memory_dir
+    ):
         """Test getting sub-sessions filtered by agent."""
         mock_session_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("simu_emperor.application.tape_service.FileOperationsHelper") as mock_file_helper:
+        with patch(
+            "simu_emperor.application.tape_service.FileOperationsHelper"
+        ) as mock_file_helper:
             # V4: Use session_manifest.json format with agent_states
-            mock_file_helper.read_json_file = AsyncMock(return_value={
-                "sessions": {
-                    "task:001": {
-                        "parent_id": "session:web:main",
-                        "status": "ACTIVE",
-                        "created_at": "2026-03-01T12:00:00Z",
-                        "agent_states": {"agent:governor_zhili": "ACTIVE"}
-                    },
-                    "task:002": {
-                        "parent_id": "session:web:main",
-                        "status": "ACTIVE",
-                        "created_at": "2026-03-01T13:00:00Z",
-                        "agent_states": {"agent:minister_of_revenue": "ACTIVE"}
-                    },
+            mock_file_helper.read_json_file = AsyncMock(
+                return_value={
+                    "sessions": {
+                        "task:001": {
+                            "parent_id": "session:web:main",
+                            "status": "ACTIVE",
+                            "created_at": "2026-03-01T12:00:00Z",
+                            "agent_states": {"agent:governor_zhili": "ACTIVE"},
+                        },
+                        "task:002": {
+                            "parent_id": "session:web:main",
+                            "status": "ACTIVE",
+                            "created_at": "2026-03-01T13:00:00Z",
+                            "agent_states": {"agent:minister_of_revenue": "ACTIVE"},
+                        },
+                    }
                 }
-            })
+            )
 
             service = TapeService(
                 session_manager=mock_session_manager,
@@ -219,7 +233,9 @@ class TestTapeService:
             assert result[0]["session_id"] == "task:001"
 
     @pytest.mark.asyncio
-    async def test_iter_session_tape_paths_for_agent(self, mock_session_manager, mock_tape_writer, memory_dir):
+    async def test_iter_session_tape_paths_for_agent(
+        self, mock_session_manager, mock_tape_writer, memory_dir
+    ):
         """Test getting tape paths for specific agent."""
         service = TapeService(
             session_manager=mock_session_manager,
@@ -234,7 +250,9 @@ class TestTapeService:
             assert "governor_zhili" in str(paths[0])
 
     @pytest.mark.asyncio
-    async def test_iter_session_tape_paths_all_agents(self, mock_session_manager, mock_tape_writer, memory_dir):
+    async def test_iter_session_tape_paths_all_agents(
+        self, mock_session_manager, mock_tape_writer, memory_dir
+    ):
         """Test getting tape paths for all agents."""
         service = TapeService(
             session_manager=mock_session_manager,

@@ -47,9 +47,11 @@ class TestSessionService:
 
     async def test_create_session(self, mock_session_manager, memory_dir):
         """Test creating a new session."""
-        mock_session_manager.create_session = AsyncMock(return_value=MagicMock(
-            session_id="session:web:governor_zhili:20260301120000:abc123",
-        ))
+        mock_session_manager.create_session = AsyncMock(
+            return_value=MagicMock(
+                session_id="session:web:governor_zhili:20260301120000:abc123",
+            )
+        )
 
         service = SessionService(
             session_manager=mock_session_manager,
@@ -93,15 +95,23 @@ class TestSessionService:
         # Pre-populate session title
         service._session_titles["session:web:existing:123456:abc"] = "Existing Session"
 
-        with patch.object(service, "list_agent_sessions", new=AsyncMock(return_value=[
-            {
-                "agent_id": "governor_zhili",
-                "sessions": [
-                    {"session_id": "session:web:existing:123456:abc", "is_current": False}
+        with patch.object(
+            service,
+            "list_agent_sessions",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "agent_id": "governor_zhili",
+                        "sessions": [
+                            {"session_id": "session:web:existing:123456:abc", "is_current": False}
+                        ],
+                    }
                 ]
-            }
-        ])):
-            result = await service.select_session("session:web:existing:123456:abc", "governor_zhili")
+            ),
+        ):
+            result = await service.select_session(
+                "session:web:existing:123456:abc", "governor_zhili"
+            )
 
             assert result["session_id"] == "session:web:existing:123456:abc"
             assert result["agent_id"] == "governor_zhili"
@@ -117,14 +127,20 @@ class TestSessionService:
             memory_dir=memory_dir,
         )
 
-        with patch.object(service, "list_agent_sessions", new=AsyncMock(return_value=[
-            {
-                "agent_id": "minister_of_revenue",
-                "sessions": [
-                    {"session_id": "session:web:revenue:123456:def", "is_current": False}
+        with patch.object(
+            service,
+            "list_agent_sessions",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "agent_id": "minister_of_revenue",
+                        "sessions": [
+                            {"session_id": "session:web:revenue:123456:def", "is_current": False}
+                        ],
+                    }
                 ]
-            }
-        ])):
+            ),
+        ):
             result = await service.select_session("session:web:revenue:123456:def", None)
 
             assert result["agent_id"] == "minister_of_revenue"
@@ -169,21 +185,25 @@ class TestSessionService:
 
     async def test_list_agent_sessions(self, mock_session_manager, memory_dir):
         """Test listing sessions grouped by agent."""
-        with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
-            mock_file_helper.read_json_file = AsyncMock(return_value={
-                "sessions": {
-                    "session:web:main": {
-                        "created_at": "2026-03-01T12:00:00Z",
-                        "event_count": 10,
-                        "agents": {"governor_zhili": {}}
-                    },
-                    "session:web:custom:123": {
-                        "created_at": "2026-03-01T13:00:00Z",
-                        "event_count": 5,
-                        "agents": {"minister_of_revenue": {}}
+        with patch(
+            "simu_emperor.application.session_service.FileOperationsHelper"
+        ) as mock_file_helper:
+            mock_file_helper.read_json_file = AsyncMock(
+                return_value={
+                    "sessions": {
+                        "session:web:main": {
+                            "created_at": "2026-03-01T12:00:00Z",
+                            "event_count": 10,
+                            "agents": {"governor_zhili": {}},
+                        },
+                        "session:web:custom:123": {
+                            "created_at": "2026-03-01T13:00:00Z",
+                            "event_count": 5,
+                            "agents": {"minister_of_revenue": {}},
+                        },
                     }
                 }
-            })
+            )
 
             service = SessionService(
                 session_manager=mock_session_manager,
@@ -224,16 +244,20 @@ class TestSessionService:
 
     async def test_list_sessions_all(self, mock_session_manager, memory_dir):
         """Test listing all sessions."""
-        with patch("simu_emperor.application.session_service.FileOperationsHelper") as mock_file_helper:
-            mock_file_helper.read_json_file = AsyncMock(return_value={
-                "sessions": {
-                    "session:web:main": {
-                        "created_at": "2026-03-01T12:00:00Z",
-                        "event_count": 10,
-                        "agents": {"governor_zhili": {}}
+        with patch(
+            "simu_emperor.application.session_service.FileOperationsHelper"
+        ) as mock_file_helper:
+            mock_file_helper.read_json_file = AsyncMock(
+                return_value={
+                    "sessions": {
+                        "session:web:main": {
+                            "created_at": "2026-03-01T12:00:00Z",
+                            "event_count": 10,
+                            "agents": {"governor_zhili": {}},
+                        }
                     }
                 }
-            })
+            )
 
             service = SessionService(
                 session_manager=mock_session_manager,

@@ -13,6 +13,7 @@ async def db_conn():
     """创建内存数据库连接"""
     conn = await aiosqlite.connect(":memory:")
     from simu_emperor.persistence.database import _create_schema
+
     await _create_schema(conn)
     yield conn
     await conn.close()

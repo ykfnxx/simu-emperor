@@ -53,16 +53,16 @@ async def task_monitor(session_manager, mock_event_bus):
 
 class TestTaskMonitor:
     """Test cases for TaskMonitor."""
-    
+
     @pytest.mark.asyncio
     async def test_start_and_stop(self, task_monitor):
         await task_monitor.start()
         assert task_monitor._running is True
         assert task_monitor._task is not None
-        
+
         await task_monitor.stop()
         assert task_monitor._running is False
-    
+
     @pytest.mark.asyncio
     async def test_detect_timeout(self, task_monitor, session_manager):
         parent = await session_manager.create_session(
@@ -93,18 +93,18 @@ class TestTaskMonitor:
         assert event.type == "task_timeout"
         assert event.session_id == task.session_id
         assert "agent:test" in event.dst
-    
+
     @pytest.mark.asyncio
     async def test_no_timeout_for_active_session(self, task_monitor, session_manager):
         await session_manager.create_session(
             session_id="session:main",
             created_by="player",
         )
-        
+
         await task_monitor._check_timeouts()
-        
+
         task_monitor.event_bus.send_event.assert_not_called()
-    
+
     @pytest.mark.asyncio
     async def test_no_duplicate_timeout_notification(self, task_monitor, session_manager):
         parent = await session_manager.create_session(

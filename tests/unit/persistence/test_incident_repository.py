@@ -119,7 +119,9 @@ class TestIncidentRepository:
         assert history[0]["incident_id"] in ("inc_test_001", "inc_test_002")
 
     @pytest.mark.asyncio
-    async def test_get_incident_history_filter_source(self, repo, sample_incident, sample_incident_2):
+    async def test_get_incident_history_filter_source(
+        self, repo, sample_incident, sample_incident_2
+    ):
         await repo.save_incident(sample_incident, tick=10)
         await repo.save_incident(sample_incident_2, tick=10)
 

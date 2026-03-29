@@ -76,7 +76,11 @@ class TestAgentCreateIncidentFlow:
                 "title": "水利建设",
                 "description": "建设大型水利设施",
                 "effects": [
-                    {"target_path": "provinces.zhili.production_value", "factor": "0.1", "add": None},
+                    {
+                        "target_path": "provinces.zhili.production_value",
+                        "factor": "0.1",
+                        "add": None,
+                    },
                 ],
                 "source": "agent:governor_zhili",
                 "remaining_ticks": 2,
@@ -164,6 +168,7 @@ class TestRandomGenerationFlow:
         )
         # Override templates with 100% probability
         from simu_emperor.engine.incident_generator import IncidentTemplate
+
         generator._templates = [
             IncidentTemplate(
                 template_id="test",
@@ -195,8 +200,7 @@ class TestRandomGenerationFlow:
 
         # Check interval = 1, so generator should run
         active_system_count = sum(
-            1 for inc in engine.active_incidents
-            if inc.source == "system:incident_generator"
+            1 for inc in engine.active_incidents if inc.source == "system:incident_generator"
         )
         new_incidents = generator.generate(new_state, active_system_count)
         for inc in new_incidents:
@@ -268,7 +272,8 @@ class TestIncidentExpiredEventFlow:
 
         # Verify event was published
         expired_calls = [
-            call for call in mock_event_bus.send_event.call_args_list
+            call
+            for call in mock_event_bus.send_event.call_args_list
             if call.args[0].type == "incident_expired"
         ]
         assert len(expired_calls) == 1

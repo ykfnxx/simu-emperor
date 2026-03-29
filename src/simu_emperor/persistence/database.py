@@ -96,6 +96,35 @@ async def _create_schema(conn: Connection) -> None:
             expired_at TEXT
         );
 
+        -- Tape 事件表（V4.2 增强事件查询）
+        CREATE TABLE IF NOT EXISTS tape_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT UNIQUE NOT NULL,
+            session_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            src TEXT NOT NULL,
+            dst TEXT NOT NULL,
+            type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            tick INTEGER,
+            parent_event_id TEXT,
+            root_event_id TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Embedding 失败记录（V4.2 重试机制）
+        CREATE TABLE IF NOT EXISTS failed_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            segment_id TEXT UNIQUE NOT NULL,
+            summary TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            error TEXT NOT NULL,
+            retry_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_retry_at TEXT
+        );
+
         -- 插入默认游戏状态
         INSERT OR IGNORE INTO game_state (id, game_id, turn, state_json)
         VALUES (1, 'default', 0, '{}');
@@ -111,6 +140,12 @@ async def _create_schema(conn: Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
         CREATE INDEX IF NOT EXISTS idx_events_src_dst ON events(src, dst);
         CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+
+        -- Tape 事件索引
+        CREATE INDEX IF NOT EXISTS idx_tape_session ON tape_events(session_id);
+        CREATE INDEX IF NOT EXISTS idx_tape_agent ON tape_events(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_tape_type ON tape_events(type);
+        CREATE INDEX IF NOT EXISTS idx_tape_tick ON tape_events(tick);
     """)
     await conn.commit()
     logger.info("Database schema created")

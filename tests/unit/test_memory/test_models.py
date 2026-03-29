@@ -1,6 +1,5 @@
 """Test memory module data models"""
 
-
 from simu_emperor.memory.models import StructuredQuery, ParseResult, RetrievalResult
 from simu_emperor.memory.exceptions import ParseError, RetrievalError
 

@@ -210,7 +210,10 @@ class EventBus:
         # 双写日志（文件和数据库）
         if self._file_logger:
             try:
-                self._file_logger.log(event)
+                from simu_emperor.config import settings
+
+                if settings.debug.enable_jsonl:
+                    self._file_logger.log(event)
             except Exception as e:
                 logger.error(f"Failed to log event to file: {e}")
 

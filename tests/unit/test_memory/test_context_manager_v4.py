@@ -15,7 +15,9 @@ def tmp_memory_dir(tmp_path):
 @pytest.fixture
 def tape_path(tmp_memory_dir):
     """Create a temporary tape file."""
-    tape_path = tmp_memory_dir / "agents" / "test_agent" / "sessions" / "test_session" / "tape.jsonl"
+    tape_path = (
+        tmp_memory_dir / "agents" / "test_agent" / "sessions" / "test_session" / "tape.jsonl"
+    )
     tape_path.parent.mkdir(parents=True, exist_ok=True)
     return tape_path
 
@@ -50,9 +52,7 @@ def context_config():
 
 
 @pytest.fixture
-def context_manager(
-    tape_path, context_config, mock_llm, mock_tape_metadata_mgr, tmp_memory_dir
-):
+def context_manager(tape_path, context_config, mock_llm, mock_tape_metadata_mgr, tmp_memory_dir):
     """Create a ContextManager with V4 components."""
     return ContextManager(
         session_id="test_session",

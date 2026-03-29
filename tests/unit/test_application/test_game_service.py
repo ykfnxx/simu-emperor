@@ -33,20 +33,22 @@ def mock_repository():
 
     repo = AsyncMock()
     # V4: 使用 load_nation_data() 返回 NationData 对象
-    repo.load_nation_data = AsyncMock(return_value=NationData(
-        turn=5,
-        imperial_treasury=Decimal("100000"),
-        provinces={
-            "zhili": ProvinceData(
-                province_id="zhili",
-                name="直隶",
-                production_value=Decimal("100000"),
-                population=Decimal("1000000"),
-                fixed_expenditure=Decimal("50000"),
-                stockpile=Decimal("1200000"),
-            )
-        },
-    ))
+    repo.load_nation_data = AsyncMock(
+        return_value=NationData(
+            turn=5,
+            imperial_treasury=Decimal("100000"),
+            provinces={
+                "zhili": ProvinceData(
+                    province_id="zhili",
+                    name="直隶",
+                    production_value=Decimal("100000"),
+                    population=Decimal("1000000"),
+                    fixed_expenditure=Decimal("50000"),
+                    stockpile=Decimal("1200000"),
+                )
+            },
+        )
+    )
     repo.get_current_turn = AsyncMock(return_value=5)
     return repo
 
@@ -73,12 +75,15 @@ def memory_dir(tmp_path: Path) -> Path:
 class TestGameService:
     """Test GameService."""
 
-    async def test_initialize(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_initialize(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test game service initialization."""
-        with patch("simu_emperor.engine.engine.Engine") as mock_engine_cls, \
-             patch("simu_emperor.engine.tick_coordinator.TickCoordinator") as mock_tick_coord_cls, \
-             patch("simu_emperor.common.utils.file_utils.FileOperationsHelper") as mock_file_helper:
-
+        with (
+            patch("simu_emperor.engine.engine.Engine") as mock_engine_cls,
+            patch("simu_emperor.engine.tick_coordinator.TickCoordinator") as mock_tick_coord_cls,
+            patch("simu_emperor.common.utils.file_utils.FileOperationsHelper") as mock_file_helper,
+        ):
             # Setup mocks
             mock_engine = MagicMock()
             mock_engine_cls.return_value = mock_engine
@@ -102,7 +107,9 @@ class TestGameService:
             assert service.tick_coordinator == mock_tick_coord
             mock_tick_coord.start.assert_called_once()
 
-    async def test_shutdown(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_shutdown(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test game service shutdown."""
         service = GameService(
             settings=mock_settings,
@@ -123,7 +130,9 @@ class TestGameService:
         assert not service.is_running
         mock_tick_coord.stop.assert_called_once()
 
-    async def test_get_overview(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_get_overview(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test getting empire overview (V4 format)."""
         service = GameService(
             settings=mock_settings,
@@ -141,7 +150,9 @@ class TestGameService:
         assert overview["province_count"] == 1
         # V4: no military or happiness fields
 
-    async def test_get_overview_empty_state(self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_get_overview_empty_state(
+        self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test getting overview with empty state (V4 format)."""
         mock_repo = AsyncMock()
         mock_repo.load_nation_data = AsyncMock(return_value=NationData(turn=0))
@@ -162,7 +173,9 @@ class TestGameService:
         assert overview["province_count"] == 0
         # V4: no military or happiness fields
 
-    async def test_get_overview_no_repository(self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_get_overview_no_repository(
+        self, mock_settings, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test getting overview when repository is None."""
         service = GameService(
             settings=mock_settings,
@@ -178,28 +191,34 @@ class TestGameService:
         assert overview["treasury"] == 0
         assert overview["population"] == 0
 
-    async def test_load_initial_state_from_file(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_load_initial_state_from_file(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test loading initial state from JSON config."""
-        with patch("simu_emperor.application.game_service.FileOperationsHelper") as mock_file_helper:
+        with patch(
+            "simu_emperor.application.game_service.FileOperationsHelper"
+        ) as mock_file_helper:
             # Mock config file
-            mock_file_helper.read_json_file = AsyncMock(return_value={
-                "nation": {
-                    "turn": 10,
-                    "base_tax_rate": "0.15",
-                    "tribute_rate": "0.85",
-                    "imperial_treasury": "500000",
-                },
-                "provinces": {
-                    "zhili": {
-                        "province_id": "zhili",
-                        "name": "直隶",
-                        "production_value": "200000",
-                        "population": "3000000",
-                        "fixed_expenditure": "60000",
-                        "stockpile": "1500000",
-                    }
+            mock_file_helper.read_json_file = AsyncMock(
+                return_value={
+                    "nation": {
+                        "turn": 10,
+                        "base_tax_rate": "0.15",
+                        "tribute_rate": "0.85",
+                        "imperial_treasury": "500000",
+                    },
+                    "provinces": {
+                        "zhili": {
+                            "province_id": "zhili",
+                            "name": "直隶",
+                            "production_value": "200000",
+                            "population": "3000000",
+                            "fixed_expenditure": "60000",
+                            "stockpile": "1500000",
+                        }
+                    },
                 }
-            })
+            )
 
             service = GameService(
                 settings=mock_settings,
@@ -218,9 +237,13 @@ class TestGameService:
             assert "zhili" in state.provinces
             assert state.provinces["zhili"].name == "直隶"
 
-    async def test_load_initial_state_fallback(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_load_initial_state_fallback(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test loading initial state with fallback when config missing."""
-        with patch("simu_emperor.application.game_service.FileOperationsHelper") as mock_file_helper:
+        with patch(
+            "simu_emperor.application.game_service.FileOperationsHelper"
+        ) as mock_file_helper:
             mock_file_helper.read_json_file = AsyncMock(return_value=None)
 
             service = GameService(
@@ -237,7 +260,9 @@ class TestGameService:
             assert state.base_tax_rate == Decimal("0.10")
             assert "zhili" in state.provinces
 
-    async def test_get_state_from_engine(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_get_state_from_engine(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test getting state from engine."""
         expected_state = NationData(
             turn=5,
@@ -264,24 +289,28 @@ class TestGameService:
         assert state == expected_state
         mock_engine.get_state.assert_called_once()
 
-    async def test_calculate_overview_with_nested_base_data(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_calculate_overview_with_nested_base_data(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test overview calculation with nested base_data structure (V4 format)."""
         mock_repo = AsyncMock()
         # V4: 使用 load_nation_data() 返回 NationData 对象
-        mock_repo.load_nation_data = AsyncMock(return_value=NationData(
-            turn=8,
-            imperial_treasury=Decimal("200000"),
-            provinces={
-                "zhejiang": ProvinceData(
-                    province_id="zhejiang",
-                    name="浙江",
-                    production_value=Decimal("150000"),
-                    population=Decimal("500000"),
-                    fixed_expenditure=Decimal("40000"),
-                    stockpile=Decimal("800000"),
-                )
-            },
-        ))
+        mock_repo.load_nation_data = AsyncMock(
+            return_value=NationData(
+                turn=8,
+                imperial_treasury=Decimal("200000"),
+                provinces={
+                    "zhejiang": ProvinceData(
+                        province_id="zhejiang",
+                        name="浙江",
+                        production_value=Decimal("150000"),
+                        population=Decimal("500000"),
+                        fixed_expenditure=Decimal("40000"),
+                        stockpile=Decimal("800000"),
+                    )
+                },
+            )
+        )
 
         service = GameService(
             settings=mock_settings,
@@ -299,7 +328,9 @@ class TestGameService:
         assert overview["province_count"] == 1
         # V4: no military or happiness fields
 
-    async def test_get_overview_with_deltas(self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir):
+    async def test_get_overview_with_deltas(
+        self, mock_settings, mock_repository, mock_event_bus, mock_llm_provider, memory_dir
+    ):
         """Test getting empire overview with delta values."""
         service = GameService(
             settings=mock_settings,
@@ -311,11 +342,14 @@ class TestGameService:
 
         # Mock engine with delta values
         from decimal import Decimal
+
         mock_engine = MagicMock()
-        mock_engine.get_province_delta = MagicMock(side_effect=lambda province_id, field: {
-            ("_nation", "imperial_treasury"): Decimal("5000"),
-            ("_nation", "population"): Decimal("50000"),
-        }.get((province_id, field), Decimal("0")))
+        mock_engine.get_province_delta = MagicMock(
+            side_effect=lambda province_id, field: {
+                ("_nation", "imperial_treasury"): Decimal("5000"),
+                ("_nation", "population"): Decimal("50000"),
+            }.get((province_id, field), Decimal("0"))
+        )
         service._engine = mock_engine
 
         overview = await service.get_overview()

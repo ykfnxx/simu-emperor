@@ -128,7 +128,9 @@ class TestUpdateSoul:
         )
 
     @pytest.mark.asyncio
-    async def test_creates_evolution_section(self, action_tools_with_soul, sample_tick_event, tmp_path):
+    async def test_creates_evolution_section(
+        self, action_tools_with_soul, sample_tick_event, tmp_path
+    ):
         """Test that 性格变化记录 section is created"""
         result = await action_tools_with_soul.update_soul(
             {"content": "经历斥责后变得谨慎"},
@@ -142,7 +144,9 @@ class TestUpdateSoul:
         assert "经历斥责后变得谨慎" in content
 
     @pytest.mark.asyncio
-    async def test_preserves_original_content(self, action_tools_with_soul, sample_tick_event, tmp_path):
+    async def test_preserves_original_content(
+        self, action_tools_with_soul, sample_tick_event, tmp_path
+    ):
         """Test that original soul.md content is preserved"""
         await action_tools_with_soul.update_soul(
             {"content": "性格变化"},
@@ -154,7 +158,9 @@ class TestUpdateSoul:
         assert "你是直隶巡抚李卫。" in content
 
     @pytest.mark.asyncio
-    async def test_appends_to_existing_section(self, action_tools_with_soul, sample_tick_event, tmp_path):
+    async def test_appends_to_existing_section(
+        self, action_tools_with_soul, sample_tick_event, tmp_path
+    ):
         """Test that multiple entries append under the same section"""
         await action_tools_with_soul.update_soul(
             {"content": "第一次变化"},
