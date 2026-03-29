@@ -1,0 +1,6 @@
+llm:
+  provider: mock
+  api_key: mock-key
+  model: mock-model
+  timeout: 120
+  max_retries: 3
