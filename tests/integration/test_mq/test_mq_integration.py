@@ -14,7 +14,7 @@ from simu_emperor.mq.subscriber import MQSubscriber
 @pytest.mark.integration
 @pytest.mark.slow
 async def test_pub_sub_integration():
-    addr = "ipc://@test_integration_pubsub"
+    addr = "tcp://127.0.0.1:5551"
 
     publisher = MQPublisher(addr)
     await publisher.bind()
@@ -23,7 +23,7 @@ async def test_pub_sub_integration():
     await subscriber.connect()
     subscriber.subscribe("")
 
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.1)
 
     event = Event(
         event_id="",
@@ -51,7 +51,7 @@ async def test_pub_sub_integration():
 @pytest.mark.integration
 @pytest.mark.slow
 async def test_multiple_subscribers():
-    addr = "ipc://@test_integration_multi"
+    addr = "tcp://127.0.0.1:5552"
 
     publisher = MQPublisher(addr)
     await publisher.bind()
@@ -90,7 +90,7 @@ async def test_multiple_subscribers():
 @pytest.mark.integration
 @pytest.mark.slow
 async def test_topic_filtering():
-    addr = "ipc://@test_integration_topic"
+    addr = "tcp://127.0.0.1:5553"
 
     publisher = MQPublisher(addr)
     await publisher.bind()

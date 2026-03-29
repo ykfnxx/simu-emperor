@@ -1,4 +1,4 @@
-"""共享测试 fixtures + 工厂函数 (V4)."""
+"""共享测试 fixtures + 工厂函数 (V5)."""
 
 from decimal import Decimal
 from pathlib import Path
@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from simu_emperor.engine.models.base_data import (
+from simu_emperor.engine_v5.models.base_data import (
     ProvinceData,
     NationData,
 )
@@ -43,9 +43,7 @@ async def event_bus_cleanup():
         pass
 
 
-def make_province(
-    province_id: str = "zhili", name: str = "直隶", **overrides
-) -> ProvinceData:
+def make_province(province_id: str = "zhili", name: str = "直隶", **overrides) -> ProvinceData:
     """创建省份数据 (V4)."""
     defaults = {
         "province_id": province_id,

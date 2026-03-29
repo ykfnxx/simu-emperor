@@ -83,3 +83,57 @@ async def test_subscriber_context_manager():
             assert subscriber._connected
 
         assert not subscriber._connected
+
+
+@pytest.mark.asyncio
+async def test_subscriber_close():
+    with patch("zmq.asyncio.Context") as mock_ctx:
+        mock_socket = MagicMock()
+        mock_ctx.return_value.socket.return_value = mock_socket
+
+        subscriber = MQSubscriber("ipc://@test_broadcast")
+        await subscriber.connect()
+        assert subscriber._connected
+
+        await subscriber.close()
+
+        assert not subscriber._connected
+        assert subscriber._socket is None
+        assert subscriber._ctx is None
+        mock_socket.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_subscriber_reconnect_warning():
+    subscriber = MQSubscriber("ipc://@test_broadcast")
+    subscriber._connected = True
+    subscriber._socket = MagicMock()
+
+    await subscriber.connect()
+
+    assert subscriber._connected
+
+
+@pytest.mark.asyncio
+async def test_subscriber_multiple_topics():
+    subscriber = MQSubscriber("ipc://@test_broadcast")
+    subscriber._connected = True
+    subscriber._socket = MagicMock()
+
+    subscriber.subscribe("TICK_COMPLETED")
+    subscriber.subscribe("AGENT_MESSAGE")
+
+    assert subscriber._socket.setsockopt.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_subscriber_receive_raw():
+    subscriber = MQSubscriber("ipc://@test_broadcast")
+    subscriber._connected = True
+    subscriber._socket = AsyncMock()
+    subscriber._socket.recv_multipart.return_value = [b"RAW_TOPIC", b"raw data"]
+
+    topic, data = await subscriber.receive()
+
+    assert topic == "RAW_TOPIC"
+    assert data == "raw data"

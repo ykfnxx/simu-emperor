@@ -89,3 +89,59 @@ def test_event_to_dict_from_dict():
     assert restored.event_id == event.event_id
     assert restored.event_type == event.event_type
     assert restored.payload == event.payload
+
+
+def test_event_empty_dst():
+    event = Event(
+        event_id="evt_empty_dst",
+        event_type="SYSTEM",
+        src="system:*",
+        dst=[],
+        session_id="system",
+        payload={"status": "init"},
+        timestamp="2026-03-29T12:00:00",
+    )
+
+    assert event.dst == []
+    json_str = event.to_json()
+    restored = Event.from_json(json_str)
+    assert restored.dst == []
+
+
+def test_event_empty_payload():
+    event = Event(
+        event_id="evt_empty_payload",
+        event_type="HEARTBEAT",
+        src="worker:001",
+        dst=["router:*"],
+        session_id="system",
+        payload={},
+        timestamp="2026-03-29T12:00:00",
+    )
+
+    assert event.payload == {}
+    json_str = event.to_json()
+    restored = Event.from_json(json_str)
+    assert restored.payload == {}
+
+
+def test_event_complex_payload():
+    event = Event(
+        event_id="evt_complex",
+        event_type="STATE_UPDATE",
+        src="engine:*",
+        dst=["agent:governor"],
+        session_id="session:001",
+        payload={
+            "nested": {"deep": {"value": 42}},
+            "list": [1, 2, 3],
+            "mixed": {"items": [{"id": 1}, {"id": 2}]},
+        },
+        timestamp="2026-03-29T13:00:00",
+    )
+
+    json_str = event.to_json()
+    restored = Event.from_json(json_str)
+    assert restored.payload["nested"]["deep"]["value"] == 42
+    assert restored.payload["list"] == [1, 2, 3]
+    assert len(restored.payload["mixed"]["items"]) == 2

@@ -1,16 +1,21 @@
-"""Persistence 模块 - 数据持久化层（V2）"""
-
-from simu_emperor.persistence.database import (
-    close_database,
-    get_connection,
-    init_database,
+from simu_emperor.persistence.client import SeekDBClient
+from simu_emperor.persistence.repositories import (
+    TapeRepository,
+    GameStateRepository,
+    AgentConfigRepository,
+    SegmentRepository,
+    TaskSessionRepository,
 )
-from simu_emperor.persistence.repositories import AgentRepository, GameRepository
+from simu_emperor.persistence.permissions import PermissionChecker
+from simu_emperor.persistence.embedding import EmbeddingService
 
 __all__ = [
-    "init_database",
-    "get_connection",
-    "close_database",
-    "GameRepository",
-    "AgentRepository",
+    "SeekDBClient",
+    "TapeRepository",
+    "GameStateRepository",
+    "AgentConfigRepository",
+    "SegmentRepository",
+    "TaskSessionRepository",
+    "PermissionChecker",
+    "EmbeddingService",
 ]

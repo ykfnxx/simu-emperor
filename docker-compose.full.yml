@@ -1,0 +1,139 @@
+# V5 Full Stack Configuration
+# Runs all services: router, engine, worker, gateway, and seekdb
+#
+# Usage:
+#   docker-compose -f docker-compose.full.yml up -d
+#   docker-compose -f docker-compose.full.yml down
+#   docker-compose -f docker-compose.full.yml logs -f
+
+version: '3.8'
+
+services:
+  # ==================== Infrastructure ====================
+  
+  seekdb:
+    image: mysql:8.0
+    container_name: simu_emperor_seekdb
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: simu_emperor
+      MYSQL_USER: simu_user
+      MYSQL_PASSWORD: simu_pass
+    volumes:
+      - seekdb_data:/var/lib/mysql
+      - ./src/simu_emperor/persistence/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - simu_net
+
+  # ==================== V5 Services ====================
+
+  router:
+    build:
+      context: .
+      dockerfile: Dockerfile.router
+    container_name: simu_emperor_router
+    command: ["python", "-m", "simu_emperor.router.run"]
+    environment:
+      - ROUTER_ADDR=tcp://0.0.0.0:5555
+      - LOG_LEVEL=INFO
+    ports:
+      - "5555:5555"
+    networks:
+      - simu_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import zmq; ctx=zmq.Context(); s=ctx.socket(zmq.REQ); s.connect('tcp://router:5555'); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.engine
+    container_name: simu_emperor_engine
+    command: ["python", "-m", "simu_emperor.engine_v5.run"]
+    environment:
+      - ROUTER_ADDR=tcp://router:5555
+      - BROADCAST_ADDR=tcp://broadcast:5556
+      - TICK_INTERVAL=5.0
+      - LOG_LEVEL=INFO
+    depends_on:
+      router:
+        condition: service_healthy
+      seekdb:
+        condition: service_healthy
+    networks:
+      - simu_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: simu_emperor_worker
+    command: ["python", "-m", "simu_emperor.worker.run"]
+    environment:
+      - ROUTER_ADDR=tcp://router:5555
+      - BROADCAST_ADDR=tcp://broadcast:5556
+      - AGENT_IDS=governor_zhili,minister_revenue,minister_war
+      - LOG_LEVEL=INFO
+    depends_on:
+      router:
+        condition: service_healthy
+      seekdb:
+        condition: service_healthy
+    networks:
+      - simu_net
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: simu_emperor_gateway
+    command: ["python", "-m", "simu_emperor.gateway.run"]
+    environment:
+      - ROUTER_ADDR=tcp://router:5555
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=8000
+      - LOG_LEVEL=INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      router:
+        condition: service_healthy
+    networks:
+      - simu_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Broadcast pub/sub endpoint
+  broadcast:
+    build:
+      context: .
+      dockerfile: Dockerfile.broadcast
+    container_name: simu_emperor_broadcast
+    command: ["python", "-m", "simu_emperor.mq.run_broadcast"]
+    environment:
+      - BROADCAST_ADDR=tcp://0.0.0.0:5556
+      - LOG_LEVEL=INFO
+    ports:
+      - "5556:5556"
+    networks:
+      - simu_net
+
+networks:
+  simu_net:
+    driver: bridge
+
+volumes:
+  seekdb_data:

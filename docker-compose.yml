@@ -2,19 +2,22 @@ version: '3.8'
 
 services:
   seekdb:
-    image: mysql:8.0
+    image: oceanbase/seekdb:latest
     container_name: simu_emperor_db
     ports:
-      - "3306:3306"
+      - "2881:2881"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: simu_emperor
-      MYSQL_USER: simu_user
-      MYSQL_PASSWORD: simu_pass
     volumes:
-      - seekdb_data:/var/lib/mysql
+      - seekdb_data:/var/lib/oceanbase
       - ./src/simu_emperor/persistence/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h127.0.0.1 -P2881 -uroot -proot -e 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
 
 volumes:
   seekdb_data:

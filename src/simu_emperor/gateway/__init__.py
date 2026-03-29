@@ -1,9 +1,19 @@
 from simu_emperor.gateway.main import GatewayProcess
 from simu_emperor.gateway.ws_handler import WebSocketHandler
-from simu_emperor.gateway.message_converter import MessageConverter
+from simu_emperor.gateway.frontend_adapter import (
+    event_to_frontend,
+    frontend_to_event,
+    format_health_response,
+    format_agents_response,
+    format_state_response,
+)
 
 __all__ = [
     "GatewayProcess",
     "WebSocketHandler",
-    "MessageConverter",
+    "event_to_frontend",
+    "frontend_to_event",
+    "format_health_response",
+    "format_agents_response",
+    "format_state_response",
 ]
