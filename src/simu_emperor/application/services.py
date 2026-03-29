@@ -101,7 +101,11 @@ class ApplicationServices:
         )
 
         # 2. Initialize Database
-        db_path = settings.db_path if settings.db_path == ":memory:" else str(settings.data_dir / "game.db")
+        db_path = (
+            settings.db_path
+            if settings.db_path == ":memory:"
+            else str(settings.data_dir / "game.db")
+        )
         conn = await init_database(db_path)
         repository = GameRepository(conn)
 
@@ -113,12 +117,19 @@ class ApplicationServices:
         db_logger = DatabaseEventLogger(conn)
         event_bus = EventBus(file_logger=file_logger, db_logger=db_logger)
 
+        from simu_emperor.persistence.tape_repository import TapeRepository
+
         # 4. Initialize memory components
         tape_metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
+
+        tape_repo = TapeRepository(db_path=db_path)
+        await tape_repo.initialize()
+
         tape_writer = TapeWriter(
             memory_dir=memory_dir,
             tape_metadata_mgr=tape_metadata_mgr,
             llm_provider=llm_provider,
+            tape_repository=tape_repo,
         )
 
         # 5. Initialize SessionManager
@@ -140,6 +151,7 @@ class ApplicationServices:
 
         # 7. Initialize services in dependency order
         from simu_emperor.persistence.repositories import IncidentRepository
+
         incident_repo = IncidentRepository(conn)
 
         game_service = GameService(
@@ -161,6 +173,7 @@ class ApplicationServices:
             agent_generator=agent_generator,
             tape_writer=tape_writer,
             tape_metadata_mgr=tape_metadata_mgr,
+            tape_repository=tape_repo,
         )
 
         session_service = SessionService(

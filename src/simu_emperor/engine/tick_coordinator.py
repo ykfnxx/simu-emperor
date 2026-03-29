@@ -38,7 +38,7 @@ class TickCoordinator:
         event_bus: EventBus,
         engine: Engine,
         game_repo: GameStateRepository,
-        tick_interval_seconds: int = 5,
+        tick_interval_seconds: int = 500,
         incident_repo=None,
         incident_generator=None,
         incident_config=None,
@@ -129,7 +129,9 @@ class TickCoordinator:
                         await self.incident_repo.expire_incident(
                             expired_inc.incident_id, new_state.turn
                         )
-                    logger.info(f"Incident expired: {expired_inc.incident_id} ({expired_inc.title})")
+                    logger.info(
+                        f"Incident expired: {expired_inc.incident_id} ({expired_inc.title})"
+                    )
 
                 # 持久化新状态
                 await self._persist_state(new_state)
@@ -148,18 +150,16 @@ class TickCoordinator:
 
                 # 随机 incident 生成（按配置间隔检查）
                 self._tick_counter += 1
-                check_interval = self.incident_config.check_interval_ticks if self.incident_config else 4
-                if (
-                    self.incident_generator
-                    and self._tick_counter % check_interval == 0
-                ):
+                check_interval = (
+                    self.incident_config.check_interval_ticks if self.incident_config else 4
+                )
+                if self.incident_generator and self._tick_counter % check_interval == 0:
                     active_system_count = sum(
-                        1 for inc in self.engine.active_incidents
+                        1
+                        for inc in self.engine.active_incidents
                         if inc.source == "system:incident_generator"
                     )
-                    new_incidents = self.incident_generator.generate(
-                        new_state, active_system_count
-                    )
+                    new_incidents = self.incident_generator.generate(new_state, active_system_count)
                     for inc in new_incidents:
                         self.engine.add_incident(inc)
                         # 发布 INCIDENT_CREATED 事件

@@ -60,6 +60,7 @@ class Agent:
         # V4.1: 注入全局共享实例
         tape_writer=None,
         tape_metadata_mgr=None,
+        tape_repository=None,
         engine=None,
     ):
         """
@@ -96,6 +97,7 @@ class Agent:
         # V4.1: 使用注入的实例（不再创建自己的副本）
         self._tape_writer = tape_writer
         self._tape_metadata_mgr = tape_metadata_mgr
+        self._tape_repository = tape_repository
 
         # V4.1: Use configured memory_dir
         self._memory_dir = Path(settings.memory.memory_dir).resolve()
@@ -147,6 +149,7 @@ class Agent:
             self.llm_provider,
             tape_writer=self._tape_writer,
             tape_metadata_mgr=self._tape_metadata_mgr,
+            tape_repository=self._tape_repository,
         )
 
         # 自主记忆反思计数器

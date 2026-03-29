@@ -177,6 +177,92 @@ class TapeRepository:
         result = await cursor.fetchone()
         return result[0] if result else 0
 
+    async def query_by_session(
+        self,
+        session_id: str,
+        agent_id: str | None = None,
+        offset: int = 0,
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        """
+        按 session_id 查询事件（按 timestamp ASC 排序，与 JSONL 行序一致）。
+
+        Args:
+            session_id: 会话 ID
+            agent_id: 可选 agent 过滤
+            offset: 跳过前 N 条
+            limit: 返回数量上限
+
+        Returns:
+            事件字典列表
+        """
+        conn = self._ensure_connected()
+
+        if agent_id:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM tape_events
+                WHERE session_id = ? AND agent_id = ?
+                ORDER BY timestamp ASC, id ASC
+                LIMIT ? OFFSET ?
+                """,
+                (session_id, agent_id, limit, offset),
+            )
+        else:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM tape_events
+                WHERE session_id = ?
+                ORDER BY timestamp ASC, id ASC
+                LIMIT ? OFFSET ?
+                """,
+                (session_id, limit, offset),
+            )
+
+        rows = await cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+
+        results = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            if row_dict.get("dst"):
+                row_dict["dst"] = json.loads(row_dict["dst"])
+            if row_dict.get("payload"):
+                row_dict["payload"] = json.loads(row_dict["payload"])
+            results.append(row_dict)
+
+        return results
+
+    async def count_by_session(
+        self,
+        session_id: str,
+        agent_id: str | None = None,
+    ) -> int:
+        """
+        统计会话事件数（可选 agent 过滤）。
+
+        Args:
+            session_id: 会话 ID
+            agent_id: 可选 agent 过滤
+
+        Returns:
+            事件数量
+        """
+        conn = self._ensure_connected()
+
+        if agent_id:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM tape_events WHERE session_id = ? AND agent_id = ?",
+                (session_id, agent_id),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM tape_events WHERE session_id = ?",
+                (session_id,),
+            )
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+
     async def record_failed_embedding(
         self, segment_id: str, summary: str, metadata: dict[str, Any], error: str
     ) -> None:

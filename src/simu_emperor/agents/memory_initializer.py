@@ -2,17 +2,15 @@
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from simu_emperor.agents.tools.memory_tools import MemoryTools
 from simu_emperor.config import settings
 from simu_emperor.llm.base import LLMProvider
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig
+from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.tape_writer import TapeWriter
 from simu_emperor.memory.vector_searcher import VectorSearcher
-
-if TYPE_CHECKING:
-    from simu_emperor.memory.tape_metadata import TapeMetadataManager
+from simu_emperor.persistence.tape_repository import TapeRepository
 
 logger = logging.getLogger(__name__)
 
@@ -25,25 +23,16 @@ class MemoryInitializer:
         agent_id: str,
         memory_dir: Path,
         llm_provider: LLMProvider,
-        # V4.1: 注入全局共享实例，而不是创建自己的副本
         tape_writer: TapeWriter,
-        tape_metadata_mgr: "TapeMetadataManager | None" = None,
+        tape_metadata_mgr: TapeMetadataManager | None = None,
+        tape_repository: TapeRepository | None = None,
     ):
-        """
-        初始化 MemoryInitializer
-
-        Args:
-            agent_id: Agent 标识符
-            memory_dir: 内存目录路径
-            llm_provider: LLM 提供者
-            tape_writer: V4.1 全局共享的 TapeWriter 实例
-            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
-        """
         self.agent_id = agent_id
         self.memory_dir = memory_dir
         self.llm_provider = llm_provider
-        self._tape_writer = tape_writer  # 使用注入的实例
+        self._tape_writer = tape_writer
         self._tape_metadata_mgr = tape_metadata_mgr
+        self._tape_repository = tape_repository
 
     async def _on_event_written(self, agent_id: str, session_id: str) -> None:
         """
@@ -110,10 +99,11 @@ class MemoryInitializer:
                 keep_recent_events=memory_context.keep_recent_events,
             ),
             llm_provider=self.llm_provider,
-            tape_writer=self._tape_writer,  # V4 新增
-            tape_metadata_mgr=self._tape_metadata_mgr,  # V4 新增
-            system_prompt=system_prompt,  # V4 新增
-            vector_searcher=vector_searcher,  # V4+ 新增
+            tape_writer=self._tape_writer,
+            tape_metadata_mgr=self._tape_metadata_mgr,
+            system_prompt=system_prompt,
+            vector_searcher=vector_searcher,
+            tape_repository=self._tape_repository,
         )
 
         # 3. V4: 初始化 MemoryTools

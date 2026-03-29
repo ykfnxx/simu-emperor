@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-"""ContextManager for sliding window context management（V4 重构）."""
-
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +11,7 @@ if TYPE_CHECKING:
     from simu_emperor.event_bus.event import Event
     from simu_emperor.llm.base import LLMProvider
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
+    from simu_emperor.persistence.tape_repository import TapeRepository
     from simu_emperor.memory.tape_writer import TapeWriter
     from simu_emperor.memory.vector_searcher import VectorSearcher
 
@@ -67,39 +66,24 @@ class ContextManager:
         config: ContextConfig,
         llm_provider: "LLMProvider",
         session_manager=None,
-        # V4: 新增参数
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
         tape_writer: "TapeWriter | None" = None,
         system_prompt: str | None = None,
         vector_searcher: "VectorSearcher | None" = None,
+        tape_repository: "TapeRepository | None" = None,
     ):
-        """
-        Initialize ContextManager（V4 重构）。
-
-        Args:
-            session_id: Session identifier
-            agent_id: Agent identifier
-            tape_path: Path to tape.jsonl file
-            config: Context configuration
-            llm_provider: LLM provider for summarization
-            session_manager: Optional SessionManager for ancestor loading
-            tape_metadata_mgr: V4 TapeMetadataManager for segment_index updates
-            tape_writer: V4 TapeWriter for synchronous tape writing
-            system_prompt: V4 System prompt to store
-            vector_searcher: V4+ VectorSearcher for semantic indexing
-        """
         self.session_id = session_id
         self.agent_id = agent_id
         self.tape_path = tape_path
         self.llm = llm_provider
         self.config = config
         self.session_manager = session_manager
-        self.tape_metadata_mgr = tape_metadata_mgr  # V4
+        self.tape_metadata_mgr = tape_metadata_mgr
 
-        # V4: 新增属性
         self._tape_writer = tape_writer
         self._system_prompt = system_prompt
-        self._vector_searcher = vector_searcher  # V4+ Vector search integration
+        self._vector_searcher = vector_searcher
+        self._tape_repository = tape_repository
 
         # 初始化max_tokens（如果为None则查询LLM）
         self.max_tokens = config.max_tokens or self._query_llm_context_window()
@@ -234,23 +218,19 @@ class ContextManager:
         # 从 tape_meta 读取 window_offset 和 summary
         if self.tape_metadata_mgr:
             metadata = await self.tape_metadata_mgr._find_entry(
-                self.tape_metadata_mgr._get_metadata_path(self.agent_id),
-                self.session_id
+                self.tape_metadata_mgr._get_metadata_path(self.agent_id), self.session_id
             )
             if metadata:
                 self._window_offset = metadata.window_offset
                 self.summary = metadata.summary
 
-        # 从 window_offset 开始读取 tape.jsonl（增量加载）
-        events = await self._read_tape_from_offset(self.tape_path, self._window_offset)
+        # 从 window_offset 开始读取事件（优先 DB，回退 JSONL）
+        events = await self._read_events_from_offset(self._window_offset)
 
         self.events.extend(events)
 
-        # V4: Initialize tape position counter based on actual tape file length
-        # (not the loaded events length, since we might load incrementally)
-        # We need to read the full file to get the actual length
-        all_events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
-        self._tape_position_counter = len(all_events)
+        # 初始化 tape position counter
+        self._tape_position_counter = await self._count_all_events()
 
         if include_ancestors and self.session_manager:
             ancestors = self.session_manager.get_parent_chain(self.session_id)
@@ -293,7 +273,9 @@ class ContextManager:
             dropped_event_ids = original_event_ids - current_event_ids
 
             if dropped_event_ids:
-                dropped_events = [e for e in original_events if e.get("event_id") in dropped_event_ids]
+                dropped_events = [
+                    e for e in original_events if e.get("event_id") in dropped_event_ids
+                ]
                 await self._update_segment_index_for_dropped(dropped_events)
 
             logger.info(
@@ -302,11 +284,20 @@ class ContextManager:
             )
 
     async def _load_session_events(self, session_id: str) -> list[dict]:
-        """加载指定 session 的事件"""
+        """Load events for a given session (DB-first, JSONL fallback)."""
+        if self._tape_repository:
+            return await self._tape_repository.query_by_session(
+                session_id,
+                agent_id=self.agent_id,
+            )
         tape_path = self._get_tape_path(session_id)
         if not tape_path.exists():
             return []
-        return await FileOperationsHelper.read_jsonl_file(tape_path)
+        all_events = await FileOperationsHelper.read_jsonl_file(tape_path)
+        for event in all_events:
+            if "_tokens" not in event and "tokens" not in event:
+                event["_tokens"] = self._calc_event_tokens(event)
+        return all_events
 
     def _get_tape_path(self, session_id: str) -> Path:
         """获取 tape 文件路径"""
@@ -314,34 +305,32 @@ class ContextManager:
             return self.session_manager.get_tape_path(session_id, self.agent_id)
         return self.tape_path
 
-    async def _read_tape_from_offset(
-        self,
-        tape_path: Path,
-        offset: int,
-    ) -> list[dict]:
-        """
-        从指定位置开始读取 tape.jsonl，跳过已压缩的部分。
+    async def _count_all_events(self) -> int:
+        if self._tape_repository:
+            return await self._tape_repository.count_by_session(self.session_id, self.agent_id)
+        all_events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
+        return len(all_events)
 
-        Args:
-            tape_path: Path to tape.jsonl file
-            offset: Starting position (line number) in the file
+    async def _read_events_from_offset(self, offset: int) -> list[dict]:
+        if self._tape_repository:
+            events = await self._tape_repository.query_by_session(
+                self.session_id,
+                agent_id=self.agent_id,
+                offset=offset,
+            )
+            for event in events:
+                if "_tokens" not in event and "tokens" not in event:
+                    event["_tokens"] = self._calc_event_tokens(event)
+            return events
 
-        Returns:
-            List of event dicts from offset onwards
-        """
-        if not tape_path.exists():
+        if not self.tape_path.exists():
             return []
 
-        all_events = await FileOperationsHelper.read_jsonl_file(tape_path)
-
-        # 从 offset 开始读取（跳过已压缩的部分）
+        all_events = await FileOperationsHelper.read_jsonl_file(self.tape_path)
         events = all_events[offset:] if offset < len(all_events) else []
-
-        # 为没有 _tokens 的事件计算 token 数
         for event in events:
             if "_tokens" not in event and "tokens" not in event:
                 event["_tokens"] = self._calc_event_tokens(event)
-
         return events
 
     def add_event(self, event: dict, tokens: int) -> bool:
@@ -548,10 +537,7 @@ class ContextManager:
 
         # Step 5: 更新累积摘要（如果有事件被压缩）
         if dropped_events and self.tape_metadata_mgr:
-            new_summary = await self._summarize_with_previous(
-                dropped_events,
-                old_summary
-            )
+            new_summary = await self._summarize_with_previous(dropped_events, old_summary)
             if new_summary:
                 self.summary = new_summary
                 await self.tape_metadata_mgr.update_summary(
@@ -703,7 +689,9 @@ class ContextManager:
 
             # V4+: Add segment to vector store for semantic search
             if self._vector_searcher:
-                await self._add_segment_to_vector_store(dropped_events, start_position, end_position, tick)
+                await self._add_segment_to_vector_store(
+                    dropped_events, start_position, end_position, tick
+                )
 
             # Move window offset forward after recording segment
             self._window_offset += len(dropped_events)
@@ -910,11 +898,11 @@ class ContextManager:
             payload = event.get("payload", event.get("content", {}))
             if isinstance(payload, dict):
                 msg = (
-                    payload.get("query") or
-                    payload.get("message") or
-                    payload.get("narrative") or
-                    payload.get("intent") or
-                    ""
+                    payload.get("query")
+                    or payload.get("message")
+                    or payload.get("narrative")
+                    or payload.get("intent")
+                    or ""
                 )
                 if msg:
                     parts.append(f"- {event_type}: {msg[:30]}")

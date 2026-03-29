@@ -12,6 +12,7 @@ from simu_emperor.event_bus.event import Event
 if TYPE_CHECKING:
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
     from simu_emperor.llm.base import LLMProvider
+    from simu_emperor.persistence.tape_repository import TapeRepository
 
 
 logger = logging.getLogger(__name__)
@@ -31,22 +32,14 @@ class TapeWriter:
         memory_dir: Path,
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
         llm_provider: "LLMProvider | None" = None,
+        tape_repository: "TapeRepository | None" = None,
     ):
-        """
-        Initialize TapeWriter.
-
-        Args:
-            memory_dir: Base memory directory path
-            tape_metadata_mgr: TapeMetadataManager 用于标题生成和事件计数
-            llm_provider: LLM provider 用于标题生成
-        """
         self.memory_dir = memory_dir
         self._tape_metadata_mgr = tape_metadata_mgr
         self._llm_provider = llm_provider
+        self._tape_repository = tape_repository
 
-    async def write_event(
-        self, event: Event, agent_id: str | None = None
-    ) -> str:
+    async def write_event(self, event: Event, agent_id: str | None = None) -> str:
         """
         Write an event to tape.jsonl（V4 更新：首事件检测 + 标题生成）。
 
@@ -96,7 +89,9 @@ class TapeWriter:
         # 注意：必须在 increment_event_count 之前完成，否则会出现竞态条件
         if is_first_event and event.type != "tick_completed":
             if self._tape_metadata_mgr and self._llm_provider:
-                logger.info(f"[TapeWriter] First event for {agent_id}/{session_id}, generating title...")
+                logger.info(
+                    f"[TapeWriter] First event for {agent_id}/{session_id}, generating title..."
+                )
                 try:
                     await self._tape_metadata_mgr.append_or_update_entry(
                         agent_id=agent_id,
@@ -123,8 +118,15 @@ class TapeWriter:
             try:
                 await self._tape_metadata_mgr.increment_event_count(agent_id, session_id)
             except Exception as e:
-                # 更新失败不应阻塞写入流程
                 logger.debug(f"Failed to increment event count: {e}")
+
+        # V4.2: 双写 tape_events 表
+        if self._tape_repository and agent_id:
+            try:
+                tick = event.payload.get("tick") if isinstance(event.payload, dict) else None
+                await self._tape_repository.insert_event(event, agent_id, tick=tick)
+            except Exception as e:
+                logger.warning(f"Failed to write event to tape_events: {e}")
 
         return event.event_id
 

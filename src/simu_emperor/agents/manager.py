@@ -15,6 +15,7 @@ from simu_emperor.llm.base import LLMProvider
 if TYPE_CHECKING:
     from simu_emperor.memory.tape_metadata import TapeMetadataManager
     from simu_emperor.memory.tape_writer import TapeWriter
+    from simu_emperor.persistence.tape_repository import TapeRepository
 
 
 logger = logging.getLogger(__name__)
@@ -39,26 +40,11 @@ class AgentManager:
         repository=None,
         session_id: str | None = None,
         session_manager=None,
-        # V4.1: 注入全局共享实例
         tape_writer: "TapeWriter | None" = None,
         tape_metadata_mgr: "TapeMetadataManager | None" = None,
+        tape_repository: "TapeRepository | None" = None,
         engine=None,
     ):
-        """
-        初始化 AgentManager
-
-        Args:
-            event_bus: 事件总线
-            llm_provider: LLM 提供商
-            template_dir: Agent 模板目录
-            agent_dir: Agent 工作目录
-            repository: GameRepository（用于数据查询）
-            session_id: 会话标识符
-            session_manager: SessionManager（用于 task sessions）
-            tape_writer: V4.1 全局共享的 TapeWriter 实例
-            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
-            engine: Engine 实例（用于 incident 查询）
-        """
         self.event_bus = event_bus
         self.llm_provider = llm_provider
         self.template_dir = Path(template_dir)
@@ -68,6 +54,7 @@ class AgentManager:
         self.session_manager = session_manager
         self.tape_writer = tape_writer
         self.tape_metadata_mgr = tape_metadata_mgr
+        self.tape_repository = tape_repository
         self.engine = engine
 
         self._active_agents: dict[str, Any] = {}
@@ -92,31 +79,25 @@ class AgentManager:
         template_path = self.template_dir / agent_id
         agent_path = self.agent_dir / agent_id
 
-        # 检查运行时目录是否已有有效配置（动态生成的 agent）
         if agent_path.exists():
             soul_md = agent_path / "soul.md"
             data_scope = agent_path / "data_scope.yaml"
             if soul_md.exists() and data_scope.exists():
-                # 确保 memory 和 workspace 目录存在
                 (agent_path / "memory").mkdir(parents=True, exist_ok=True)
                 (agent_path / "memory" / "recent").mkdir(exist_ok=True)
                 (agent_path / "workspace").mkdir(exist_ok=True)
                 logger.info(f"Agent {agent_id} already exists in runtime directory, skipping copy")
                 return True
 
-        # 从模板目录复制
         if not template_path.exists():
             logger.error(f"Template not found: {template_path}")
             return False
 
-        # 如果运行时目录已存在但无效，先删除
         if agent_path.exists():
             shutil.rmtree(agent_path)
 
-        # 复制模板
         shutil.copytree(template_path, agent_path)
 
-        # 创建 memory 和 workspace 目录
         (agent_path / "memory").mkdir(parents=True, exist_ok=True)
         (agent_path / "memory" / "recent").mkdir(exist_ok=True)
         (agent_path / "workspace").mkdir(exist_ok=True)
@@ -138,7 +119,6 @@ class AgentManager:
             logger.warning(f"Agent {agent_id} already active")
             return False
 
-        # 延迟导入避免循环依赖
         from simu_emperor.agents.agent import Agent
 
         agent_path = self.agent_dir / agent_id
@@ -147,7 +127,6 @@ class AgentManager:
             logger.error(f"Agent directory not found: {agent_path}")
             return False
 
-        # 创建 Agent 实例
         agent = Agent(
             agent_id=agent_id,
             event_bus=self.event_bus,
@@ -158,55 +137,32 @@ class AgentManager:
             session_manager=self.session_manager,
             tape_writer=self.tape_writer,
             tape_metadata_mgr=self.tape_metadata_mgr,
+            tape_repository=self.tape_repository,
             engine=self.engine,
         )
 
-        # 启动 Agent
         agent.start()
-
-        # V4.2: Start queue consumer for backpressure handling
         agent.start_queue_consumer()
 
-        # 添加到活跃列表
         self._active_agents[agent_id] = agent
 
         logger.info(f"Agent {agent_id} added and started")
         return True
 
     async def remove_agent(self, agent_id: str) -> bool:
-        """
-        移除并停止 Agent
-
-        Args:
-            agent_id: Agent 标识符
-
-        Returns:
-            是否成功移除
-        """
         if agent_id not in self._active_agents:
             logger.warning(f"Agent {agent_id} not active")
             return False
 
         agent = self._active_agents[agent_id]
-
-        # V4.2: Stop queue consumer before stopping agent
         await agent.stop_queue_consumer()
-
         agent.stop()
-
-        # 从活跃列表移除
         del self._active_agents[agent_id]
 
         logger.info(f"Agent {agent_id} removed and stopped")
         return True
 
     def get_all_agents(self) -> list[str]:
-        """
-        获取所有可用的 Agent ID（包括未活跃的）
-
-        Returns:
-            Agent ID 列表
-        """
         if not self.agent_dir.exists():
             return []
 
@@ -218,24 +174,9 @@ class AgentManager:
         return sorted(agents)
 
     def get_active_agents(self) -> list[str]:
-        """
-        获取所有活跃的 Agent ID
-
-        Returns:
-            活跃 Agent ID 列表
-        """
         return list(self._active_agents.keys())
 
     def start_agent(self, agent_id: str) -> bool:
-        """
-        启动 Agent（如果已存在但未启动）
-
-        Args:
-            agent_id: Agent 标识符
-
-        Returns:
-            是否成功启动
-        """
         if agent_id in self._active_agents:
             logger.warning(f"Agent {agent_id} already active")
             return False
@@ -243,15 +184,6 @@ class AgentManager:
         return self.add_agent(agent_id)
 
     async def stop_agent(self, agent_id: str) -> bool:
-        """
-        停止 Agent（但不移除）
-
-        Args:
-            agent_id: Agent 标识符
-
-        Returns:
-            是否成功停止
-        """
         if agent_id not in self._active_agents:
             logger.warning(f"Agent {agent_id} not active")
             return False
@@ -259,28 +191,16 @@ class AgentManager:
         agent = self._active_agents[agent_id]
         await agent.stop_queue_consumer()
         agent.stop()
-
-        # 从活跃列表移除
         del self._active_agents[agent_id]
 
         logger.info(f"Agent {agent_id} stopped")
         return True
 
     async def stop_all(self) -> None:
-        """停止所有活跃 Agent"""
         for agent_id in list(self._active_agents.keys()):
             await self.stop_agent(agent_id)
 
         logger.info("All agents stopped")
 
     def get_agent(self, agent_id: str) -> Any | None:
-        """
-        获取 Agent 实例
-
-        Args:
-            agent_id: Agent 标识符
-
-        Returns:
-            Agent 实例，如果不存在则返回 None
-        """
         return self._active_agents.get(agent_id)
