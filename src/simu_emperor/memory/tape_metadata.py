@@ -197,6 +197,7 @@ Guidelines:
                 system_prompt="You are a title generator for a historical Chinese emperor simulation game.",
                 temperature=0.3,
                 max_tokens=100,
+                task_type="title_generation",
             )
             # Clean up response
             title = response.strip().strip('"').strip("'")

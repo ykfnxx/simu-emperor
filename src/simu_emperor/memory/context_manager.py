@@ -806,6 +806,7 @@ class ContextManager:
                 system_prompt="You are a summarizer for event logs.",
                 temperature=0.3,
                 max_tokens=100,
+                task_type="memory_summarize",
             )
             return summary.strip()[:100] if summary else None
         except Exception as e:
@@ -872,6 +873,7 @@ class ContextManager:
                 system_prompt="你是历史记录整理员。",
                 temperature=0.3,
                 max_tokens=200,
+                task_type="memory_summarize",
             )
 
             return new_summary.strip()[:200] if new_summary else previous_summary

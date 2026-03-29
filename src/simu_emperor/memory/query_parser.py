@@ -51,6 +51,7 @@ class QueryParser:
                     system_prompt="你是一个查询解析助手，负责将用户的自然语言查询转换为结构化格式。",
                     temperature=0.1,
                     max_tokens=300,
+                    task_type="query_parsing",
                 )
 
                 # Parse JSON response

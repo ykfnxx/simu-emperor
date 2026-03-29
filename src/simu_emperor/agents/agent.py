@@ -1072,6 +1072,7 @@ class Agent:
             messages=messages,
             temperature=0.7,
             max_tokens=1000,
+            task_type="agent_response",
         )
 
         # 记录 LLM 调用详情
