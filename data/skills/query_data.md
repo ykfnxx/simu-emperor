@@ -48,7 +48,7 @@ required_tools:
 - `query_province_data(province_id, field_path)`: 查询省份特定字段
   - 参数:
     - `province_id` - 省份 ID（如 `"zhili"`, `"jiangnan"`）
-    - `field_path` - 字段路径（如 `"population.total"`, `"granary_stock"`）
+    - `field_path` - 字段名（如 `"population"`, `"production_value"`, `"stockpile"`）
   - 返回: 省份字段的当前值
 
 - `list_provinces()`: 列出所有可访问的省份 ID
@@ -62,12 +62,17 @@ required_tools:
 
 ### 查询直隶省人口
 ```
-query_province_data("zhili", "population.total")
+query_province_data("zhili", "population")
 ```
 
-### 查询直隶省粮仓储量
+### 查询直隶省产值
 ```
-query_province_data("zhili", "granary_stock")
+query_province_data("zhili", "production_value")
+```
+
+### 查询直隶省库存
+```
+query_province_data("zhili", "stockpile")
 ```
 
 ### 查询国库
@@ -80,70 +85,31 @@ query_national_data("imperial_treasury")
 list_provinces()
 ```
 
-### 查询多个省份的数据
-```
-list_provinces()
-# 返回: ["zhili", "jiangnan", "sichuan"]
-
-query_province_data("zhili", "population.total")
-query_province_data("jiangnan", "population.total")
-query_province_data("sichuan", "population.total")
-```
-
 ## 字段路径说明
 
-### 省份字段路径格式
-`{子系统}.{字段名}` 或 `顶层字段`
+### 省份字段（V4 简化模型）
 
-### 子系统包括
+V4 使用简化的 4 核心字段模型：
 
-#### population - 人口数据
-- `total` - 总人口
-- `households` - 户数
-- `happiness` - 幸福度
-- `growth_rate` - 增长率
+- `production_value` - 产值（经济产出）
+- `population` - 人口数量
+- `fixed_expenditure` - 固定支出
+- `stockpile` - 库存/储备
 
-#### agriculture - 农业数据
-- `cultivated_land_mu` - 耕地面积（亩）
-- `crops` - 作物列表
-- `irrigation_level` - 水利等级
-
-#### commerce - 商业数据
-- `merchant_households` - 商户数
-- `market_prosperity` - 市场繁荣度
-
-#### trade - 贸易数据
-- `trade_volume` - 贸易量
-- `trade_route_quality` - 贸易路线质量
-
-#### military - 军事数据
-- `soldiers` - 士兵数
-- `morale` - 士气
-- `upkeep_per_soldier` - 每个士兵的维护费用
-
-#### taxation - 税收数据
-- `land_tax_rate` - 土地税率
-- `commercial_tax_rate` - 商业税率
-- `tariff_rate` - 关税率
-
-#### consumption - 消耗数据
-- `civilian_grain_per_capita` - 人均口粮
-- `military_grain_per_soldier` - 军用口粮
-
-#### administration - 行政数据
-- `official_count` - 官员数量
-- `official_salary` - 官员薪水
-- `infrastructure_value` - 基础设施价值
-
-### 顶层字段
-- `granary_stock` - 粮仓储量
-- `local_treasury` - 地方财政
+其他字段：
+- `name` - 省份名称
+- `province_id` - 省份 ID
+- `base_production_growth` - 基础产值增长率
+- `base_population_growth` - 基础人口增长率
+- `tax_modifier` - 税率调整
 
 ### 国家级字段
+
+- `turn` - 当前回合数（tick）
+- `base_tax_rate` - 国家基础税率
+- `tribute_rate` - 上缴比例
+- `fixed_expenditure` - 国库固定支出
 - `imperial_treasury` - 国库
-- `national_tax_modifier` - 国家税收修正
-- `tribute_rate` - 进贡率
-- `turn` - 当前回合数
 
 ## 示例
 
@@ -175,7 +141,7 @@ query_province_data("sichuan", "population.total")
 **执行流程**:
 ```json
 {
-    "narrative": "启奏陛下，臣已汇总各省人口数据。直隶省人口八百三十万，江南省人口一千二百万，四川省人口九百五十万。天下人口繁盛，实乃太平盛世之象。",
+    "narrative": "启奏陛下，臣已汇总各省人口数据。直隶省人口二百六十万，江南省人口五百万，浙江省人口三百万。天下人口繁盛，实乃太平盛世之象。",
     "actions": [
         {
             "type": "list_provinces"
@@ -183,21 +149,21 @@ query_province_data("sichuan", "population.total")
         {
             "type": "query_province_data",
             "province_id": "zhili",
-            "field_path": "population.total"
+            "field_path": "population"
         },
         {
             "type": "query_province_data",
             "province_id": "jiangnan",
-            "field_path": "population.total"
+            "field_path": "population"
         },
         {
             "type": "query_province_data",
-            "province_id": "sichuan",
-            "field_path": "population.total"
+            "province_id": "zhejiang",
+            "field_path": "population"
         },
         {
             "type": "respond_to_player",
-            "content": "启奏陛下，臣已汇总各省人口数据。直隶省人口八百三十万，江南省人口一千二百万，四川省人口九百五十万。天下人口繁盛，实乃太平盛世之象。"
+            "content": "启奏陛下，臣已汇总各省人口数据。直隶省人口二百六十万，江南省人口五百万，浙江省人口三百万。天下人口繁盛，实乃太平盛世之象。"
         }
     ]
 }
