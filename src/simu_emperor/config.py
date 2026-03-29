@@ -89,8 +89,6 @@ class LLMTaskConfig(BaseSettings):
 class LLMConfig(BaseSettings):
     """LLM Provider 配置（V4.3 两层配置）"""
 
-    model_config = SettingsConfigDict(extra="ignore")
-
     provider: Literal["mock", "anthropic", "openai"] = Field(
         default="mock", description="LLM 提供商: mock/anthropic/openai"
     )
