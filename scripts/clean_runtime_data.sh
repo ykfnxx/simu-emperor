@@ -38,7 +38,7 @@ echo -e "${RED}=== 清理运行时数据 ===${NC}\n"
 
 # 游戏数据库
 echo "1. 游戏数据库："
-cleanup_file "game.db" "游戏数据库文件"
+cleanup_file "data/game.db" "游戏数据库文件"
 
 # 运行时数据目录
 echo -e "\n2. Agent 运行时数据："

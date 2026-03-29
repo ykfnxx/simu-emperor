@@ -1,4 +1,4 @@
-# 皇帝模拟器 V3 配置示例
+# 皇帝模拟器 V4.2 配置示例
 
 # LLM 配置
 llm:
@@ -6,31 +6,52 @@ llm:
   api_key: null
   api_base: null
   model: null
+  context_window: 128000
+
+# Embedding 配置（V4.2）
+embedding:
+  provider: "openai"                # 可选: openai, mock
+  api_key: null                     # OpenAI API Key
+  api_base: null                    # 兼容 OpenAI 格式的服务（如 DeepSeek、智谱）
+  model: "text-embedding-3-small"
+  enabled: true                     # 是否启用向量检索
+  batch_size: 100                   # 批量 embedding 大小
+  dimensions: 1536                  # 向量维度
+  timeout: 30                       # API 超时（秒）
+  max_retries: 3                    # 失败重试次数
+  retry_delay: 1.0                  # 重试延迟（秒），指数退避
+
+# ChromaDB 向量数据库配置（V4.2）
+chromadb:
+  enabled: true                     # 是否启用 ChromaDB
+  persist_directory: "data/chroma"  # 持久化目录
+  collection_name: "memory_segments"
+  distance_metric: "cosine"         # 可选: cosine, l2, ip
+
+# 调试配置（V4.2）
+debug:
+  enable_jsonl: true                # 同时写入 tape.jsonl（调试用）
+
+# Agent 事件队列配置（V4.2）
+agent_queue:
+  enabled: true                     # 是否启用消息队列（背压处理）
+  max_size: 0                       # 队列最大容量（0 = 无界）
 
 # V3 记忆系统配置
 memory:
-  # 记忆系统开关（默认启用）
   enabled: true
-
-  # 上下文窗口配置
   context:
-    # max_tokens: 留空则自动从 LLM API 获取模型的上下文窗口大小
-    # 也可以手动指定，如：8000, 128000, 200000 等
-    max_tokens: null
-    threshold_ratio: 0.95         # 触发总结的比例阈值（95%）
-    keep_recent_events: 20        # 滑动窗口后保留的最近事件数
-
-  # 检索配置
+    max_tokens: null                # 留空则自动从 LLM API 获取
+    threshold_ratio: 0.95
+    keep_recent_events: 20
   retrieval:
-    default_max_results: 5        # 默认返回的最大结果数
-    cross_session_enabled: true   # 是否启用跨会话检索
-    entity_match_weights:         # 实体匹配权重
-      action: 0.4                 # 动作匹配权重
-      target: 0.3                 # 目标匹配权重
-      time: 0.2                   # 时间匹配权重
-
-  # 存储路径
-  memory_dir: "data/memory"       # 记忆存储根目录
+    default_max_results: 5
+    cross_session_enabled: true
+    entity_match_weights:
+      action: 0.4
+      target: 0.3
+      time: 0.2
+  memory_dir: "data/memory"
 
 # 日志配置
 logging:
@@ -41,14 +62,14 @@ logging:
 
 # 随机事件配置
 incident:
-  enabled: true                       # 是否启用随机事件生成
-  check_interval_ticks: 4             # 每隔多少 tick 检查一次（4 = 每月）
-  base_trigger_probability: 0.1       # 基础触发概率
-  max_active_system_incidents: 5      # 系统生成的最大活跃事件数
-  llm_beautify_enabled: true          # 是否启用 LLM 叙事美化
+  enabled: true
+  check_interval_ticks: 4
+  base_trigger_probability: 0.1
+  max_active_system_incidents: 5
+  llm_beautify_enabled: true
 
 # Agent 自主记忆配置
 autonomous_memory:
-  enabled: true                       # 是否启用自主记忆反思
-  check_interval_ticks: 4             # 每隔多少 tick 反思一次（4 = 每月）
-  soul_evolution_enabled: true        # 是否允许 soul.md 性格演化
+  enabled: true
+  check_interval_ticks: 4
+  soul_evolution_enabled: true
