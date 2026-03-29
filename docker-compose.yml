@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  seekdb:
+    image: mysql:8.0
+    container_name: simu_emperor_db
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: simu_emperor
+      MYSQL_USER: simu_user
+      MYSQL_PASSWORD: simu_pass
+    volumes:
+      - seekdb_data:/var/lib/mysql
+      - ./src/simu_emperor/persistence/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  seekdb_data:
