@@ -30,7 +30,8 @@ required_tools:
 - **允许目标**:
   - `provinces.{province_id}.production_value` - 省级产值
   - `provinces.{province_id}.population` - 省级人口
-- **示例**: 产值 +10% (factor=0.1)，人口 -5% (factor=-0.05)
+  - `provinces.{province_id}.tax_modifier` - 省级税率调整
+- **示例**: 产值 +10% (factor=0.1)，人口 -5% (factor=-0.05)，减税 -5% (factor=-0.05)
 
 ## 参数说明
 
@@ -82,7 +83,23 @@ required_tools:
 }
 ```
 
-### 示例 3：混合效果
+### 示例 3：税率调整
+
+```json
+{
+  "title": "江南减税政策",
+  "description": "江南减税5%，减轻民众负担",
+  "effects": [
+    {
+      "target_path": "provinces.jiangnan.tax_modifier",
+      "factor": -0.05
+    }
+  ],
+  "duration_ticks": 12
+}
+```
+
+### 示例 4：混合效果
 
 ```json
 {

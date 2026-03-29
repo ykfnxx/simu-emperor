@@ -261,6 +261,7 @@ class ActionTools:
         ALLOWED_FACTOR_PATHS = [
             r"^provinces\.[a-z_]+\.production_value$",
             r"^provinces\.[a-z_]+\.population$",
+            r"^provinces\.[a-z_]+\.tax_modifier$",
         ]
 
         effects = []
@@ -282,7 +283,7 @@ class ActionTools:
             elif "factor" in eff and eff["factor"] is not None:
                 if not any(re.match(pattern, target_path) for pattern in ALLOWED_FACTOR_PATHS):
                     raise ValueError(
-                        f"factor 类型效果只能作用于 production_value 或 population，无效路径: {target_path}"
+                        f"factor 类型效果只能作用于 production_value、population 或 tax_modifier，无效路径: {target_path}"
                     )
                 effects.append(
                     {
