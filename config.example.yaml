@@ -1,12 +1,32 @@
-# 皇帝模拟器 V4.2 配置示例
+# 皇帝模拟器 V4.3 配置示例
 
-# LLM 配置
+# LLM 配置（V4.3 两层配置）
 llm:
-  provider: "mock"  # 可选: mock, anthropic, openai
-  api_key: null
-  api_base: null
-  model: null
-  context_window: 128000
+  provider: "anthropic"              # 可选: mock, anthropic, openai
+  api_key: null                      # API Key
+  api_base: null                     # API Base URL
+  context_window: 128000             # 上下文窗口大小
+
+  # 默认配置
+  default:
+    model: "claude-sonnet-4-20250514"
+    temperature: 0.7
+    max_tokens: 2000
+
+  # 任务特定配置（可选）
+  task_configs:
+    memory_summarize:
+      model: "claude-haiku-3-5-20250514"
+      temperature: 0.5
+      max_tokens: 500
+    title_generation:
+      model: "claude-haiku-3-5-20250514"
+      temperature: 0.3
+      max_tokens: 100
+    query_parsing:
+      model: "claude-haiku-3-5-20250514"
+      temperature: 0.3
+      max_tokens: 500
 
 # Embedding 配置（V4.2）
 embedding:

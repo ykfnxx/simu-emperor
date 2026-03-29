@@ -78,8 +78,18 @@ class IncidentConfig(BaseSettings):
     llm_beautify_enabled: bool = Field(default=True, description="是否启用 LLM 叙事美化")
 
 
+class LLMTaskConfig(BaseSettings):
+    """单个任务的 LLM 配置（V4.3）"""
+
+    model: str | None = Field(default=None, description="模型名称")
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0, description="温度参数")
+    max_tokens: int | None = Field(default=None, ge=1, description="最大生成 token 数")
+
+
 class LLMConfig(BaseSettings):
-    """LLM Provider 配置。"""
+    """LLM Provider 配置（V4.3 两层配置）"""
+
+    model_config = SettingsConfigDict(extra="ignore")
 
     provider: Literal["mock", "anthropic", "openai"] = Field(
         default="mock", description="LLM 提供商: mock/anthropic/openai"
@@ -88,10 +98,19 @@ class LLMConfig(BaseSettings):
     api_base: str | None = Field(
         default=None, description="API Base URL（用于兼容 OpenAI 格式的服务，如 DeepSeek、智谱等）"
     )
-    model: str | None = Field(default=None, description="模型名称（可选，使用默认值）")
     context_window: int | None = Field(
         default=128000, description="LLM 上下文窗口大小（token 数），用于调试和测试"
     )
+
+    # 默认配置
+    default: LLMTaskConfig = Field(
+        default_factory=lambda: LLMTaskConfig(
+            model="claude-sonnet-4-20250514", temperature=0.7, max_tokens=2000
+        )
+    )
+
+    # 任务特定配置
+    task_configs: dict[str, LLMTaskConfig] = Field(default_factory=dict)
 
     # 默认模型
     _DEFAULT_MODELS = {
@@ -99,10 +118,14 @@ class LLMConfig(BaseSettings):
         "openai": "gpt-4o",
     }
 
+    def get_task_config(self, task_type: str) -> LLMTaskConfig:
+        """获取任务配置，未配置则返回 default"""
+        return self.task_configs.get(task_type, self.default)
+
     def get_model(self) -> str:
-        """获取模型名称，未指定时返回默认值。"""
-        if self.model:
-            return self.model
+        """获取默认模型名称"""
+        if self.default.model:
+            return self.default.model
         return self._DEFAULT_MODELS.get(self.provider, "unknown")
 
 
