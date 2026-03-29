@@ -38,7 +38,7 @@ class TickCoordinator:
         event_bus: EventBus,
         engine: Engine,
         game_repo: GameStateRepository,
-        tick_interval_seconds: int = 500,
+        tick_interval_seconds: int = 5,
         incident_repo=None,
         incident_generator=None,
         incident_config=None,

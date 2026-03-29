@@ -82,6 +82,7 @@ graph TD
         LLM[1. LLM Provider]
         DB[2. Database + Repository]
         EB[3. EventBus + Logger]
+        TR[3.5. TapeRepository]
     end
 
     subgraph "内存组件层 Memory"
@@ -101,11 +102,14 @@ graph TD
 
     LLM --> DB
     DB --> EB
-    EB --> TM
+    EB --> TR
+    TR --> TM
     TM --> TW
+    TR --> TW
     TW --> SM
     SM --> GS
     GS --> AS
+    TR --> AS
     AS --> SS
     SS --> GCS
     GCS --> MS
@@ -114,6 +118,7 @@ graph TD
     style LLM fill:#e3f2fd
     style DB fill:#e3f2fd
     style EB fill:#e3f2fd
+    style TR fill:#e3f2fd
     style TM fill:#f3e5f5
     style TW fill:#f3e5f5
     style SM fill:#f3e5f5
@@ -133,6 +138,7 @@ graph LR
         LLMProv[LLM Provider]
         Repository[Repository]
         EventBus[EventBus]
+        TapeRepo[TapeRepository]
     end
 
     subgraph "核心组件 Core Components"
@@ -159,6 +165,9 @@ graph LR
     EventBus --> AgentSvc
     EventBus --> MessageSvc
 
+    TapeRepo --> TapeWriter
+    TapeRepo --> AgentSvc
+
     SessionMgr --> AgentSvc
     SessionMgr --> SessionSvc
     SessionMgr --> GroupChatSvc
@@ -179,6 +188,7 @@ graph LR
     style LLMProv fill:#bbdefb
     style Repository fill:#bbdefb
     style EventBus fill:#bbdefb
+    style TapeRepo fill:#bbdefb
     style SessionMgr fill:#e1bee7
     style TapeWriter fill:#e1bee7
     style TapeMeta fill:#e1bee7
@@ -203,16 +213,18 @@ sequenceDiagram
     AS->>Infra: 创建 LLM Provider
     AS->>Infra: 创建 Database + Repository
     AS->>Infra: 创建 EventBus + Logger
+    AS->>Infra: 创建 TapeRepository(db_path)
+    AS->>Infra: await tape_repo.initialize()
 
     Note over AS,Memory: 2. 初始化内存组件
     AS->>Memory: 创建 TapeMetadataManager
-    AS->>Memory: 创建 TapeWriter
+    AS->>Memory: 创建 TapeWriter(memory_dir, tape_metadata_mgr, llm_provider, tape_repository=tape_repo)
     AS->>Memory: 创建 SessionManager
     AS->>Memory: 创建主会话 session:web:main
 
     Note over AS,Services: 3. 创建应用服务（按依赖顺序）
     AS->>Services: 创建 GameService
-    AS->>Services: 创建 AgentService
+    AS->>Services: 创建 AgentService(..., tape_repository=tape_repo)
     AS->>Services: 创建 SessionService
     AS->>Services: 创建 GroupChatService
     AS->>Services: 创建 MessageService
@@ -383,6 +395,12 @@ flowchart TD
 - 代理的生命周期管理
 - 代理可用性检查
 - 动态代理生成
+- 依赖注入：settings, event_bus, llm_provider, repository, session_manager, session_id, agent_generator, tape_writer, tape_metadata_mgr, tape_repository
+
+**tape_repository 传递链：**
+```
+AgentService → AgentManager → Agent → MemoryInitializer → ContextManager
+```
 
 ### GroupChatService
 - 群聊的创建和管理

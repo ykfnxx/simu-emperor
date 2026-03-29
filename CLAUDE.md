@@ -25,7 +25,7 @@ uv run simu-emperor
 
 ## Architecture
 
-**V4: Tick-Based Real-Time Multi-Agent Architecture**
+**V4.2: Tick-Based Real-Time Multi-Agent Architecture**
 
 Tick-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules. The game advances automatically via periodic ticks (1 tick = 1 week).
 
@@ -62,61 +62,63 @@ src/simu_emperor/
 │   └── tick_coordinator.py           # Tick timer coordinator (async loop)
 │
 ├── agents/                           # Module: AI officials
-│   ├── agent.py                      # Agent base class
+│   ├── agent.py                      # Agent base class (V4.2: event queue with backpressure)
 │   ├── manager.py                    # Agent lifecycle (init/add/remove)
+│   ├── agent_generator.py            # NEW V4.2: Agent creation/factory
+│   ├── memory_initializer.py         # NEW V4.2: ContextManager + TapeRepository setup
+│   ├── system_prompts.py             # NEW V4.2: System prompt assembly
+│   ├── response_parser.py            # Parse LLM structured output
 │   ├── skills/                       # Sub-module: File-driven skill system
 │   │   ├── models.py                 # Skill data models (SkillMetadata, Skill)
-│   │   ├── exceptions.py             # Skill exception classes
-│   │   ├── config.py                 # Skill configuration
 │   │   ├── parser.py                 # YAML Frontmatter + Markdown parser
 │   │   ├── validator.py              # Skill validation logic
 │   │   ├── loader.py                 # Three-tier caching loader
 │   │   ├── registry.py               # Event-to-skill mapping registry
-│   │   └── watcher.py                # File watcher for hot-reload (TODO)
-│   ├── tools/                        # Sub-module: Tool handlers for function calling
-│   │   ├── query_tools.py            # Query handlers (return data to LLM)
-│   │   ├── action_tools.py           # Action handlers (execute side effects)
-│   │   └── memory_tools.py           # Memory handlers (retrieve_memory)
-│   ├── context_builder.py            # LLM context assembly (data_scope parsing)
-│   ├── memory_manager.py             # V2 Memory: short-term (3 turns) + long-term
-│   ├── file_manager.py               # File I/O for agent files
-│   └── response_parser.py            # Parse LLM structured output
+│   │   ├── watcher.py                # File watcher for hot-reload (TODO)
+│   │   ├── config.py                 # Skill configuration
+│   │   └── exceptions.py             # Skill exception classes
+│   └── tools/                        # Sub-module: Tool handlers for function calling
+│       ├── tool_registry.py          # NEW V4.2: Tool/ToolRegistry classes
+│       ├── query_tools.py            # Query handlers (return data to LLM)
+│       ├── action_tools.py           # Action handlers (send_message, write_memory, etc.)
+│       ├── memory_tools.py           # Memory handlers (retrieve_memory, summarize_segment)
+│       ├── task_session_tools.py     # NEW V4.2: Task session management
+│       └── role_map_parser.py        # Parse role_map.md for agent info
 │
-├── memory/                           # Module: Memory System
+├── memory/                           # Module: V4.2 Memory System
 │   ├── models.py                     # Memory data models
 │   │   ├── StructuredQuery           # Parsed query (intent, entities, scope, depth)
 │   │   ├── ParseResult               # Query parsing result
-│   │   └── RetrievalResult           # Memory retrieval result
+│   │   ├── RetrievalResult           # Memory retrieval result
+│   │   ├── TapeMetadataEntry         # Session metadata entry
+│   │   └── TapeSegment               # Event segment for retrieval
 │   ├── exceptions.py                 # Memory exceptions (ParseError, RetrievalError)
-│   ├── tape_writer.py                # Event logging to tape.jsonl
-│   ├── manifest_index.py             # Session metadata management (manifest.json)
-│   ├── context_manager.py            # Sliding window context with summarization
-│   ├── query_parser.py               # LLM-based natural language query parsing
-│   ├── tape_searcher.py              # Cross-session event search
-│   └── structured_retriever.py       # Retrieval coordinator (routes scope/depth)
+│   ├── config.py                     # MemoryConfig, SearchWeights
+│   ├── tape_writer.py                # V4.2 DUAL-WRITE: JSONL + tape_events SQLite
+│   ├── tape_metadata.py              # TapeMetadataManager (generates titles via LLM)
+│   ├── context_manager.py            # V4.2 DB-first reads via tape_repository
+│   ├── vector_searcher.py            # ChromaDB semantic search
+│   ├── vector_store.py               # NEW V4.2: VectorSearcher wrapper with retry
+│   ├── two_level_searcher.py         # L1 metadata + L1.5 vector + L2 segment search
+│   ├── tape_metadata_index.py        # Level 1 keyword search
+│   ├── segment_searcher.py           # Level 2 event segment search
+│   ├── structured_retriever.py       # Retrieval coordinator
+│   └── query_parser.py               # NL → StructuredQuery
 │
-├── cli/                              # Module: Player interface
-│   ├── app.py                        # EmperorCLI main class
-│   ├── ui.py                         # TUI components (rich/textual)
-│
-├── application/                      # **Application Layer** (NEW)
-│   ├── services.py                   # ApplicationServices container (DI)
+├── application/                      # Application Layer (V4.1+)
+│   ├── services.py                   # ApplicationServices container (DI, creates TapeRepository)
 │   ├── game_service.py               # GameService - game lifecycle
 │   ├── session_service.py            # SessionService - session management
-│   ├── agent_service.py              # AgentService - agent lifecycle
+│   ├── agent_service.py              # AgentService (V4.2: accepts tape_repository)
 │   ├── group_chat_service.py         # GroupChatService - group chat
 │   ├── message_service.py            # MessageService - message routing
-│   └── tape_service.py               # TapeService - tape queries
-│
-├── cli/                              # Module: Player interface
-│   ├── app.py                        # EmperorCLI main class
-│   ├── ui.py                         # TUI components (rich/textual)
-│   ├── commands.py                   # Command handlers (/help, /chat, /end_turn)
-│   └── intent_parser.py              # LLM-based natural language parsing
+│   ├── tape_service.py               # TapeService - tape queries
+│   └── task_tracker.py               # NEW V4.2: Task tracking
 │
 ├── persistence/                      # Module: Data persistence
-│   ├── database.py                   # SQLite connection (aiosqlite)
-│   ├── repositories.py               # Repository pattern CRUD
+│   ├── database.py                   # Module-level SQLite singleton (aiosqlite)
+│   ├── tape_repository.py            # NEW V4.2: Own connection, tape_events + failed_embeddings
+│   ├── repositories.py               # Repository pattern CRUD (Game, Agent, Incident)
 │   └── serialization.py              # GameState ↔ DB conversion
 │
 ├── llm/                              # Module: LLM providers
@@ -125,19 +127,24 @@ src/simu_emperor/
 │   ├── openai.py                     # OpenAI GPT implementation
 │   └── mock.py                       # Mock provider (testing)
 │
-├── adapters/                         # Module: External adapters
-│   └── web/                          # Web adapter
-│       ├── game_instance.py          # Game instance management
-│       └── ...
+├── adapters/web/                     # Module: Web adapter
+│   ├── server.py                     # FastAPI server
+│   ├── game_instance.py              # Game instance management
+│   ├── connection_manager.py         # WebSocket connection manager
+│   └── message_converter.py          # Message format conversion
 │
-├── common/                           # Module: Common utilities
-│   └── ...
+├── session/                          # Module: Session management
+│   ├── models.py                     # Session data models
+│   ├── manager.py                    # Session manager
+│   ├── group_chat.py                 # Group chat logic
+│   ├── task_monitor.py               # Task monitoring
+│   └── constants.py                  # Session constants
 │
-└── session/                          # Module: Session management
+└── common/                           # Module: Common utilities
     └── ...
 
 data/
-├── skills/                           # Universal skill templates (all agents share, v2.0 format)
+├── skills/                           # Universal skill templates (v2.0 format)
 │   ├── chat.md                       # Chat with emperor (role-play)
 │   ├── create_incident.md            # Create time-limited game events
 │   ├── on_tick_completed.md          # Handle tick completed events
@@ -145,7 +152,7 @@ data/
 │   ├── receive_message.md            # Receive inter-agent messages
 │   └── write_report.md               # Write reports to emperor
 │
-├── initial_state_v4.json             # V4 initial game state configuration (simplified 4-field model)
+├── initial_state_v4.json             # V4 initial game state configuration
 │
 ├── default_agents/                   # Agent templates (version-controlled)
 │   └── {agent_id}/
@@ -157,7 +164,8 @@ data/
 │       ├── soul.md                   # Copied from template (mutable during game)
 │       ├── data_scope.yaml           # Copied from template
 │       ├── memory/                   # V2 Memory: agent-maintained summaries
-│       │   ├── summary.md            # Long-term memory
+│       │   ├── MEMORY.md             # Long-term memory (write_long_term_memory tool)
+│       │   ├── summary.md            # Legacy long-term memory
 │       │   └── recent/               # Short-term memory (last 3 turns)
 │       │       ├── turn_005.md
 │       │       ├── turn_006.md
@@ -167,13 +175,13 @@ data/
 │           ├── 006_exec_adjust_tax.md
 │           └── 007_report.md
 │
-├── memory/                           # V3 Memory System: Event-based memory storage
-│   ├── manifest.json                 # Global session index (metadata)
+├── memory/                           # V4.2 Memory System: Dual-write storage
+│   ├── tape_meta.jsonl               # Session metadata (title, event_count, etc.)
 │   └── agents/                       # Per-agent session storage
 │       └── {agent_id}/
 │           └── sessions/
 │               └── {session_id}/
-│                   └── tape.jsonl    # Event log (JSONL format)
+│                   └── tape.jsonl    # Event log (JSONL format, also in SQLite)
 │
 ├── logs/                             # Log directory
 │   ├── events/                       # JSONL event logs
@@ -198,35 +206,37 @@ tests/
 │   ├── test_event_bus/
 │   ├── test_core/
 │   ├── test_agents/
-│   │   ├── test_skills/              # Skill module tests (73 tests, 100% passing)
-│   │   ├── test_agent.py             # Agent lifecycle tests (44 tests)
+│   │   ├── test_skills/              # Skill module tests
+│   │   ├── test_agent.py             # Agent lifecycle tests
 │   │   └── test_manager.py
-│   ├── test_memory/                  # V3 Memory module tests (24 tests, 92% coverage)
+│   ├── test_memory/                  # V4.2 Memory module tests
 │   │   ├── test_models.py            # Data model tests
-│   │   ├── test_tape_writer.py       # Event logging tests
-│   │   ├── test_manifest_index.py    # Session management tests
-│   │   ├── test_context_manager.py   # Sliding window tests
+│   │   ├── test_tape_writer.py       # Dual-write tests
+│   │   ├── test_tape_metadata.py     # Metadata management tests
+│   │   ├── test_context_manager.py   # DB-first read tests
 │   │   ├── test_query_parser.py      # Query parsing tests (mock LLM)
-│   │   ├── test_tape_searcher.py     # Tape search tests
+│   │   ├── test_vector_store.py      # VectorStore with retry tests
+│   │   ├── test_two_level_searcher.py # Two-level search tests
 │   │   └── test_structured_retriever.py  # Retrieval coordinator tests
 │   ├── test_cli/
 │   ├── test_persistence/
+│   │   └── test_tape_repository.py   # TapeRepository CRUD tests
 │   ├── test_llm/
-│   └── test_application/              # **Application Layer tests (NEW)**
-│       ├── test_services.py           # ApplicationServices container
-│       ├── test_game_service.py       # GameService tests (9 tests)
-│       ├── test_session_service.py    # SessionService tests (15 tests)
-│       ├── test_agent_service.py      # AgentService tests (13 tests)
-│       ├── test_group_chat_service.py # GroupChatService tests (17 tests)
-│       ├── test_message_service.py    # MessageService tests (11 tests)
-│       └── test_tape_service.py       # TapeService tests (14 tests)
+│   └── test_application/             # Application Layer tests
+│       ├── test_services.py          # ApplicationServices container
+│       ├── test_game_service.py      # GameService tests
+│       ├── test_session_service.py   # SessionService tests
+│       ├── test_agent_service.py     # AgentService tests
+│       ├── test_group_chat_service.py # GroupChatService tests
+│       ├── test_message_service.py   # MessageService tests
+│       └── test_tape_service.py      # TapeService tests
 ├── integration/                      # Integration tests (multi-module)
-│   └── test_memory/                  # V3 Memory integration tests (4 tests)
+│   └── test_memory/                  # Memory integration tests
 │       └── test_memory_integration.py  # End-to-end memory workflows
 └── e2e/                              # End-to-end tests (full game flow)
 ```
 
-### Module Dependencies (V4.1 - Clean Architecture)
+### Module Dependencies (V4.2 - Clean Architecture)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -240,13 +250,19 @@ tests/
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Application Layer (NEW)                    │
+│                   Application Layer (V4.2)                   │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐   │
 │  │ GameService   │  │ SessionService│  │ AgentService  │   │
-│  └───────────────┘  └───────────────┘  └───────────────┘   │
-│  ┌───────────────┐  ┌───────────────┐                       │
-│  │ GroupChatSvc  │  │ MessageService│                       │
-│  └───────────────┘  └───────────────┘                       │
+│  └───────────────┘  └───────────────┘  └───────┬───────┘   │
+│  ┌───────────────┐  ┌───────────────┐          │           │
+│  │ GroupChatSvc  │  │ MessageService│          │           │
+│  └───────────────┘  └───────────────┘          │           │
+│                              ▲                 │           │
+│                              │                 ▼           │
+│                    ┌─────────────────────────────────┐     │
+│                    │      TapeRepository (NEW)       │     │
+│                    │   (own aiosqlite connection)    │     │
+│                    └─────────────────────────────────┘     │
 └────────────────────────────┬────────────────────────────────┘
                              │
                              ▼
@@ -254,7 +270,14 @@ tests/
 │                       Core Layer                            │
 │  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌──────────────┐ │
 │  │  Engine │  │ Agents  │  │ EventBus │  │ Repository   │ │
-│  └─────────┘  └─────────┘  └──────────┘  └──────────────┘ │
+│  └─────────┘  └────┬────┘  └──────────┘  └──────────────┘ │
+│                    │                                        │
+│                    ▼                                        │
+│           ┌─────────────────┐                              │
+│           │ Memory System   │                              │
+│           │ (TapeWriter,    │                              │
+│           │ ContextManager) │                              │
+│           └─────────────────┘                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -263,7 +286,7 @@ tests/
 - Application Layer depends on Core Layer (business logic)
 - Core Layer has NO dependencies on upper layers
 - No circular dependencies
-- No circular dependencies
+- TapeRepository is created in ApplicationServices and shared across layers
 
 ### Core Modules
 
@@ -315,7 +338,28 @@ The Application Layer separates business logic from protocol handling, following
 
 **TickCoordinator** (`engine/tick_coordinator.py`) — Timer coordinator (V4). Maintains tick timer, calls `Engine.apply_tick()` at configurable interval (default 5s), publishes `tick_completed` events via EventBus. Methods: `start()`, `stop()`, `_tick_loop()`.
 
-**Agents** (`agents/`) — File-driven AI officials. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist).
+**Agents** (`agents/`) — File-driven AI officials with V4.2 enhancements. Defined by markdown files, not Python classes. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access (per-skill field whitelist).
+
+**V4.2 Features:**
+- **Event queue with backpressure**: asyncio.Queue with configurable max_size (default: 100)
+- **ToolRegistry**: Tool system uses ToolRegistry class (not _function_handlers dict)
+- **MemoryInitializer**: Creates ContextManager with tape_repository injection
+- **Unified send_message**: ActionTools.send_message handles both agent-to-agent and respond-to-player
+
+**Available Tools (V4.2):**
+| Tool | Type | Description |
+|------|------|-------------|
+| `query_province` | Query | Query province data |
+| `query_nation` | Query | Query nation data |
+| `query_incidents` | Query | Query active incidents |
+| `send_message` | Action | Unified message sending (to agents or player) |
+| `write_memory` | Action | Short-term memory (recent/turn_*.md) |
+| `write_long_term_memory` | Action | Long-term memory (MEMORY.md) |
+| `update_soul` | Action | Personality evolution (soul.md append) |
+| `summarize_segment` | Action | Summarize memory segments via VectorStore |
+| `create_incident` | Action | Create time-limited game events |
+| `start_task_session` | Action | Create sub-session for tasks |
+| `end_task_session` | Action | End sub-session with summary |
 
 **Skill System** (`agents/skills/`) — File-driven skill system (v2.0). Each skill is a markdown file with YAML Frontmatter (metadata: name, description, version, tags, priority, required_tools) and Markdown Body (task instructions, examples, constraints).
 
@@ -327,28 +371,57 @@ The Application Layer separates business logic from protocol handling, following
 
 Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (write memory) → respond (answer queries) → execute (carry out commands). All phases triggered by events.
 
-**V3 Memory System** (`memory/`) — Event-based memory retrieval and context management. Enables agents to remember and retrieve historical information across sessions.
+**V4.2 Memory System** (`memory/`) — Event-based memory with dual-write persistence and DB-first retrieval. Enables agents to remember and retrieve historical information across sessions.
 
 ### Core Components:
 
-**TapeWriter** (`memory/tape_writer.py`) — Event logging to JSONL format.
-- Writes events to `data/memory/agents/{agent_id}/sessions/{session_id}/tape.jsonl`
-- Tracks event_id, timestamp, event_type, content, tokens, agent_id
+**TapeWriter** (`memory/tape_writer.py`) — Dual-write event logging (V4.2).
+- Writes events to BOTH `tape.jsonl` AND `tape_events` SQLite table (via TapeRepository)
+- First-event detection triggers TapeMetadataManager to generate title via LLM
+- Increment event count in `tape_meta.jsonl`
 - Token counting using tiktoken (GPT-4 encoding: cl100k_base)
 - Async file operations via aiofiles
 
-**ManifestIndex** (`memory/manifest_index.py`) — Session metadata management.
-- Maintains `data/memory/manifest.json` with session summaries
-- Tracks: start_time, end_time, turn_start/end, key_topics, summary, event_count
-- Entity matching for candidate session selection (action: 0.4, target: 0.3, time: 0.2)
-- Supports session registration, updates, and candidate retrieval
+**TapeRepository** (`persistence/tape_repository.py`) — SQLite persistence layer (V4.2).
+- Own aiosqlite connection (separate from module-level singleton)
+- Tables: `tape_events` (7 indexes for fast queries), `failed_embeddings`
+- Key methods: `insert_event()`, `query_by_session()` (ASC order), `count_by_session()`, `record_failed_embedding()`
+- Used by both TapeWriter (write path) and ContextManager (read path)
 
-**ContextManager** (`memory/context_manager.py`) — Sliding window context management.
+**TapeMetadataManager** (`memory/tape_metadata.py`) — Session metadata management (V4.2).
+- Maintains `data/memory/tape_meta.jsonl` with session metadata
+- Generates session title via LLM on first event
+- Tracks: session_id, title, event_count, created_at, updated_at
+- Replaces V3 ManifestIndex (simpler, JSONL-based)
+
+**ContextManager** (`memory/context_manager.py`) — Sliding window with DB-first reads (V4.2).
+- `_load_session_events()` → `tape_repository.query_by_session()` (DB-first, JSONL fallback)
+- `_read_events_from_offset()` → `tape_repository.query_by_session(offset=N)`
+- `_count_all_events()` → `tape_repository.count_by_session()`
 - Configurable token threshold (default: 8000 tokens, 95% trigger)
 - Automatic summarization when threshold exceeded
-- LLM-based summarization (2-3 sentences, 200 max tokens)
 - Sliding window: keeps recent events (default: 20) after compaction
-- Returns messages in LLM-friendly format (role: user/assistant)
+
+**VectorStore** (`memory/vector_store.py`) — Semantic search with retry (V4.2).
+- Wraps VectorSearcher (ChromaDB) with exponential backoff retry
+- Tracks failed embeddings in `failed_embeddings` table via TapeRepository
+- Used by TwoLevelSearcher for L1.5 semantic matching
+- Async interface compatible with Agent event loop
+
+**TwoLevelSearcher** (`memory/two_level_searcher.py`) — Two-level retrieval (V4.2).
+- **L1 (Metadata)**: TapeMetadataIndex keyword search on session titles
+- **L1.5 (Vector)**: VectorStore semantic search on event embeddings
+- **L2 (Segment)**: SegmentSearcher retrieves actual event content
+- Combines results with configurable weights
+
+**TapeMetadataIndex** (`memory/tape_metadata_index.py`) — Level 1 keyword search.
+- Keyword matching on session titles from tape_meta.jsonl
+- Returns candidate session IDs for L2 retrieval
+
+**SegmentSearcher** (`memory/segment_searcher.py`) — Level 2 event segment search.
+- Reads events from tape_repository (DB-first) or JSONL (fallback)
+- Entity matching scoring (action +0.4, target +0.3, time +0.2)
+- Returns formatted event segments
 
 **QueryParser** (`memory/query_parser.py`) — Natural language query parsing.
 - LLM-based parsing with few-shot prompting
@@ -357,26 +430,20 @@ Deception emerges from LLM reading soul.md. Three-phase workflow: summarize (wri
 - Determines: scope (current_session/cross_session), depth (overview/tape)
 - Retry logic (3 attempts) with fallback to safe defaults
 
-**TapeSearcher** (`memory/tape_searcher.py`) — Cross-session event search.
-- Concurrent tape reading via asyncio.gather
-- Entity matching scoring (action +0.4, target +0.3, time +0.2)
-- Returns sorted events by relevance score
-- Supports max_results limiting
-
 **StructuredRetriever** (`memory/structured_retriever.py`) — Retrieval coordinator.
 - Routes based on scope:
   - `current_session`: ContextManager.get_messages()
-  - `cross_session`: ManifestIndex → TapeSearcher
+  - `cross_session`: TwoLevelSearcher.search()
 - Routes based on depth:
   - `overview`: Returns session summaries only
   - `tape`: Returns full event details
 - Coordinates all memory components
 
-**MemoryTools** (`agents/tools/memory_tools.py`) — Agent integration.
+**MemoryTools** (`agents/tools/memory_tools.py`) — Agent integration (V4.2).
 - Implements `retrieve_memory(args, event) -> str` tool handler
+- NEW: `summarize_segment(args, event) -> str` for VectorStore integration
 - Follows QueryTools pattern (returns formatted string to LLM)
-- Lazy initialization of memory components
-- Formats retrieval results as markdown for LLM consumption
+- Uses ToolRegistry (not _function_handlers dict)
 
 ### Event Types in Tape:
 
@@ -388,25 +455,30 @@ RESPONSE        # Final agent responses (sent to player and written to tape)
 GAME_EVENT      # Game state changes (create_incident, etc.)
 ```
 
-### Query Flow Example:
+### Data Flow (V4.2):
 
-```python
-# Player asks: "我之前给直隶拨过款吗？"
+**Write Path (TapeWriter dual-write):**
+```
+Agent event → TapeWriter.write_event()
+              ├─→ tape.jsonl (append)
+              └─→ TapeRepository.insert_event() → tape_events table
+                  └─→ (first event) TapeMetadataManager.generate_title()
+```
 
-# 1. Agent receives query event
-# 2. TapeWriter writes USER_QUERY event
-# 3. LLM calls retrieve_memory tool
-# 4. QueryParser parses query:
-#    - intent: query_history
-#    - entities: {action: ["拨款"], target: ["直隶"], time: "history"}
-#    - scope: cross_session
-#    - depth: tape
-# 5. StructuredRetriever routes to cross_session:
-#    a. ManifestIndex.get_candidate_sessions() → finds matching sessions
-#    b. TapeSearcher.search() → searches tape.jsonl files
-#    c. Returns formatted events with relevance scores
-# 6. MemoryTools formats results as markdown
-# 7. LLM receives context and responds
+**Read Path (ContextManager DB-first):**
+```
+ContextManager.get_messages()
+  └─→ _load_session_events()
+      └─→ tape_repository.query_by_session()  # DB-first
+          └─→ (fallback) _read_events_from_jsonl()  # JSONL fallback
+```
+
+**Search Path (TwoLevelSearcher):**
+```
+TwoLevelSearcher.search(query)
+  ├─→ L1: TapeMetadataIndex.keyword_search()  # Title matching
+  ├─→ L1.5: VectorStore.search()              # Semantic search
+  └─→ L2: SegmentSearcher.retrieve()          # Event content
 ```
 
 ### Memory System Configuration:
@@ -421,51 +493,31 @@ memory:
   retrieval:
     default_max_results: 5
     cross_session_enabled: true
-    entity_match_weights:
-      action: 0.4
-      target: 0.3
-      time: 0.2
+  vector:
+    collection_name: "agent_memory"
+    embedding_model: "text-embedding-3-small"
   memory_dir: "data/memory"
+  db_path: "data/memory/memory.db"
 ```
 
 ### Design Principles:
 
 | Principle | Implementation |
 |-----------|----------------|
+| **Dual-Write** | TapeWriter writes to both JSONL and SQLite |
+| **DB-First Reads** | ContextManager reads from tape_events, falls back to JSONL |
 | **Event Sourcing** | All events logged to tape.jsonl (immutable append-only) |
-| **Session Isolation** | Each session has separate tape file |
-| **Metadata Indexing** | manifest.json provides fast session lookup |
-| **Sliding Window** | ContextManager keeps token count under threshold |
-| **Natural Language** | QueryParser uses LLM for flexible query understanding |
-| **Lazy Loading** | Memory components initialized on-demand (session_id required) |
-| **Backward Compatible** | V2 memory_manager.py still works, V3 is additive |
+| **Session Isolation** | Each session has separate tape file and DB rows |
+| **Two-Level Search** | L1 metadata + L1.5 vector + L2 segment retrieval |
+| **Vector Retry** | VectorStore exponential backoff for embedding failures |
+| **Separate Connection** | TapeRepository uses own aiosqlite connection |
 
-### Integration Points:
+### Injection Chain (V4.2):
 
-**Agent initialization** (`agents/agent.py`):
-```python
-# Lazy initialization in _ensure_memory_components()
-self._tape_writer = TapeWriter(memory_dir)
-self._manifest_index = ManifestIndex(memory_dir)
-self._context_manager = None  # Initialized when session_id available
-self._memory_tools = None  # Initialized when session_id available
 ```
-
-**Tool registration** (`agents/agent.py`):
-```python
-self._function_handlers["retrieve_memory"] = self._retrieve_memory_wrapper
-```
-
-**TapeWriter hooks** (`agents/agent.py`):
-```python
-# In _on_event(), for CHAT events:
-await self._tape_writer.write_event(
-    session_id=event.session_id,
-    agent_id=self.agent_id,
-    event_type="USER_QUERY",
-    content={"query": event.payload.get("query", "")},
-    tokens=self._count_tokens(event)
-)
+ApplicationServices.create()
+  → TapeRepository(db_path) → TapeWriter (write path)
+                            → AgentService → AgentManager → Agent → MemoryInitializer → ContextManager (read path)
 ```
 
 ### Autonomous Memory System
@@ -502,7 +554,7 @@ autonomous_memory:
 
 **CLI** (`cli/`) — Player interface. Rich/textual-based TUI. Natural language commands parsed by LLM. Sends events to EventBus, subscribes to `player` ID for responses. Modes: command mode (single commands), chat mode (conversational).
 
-**Persistence** (`persistence/`) — Data access layer. Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, event_log. Shared by all modules for reads, exclusive writes by Engine.
+**Persistence** (`persistence/`) — Data access layer (V4.2). Async SQLite via aiosqlite, repository pattern. Tables: game_state, turn_metrics, agent_state, events, incidents, tape_events (V4.2), failed_embeddings (V4.2). Shared by all modules for reads, exclusive writes by Engine. TapeRepository uses separate connection for memory events.
 
 **LLM** (`llm/`) — LLM provider abstraction. Supports Anthropic Claude, OpenAI GPT, and Mock (testing). Single interface: `async call(prompt, system_prompt, temperature, max_tokens) -> str`.
 
@@ -589,11 +641,17 @@ Game state updates → tick_completed event → Agents notified
 - **Event sourcing:** All state changes logged as events (JSONL format)
 - **File-driven agents:** Personality/permissions defined by markdown/YAML, not code
 - **V2 Memory:** Dual-layer — long-term (summary.md, agent-maintained) + short-term (recent/, 3-turn sliding window)
-- **V3 Memory:** Event-based retrieval with tape.jsonl logs + manifest.json index
+- **V4.2 Memory:** Dual-write persistence (JSONL + SQLite), DB-first reads, two-level search (L1 metadata + L1.5 vector + L2 segment)
 - **Autonomous Memory:** Tick-interval self-reflection with long-term memory (MEMORY.md) and soul evolution (soul.md append)
 - **Context Management:** Sliding window with automatic summarization (Tiktoken token counting)
 - **Natural Language Queries:** LLM-based query parsing with entity extraction
-- **Cross-Session Retrieval:** Manifest-based candidate selection + tape-based search
+- **V4.2 Patterns:**
+  - **Dual-write:** TapeWriter writes to both JSONL and SQLite tape_events table
+  - **DB-first reads:** ContextManager reads from tape_repository, falls back to JSONL
+  - **Event queue backpressure:** Agent processes events via asyncio.Queue with configurable max_size
+  - **VectorStore retry:** Exponential backoff for embedding failures, tracks in failed_embeddings table
+  - **TapeRepository own connection:** Separate aiosqlite connection from module-level DB singleton
+  - **ToolRegistry:** Tool system uses ToolRegistry class, not _function_handlers dict
 - **LLM emergence:** Deception/slacking emerges from soul.md personality, no hardcoded numbers
 - **Repository pattern:** All data access through Repository interface
 - **Async everywhere:** asyncio, aiosqlite, aiofiles
@@ -681,8 +739,9 @@ from simu_emperor.cli.app import EmperorCLI  # core must not import cli
 - `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md` — Skill system design (v2.0)
 - `.design/2026-03-01-skill-tool-refactor-implementation.md` — Skill system implementation plan
 
-**V3 Memory System:**
+**V4.2 Memory System:**
 - `.design/V3_MEMORY_SYSTEM_SPEC.md` — Memory system specification (query parsing, retrieval, context management)
+- `.design/V4.2_PERSISTENCE_ENHANCEMENT.md` — V4.2 dual-write, DB-first, VectorStore patterns
 
 **V1 Architecture (deprecated, reference for engine reuse):**
 - `.plan/rewrite_plan_v1.1.md` — Full system architecture
@@ -734,6 +793,16 @@ V4 implementation follows the design defined in `.plan/engine-refactor-v4-design
 - ✅ TICK_COMPLETED system prompt rewritten for reflection workflow
 - ✅ on_tick_completed.md skill updated to v2.0
 - ✅ 20 new tests (unit + integration), 610 total tests passing
+
+**V4.2 Persistence Enhancement (Completed 2026-03-29):**
+- ✅ Agent event queue with backpressure (asyncio.Queue, configurable max_size)
+- ✅ DB schema: tape_events (7 indexes) + failed_embeddings tables
+- ✅ TapeRepository with CRUD (insert_event, query_by_session, count_by_session, record_failed_embedding)
+- ✅ VectorStore with retry + summarize_segment tool
+- ✅ TapeWriter dual-write (JSONL + tape_events)
+- ✅ ContextManager DB-first reads (tape_repository query, JSONL fallback)
+- ✅ Full injection chain: ApplicationServices → AgentService → AgentManager → Agent → MemoryInitializer → ContextManager
+- ✅ 645 tests passing
 
 When implementing features:
 1. Read the relevant design docs (`.prd/V2_PRD.md`, `.design/V2_TDD.md`, `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md`)
@@ -823,7 +892,7 @@ if not agents_info:
 | **Data Model** | 8 nested data types | 4 core fields per province |
 | **Events** | Hardcoded formulas | Incident/Effect system |
 | **Concurrency** | Phase-locked, agents parallel within phase | Fully async, event-driven |
-| **Event Logging** | Database tables | JSONL files |
+| **Event Logging** | Database tables | JSONL files + SQLite (dual-write) |
 
 **Preserved from V1:**
 - Agent file-driven design (soul.md, data_scope.yaml)
@@ -836,3 +905,11 @@ if not agents_info:
 - Incident/Effect system (time-limited game events)
 - Fixed growth rates with Effect-based modifications
 - Unified tax rate system with province modifiers
+
+**Added in V4.2:**
+- Dual-write persistence (JSONL + SQLite tape_events)
+- DB-first reads with JSONL fallback
+- Agent event queue with backpressure
+- VectorStore with retry for embedding failures
+- Two-level search (L1 metadata + L1.5 vector + L2 segment)
+- ToolRegistry replacing _function_handlers dict

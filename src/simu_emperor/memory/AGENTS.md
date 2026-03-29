@@ -9,6 +9,10 @@
 - **增量加载**: 基于 `window_offset` 的增量 tape 加载
 - **锚点感知滑动窗口**: 保留关键事件的智能压缩
 - **两级搜索**: 元数据过滤 → 事件段搜索
+- **V4.2 Phase B 特性**:
+  - TapeRepository 注入，支持 tape_events SQLite 双写
+  - DB-first 读取策略，JSONL 降级兜底
+  - VectorStore 封装向量搜索，带重试逻辑
 
 ## 架构设计
 
@@ -33,6 +37,7 @@ graph TB
             TLS[TwoLevelSearcher<br/>两级搜索协调]
             TMI[TapeMetadataIndex<br/>Level 1: 元数据搜索]
             SS[SegmentSearcher<br/>Level 2: 段搜索]
+            VS[VectorStore<br/>向量搜索封装]
         end
 
         subgraph "处理层 (Processing Layer)"
@@ -40,21 +45,30 @@ graph TB
             SR[StructuredRetriever<br/>检索协调]
         end
 
+        subgraph "存储层 (Storage Layer)"
+            TR[TapeRepository<br/>tape_events 仓库]
+        end
+
         subgraph "数据存储 (Storage)"
             tape[tape.jsonl<br/>事件日志]
             meta[tape_meta.jsonl<br/>元数据索引]
+            db[(tape_events<br/>SQLite DB)]
         end
 
         TW --> tape
+        TW -.->|V4.2 双写| TR
+        TR --> db
         TMM --> meta
         CM --> CS
         CM --> SI
         CM --> WO
+        CM -.->|V4.2 DB优先| TR
         CM --> tape
         TMI --> meta
         SS --> tape
         TLS --> TMI
         TLS --> SS
+        TLS --> VS
         SR --> QP
         SR --> TLS
         SR --> CM
@@ -63,8 +77,11 @@ graph TB
         style CM fill:#f3e5f5
         style TLS fill:#e8f5e9
         style SR fill:#fff3e0
+        style TR fill:#fce4ec
+        style VS fill:#e0f2f1
         style tape fill:#eceff1
         style meta fill:#eceff1
+        style db fill:#e3f2fd
     end
 ```
 
@@ -76,6 +93,7 @@ erDiagram
     TAPE_ENTRY ||--o{ SEGMENT_INDEX : "has"
     TAPE_ENTRY ||--|| TAPE_FILE : "indexes"
     TAPE_FILE ||--o{ EVENT : "contains"
+    TAPE_EVENTS_DB ||--o{ EVENT : "stores V4.2"
 
     TAPE_META {
         string file_path "tape_meta.jsonl"
@@ -103,6 +121,11 @@ erDiagram
         string file_path "tape.jsonl"
     }
 
+    TAPE_EVENTS_DB {
+        string table_name "tape_events"
+        string db_file "SQLite"
+    }
+
     EVENT {
         string event_id "事件ID"
         string src "来源"
@@ -119,36 +142,107 @@ erDiagram
 
 | 层级 | 组件 | 职责 |
 |------|------|------|
-| **写入层** | TapeWriter | 事件持久化到 tape.jsonl |
+| **写入层** | TapeWriter | 事件持久化到 tape.jsonl + tape_events (V4.2 双写) |
 | | TapeMetadataManager | 管理元数据索引 (tape_meta.jsonl) |
-| **上下文层** | ContextManager | 滑动窗口上下文管理 |
+| **上下文层** | ContextManager | 滑动窗口上下文管理，V4.2 DB-first 读取 |
 | | cumulative_summary | 累积摘要 (持续更新) |
 | | segment_index | 压缩段索引 (已压缩事件的摘要) |
 | | window_offset | 增量加载位置锚点 |
 | **搜索层** | TwoLevelSearcher | 两级搜索协调器 |
 | | TapeMetadataIndex | Level 1: 搜索元数据 |
 | | SegmentSearcher | Level 2: 搜索事件段 |
+| | VectorStore | V4.2: 向量搜索封装，带重试逻辑 |
 | **处理层** | QueryParser | 自然语言查询解析 |
 | | StructuredRetriever | 检索路由和结果格式化 |
+| **存储层** | TapeRepository | V4.2: tape_events SQLite 仓库 |
 
 ## 关键类说明
 
 ### TapeWriter
 **功能**：事件的写入器，负责将事件写入 `tape.jsonl` 文件
 
+**构造签名 (V4.2)**：
+```python
+def __init__(
+    self,
+    tape_dir: str,
+    session_id: str,
+    ...,
+    tape_repository: "TapeRepository | None" = None,  # V4.2 注入
+) -> None:
+```
+
 **V4 新特性**：
 - 首事件检测和自动标题生成
 - 同步更新 `tape_meta.jsonl` 的事件计数
 - 支持增量加载
 
+**V4.2 Phase B 新特性**：
+- **双写机制**：当 `tape_repository` 注入时，`write_event()` 同时写入 `tape_events` SQLite 表
+- 关键代码 (L123-129)：
+  ```python
+  # 先写 JSONL (保持兼容)
+  event_id = self._write_to_jsonl(event)
+  # 双写到 tape_events DB
+  if self._tape_repository is not None:
+      self._tape_repository.insert(event)  # 异步双写
+  ```
+
 ### ContextManager
 **功能**：滑动窗口上下文管理器，控制 token 数量并管理历史摘要
+
+**构造签名 (V4.2)**：
+```python
+def __init__(
+    self,
+    tape_dir: str,
+    session_id: str,
+    ...,
+    tape_repository: "TapeRepository | None" = None,  # V4.2 注入
+) -> None:
+```
 
 **滑动窗口策略**：
 1. 锚点识别：user_query, response, key GAME_EVENTs
 2. 保留最近 N 事件（默认 20）
 3. 保留锚点附近 ±K 事件（默认 3）
 4. 确保总 token ≤ 阈值（95% context window）
+
+**V4.2 Phase B 读取策略 (DB-first)**：
+- `_load_session_events()`：优先通过 `tape_repository.query_by_session()` 从 `tape_events` 读取，失败时降级到 JSONL
+- `_read_events_from_offset(offset=N)`：优先 `tape_repository.query_by_session(offset=N)`，降级到 JSONL
+- `_count_all_events()`：优先 `tape_repository.count_by_session()`，降级到 JSONL 行数统计
+- 降级策略：当 `tape_repository` 为 `None` 或查询失败时，回退到传统 JSONL 读取
+
+### VectorStore (V4.2)
+**功能**：向量搜索的封装层，包装 `VectorSearcher` 并提供重试逻辑
+
+**特性**：
+- 封装底层 VectorSearcher 实现
+- 内置重试机制，处理临时性向量数据库故障
+- 统一的搜索接口，屏蔽底层实现细节
+- 支持相似度搜索和元数据过滤
+
+**典型用法**：
+```python
+vector_store = VectorStore(searcher=vector_searcher)
+results = await vector_store.search(query_embedding, top_k=5)
+```
+
+### TapeRepository (V4.2)
+**功能**：`tape_events` SQLite 表的仓库类，提供事件的 DB 持久化和查询
+
+**核心方法**：
+| 方法 | 说明 |
+|------|------|
+| `insert(event)` | 插入事件到 tape_events 表 |
+| `query_by_session(session_id, offset=None)` | 按会话查询事件，支持分页 |
+| `count_by_session(session_id)` | 统计会话事件数量 |
+| `query_by_timerange(start, end)` | 按时间范围查询事件 |
+
+**依赖注入**：
+- TapeWriter 和 ContextManager 通过构造函数注入 `tape_repository`
+- 注入为 `None` 时自动降级到纯 JSONL 模式（向后兼容）
 
 ## 详细运行流程
 
@@ -161,6 +255,8 @@ sequenceDiagram
     participant TMM as TapeMetadataManager
     participant Tape as tape.jsonl
     participant Meta as tape_meta.jsonl
+    participant TR as TapeRepository
+    participant DB as tape_events DB
 
     Agent->>TW: write_event(event)
     TW->>TW: 提取 agent_id, session_id
@@ -173,6 +269,18 @@ sequenceDiagram
     TW->>Tape: 追加事件到文件
     TW->>TMM: increment_event_count()
     TMM->>Meta: 更新 event_count
+    
+    rect rgb(240, 248, 255)
+        Note over TW,DB: V4.2 双写流程
+        alt tape_repository 已注入
+            TW->>TR: insert(event)
+            TR->>DB: INSERT INTO tape_events
+            DB-->>TR: 成功
+        else tape_repository 未注入
+            Note over TW: 跳过 DB 写入
+        end
+    end
+    
     TW-->>Agent: 返回 event_id
 ```
 
@@ -301,26 +409,43 @@ flowchart TB
     C -->|是| D[加载 window_offset<br/>和 cumulative_summary]
     C -->|否| E[使用默认值<br/>offset=0, summary=""]
 
-    D --> F[从 window_offset<br/>读取 tape.jsonl]
+    D --> F{tape_repository<br/>已注入?}
     E --> F
-    F --> G[计算事件 tokens]
-    G --> H{token > 阈值?}
-    H -->|是| I[触发自动 compact]
-    H -->|否| J[加载完成]
+    
+    F -->|是| G[V4.2 DB-first]
+    F -->|否| H[传统 JSONL 读取]
+    
+    subgraph "V4.2 DB-first 读取"
+        G --> G1[query_by_session]
+        G1 --> G2{成功?}
+        G2 -->|是| I[使用 DB 数据]
+        G2 -->|否| H[降级到 JSONL]
+    end
+    
+    subgraph "JSONL 读取"
+        H --> H1[从 window_offset<br/>读取 tape.jsonl]
+        H1 --> I
+    end
+    
+    I --> J[计算事件 tokens]
+    J --> K{token > 阈值?}
+    K -->|是| L[触发自动 compact]
+    K -->|否| M[加载完成]
 
-    I --> K[生成 dropped 摘要]
-    K --> L[更新 segment_index]
-    L --> M[前移 window_offset]
-    M --> N[写入 tape_meta.jsonl]
-    N --> J
+    L --> N[生成 dropped 摘要]
+    N --> O[更新 segment_index]
+    O --> P[前移 window_offset]
+    P --> Q[写入 tape_meta.jsonl]
+    Q --> M
 
-    J --> O[返回 LLM messages]
+    M --> R[返回 LLM messages]
 
     style D fill:#e1f5fe
-    style F fill:#e1f5fe
-    style I fill:#ffcdd2
-    style L fill:#c8e6c9
-    style M fill:#c8e6c9
+    style G fill:#e3f2fd
+    style H fill:#fff3e0
+    style L fill:#ffcdd2
+    style O fill:#c8e6c9
+    style P fill:#c8e6c9
 ```
 
 ### 6. 两级搜索流程 (TwoLevelSearcher)
@@ -573,7 +698,14 @@ graph TB
 ### 2. 性能优化
 - 增量加载：基于 `window_offset` 的增量 tape 读取
 - 并发搜索：使用 `asyncio.gather` 并行搜索多个 tapes
+- **V4.2**: DB-first 读取策略，SQLite 索引优化查询性能
 
 ### 3. 错误处理
 - 静默失败：索引搜索失败不应阻塞主要流程
 - 降级策略：LLM 调用失败时使用简单摘要
+- **V4.2**: DB 查询失败时自动降级到 JSONL 读取
+
+### 4. V4.2 兼容性约束
+- **向后兼容**：`tape_repository` 为 `None` 时完全兼容 V4.1 行为
+- **双写不阻塞**：DB 写入失败不影响 JSONL 写入成功
+- **优雅降级**：DB 不可用时自动回退到 JSONL，不抛出异常

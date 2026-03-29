@@ -134,13 +134,17 @@ graph LR
         Q4[list_agents]
         Q5[get_agent_info]
         Q6[retrieve_memory]
+        Q7[query_incidents]
     end
 
     subgraph ActionTools["ActionTools 执行工具"]
-        A1[send_message_to_agent]
-        A2[respond_to_player]
-        A3[finish_loop]
-        A4[create_incident]
+        A1[send_message]
+        A2[finish_loop]
+        A3[create_incident]
+        A4[write_memory]
+        A5[write_long_term_memory]
+        A6[update_soul]
+        A7[summarize_segment]
     end
 
     subgraph TaskTools["TaskSessionTools 任务工具"]
@@ -155,18 +159,144 @@ graph LR
         R3[事件发送<br/>到 EventBus]
     end
 
-    LLMCall --> Q1 & Q2 & Q3 & Q4 & Q5 & Q6
-    LLMCall --> A1 & A2 & A3 & A4
+    LLMCall --> Q1 & Q2 & Q3 & Q4 & Q5 & Q6 & Q7
+    LLMCall --> A1 & A2 & A3 & A4 & A5 & A6 & A7
     LLMCall --> T1 & T2 & T3
 
-    Q1 & Q2 & Q3 & Q4 & Q5 & Q6 --> R1
-    A1 & A3 & A4 --> R2
-    A2 --> R3
+    Q1 & Q2 & Q3 & Q4 & Q5 & Q6 & Q7 --> R1
+    A1 --> R3
+    A2 & A3 & A4 & A5 & A6 & A7 --> R2
     T1 & T2 & T3 --> R2
 
     style QueryTools fill:#e3f2fd
     style ActionTools fill:#fce4ec
     style TaskTools fill:#f3e5f5
+```
+
+### 4. V4.2 Event Queue 背压处理架构
+
+```mermaid
+graph TB
+    subgraph EventBus["EventBus"]
+        E1[事件到达]
+    end
+
+    subgraph Agent["Agent"]
+        EQ[asyncio.Queue<br/>可配置 max_size]
+        QC[Queue Consumer<br/>串行处理]
+        Handler[事件处理器]
+    end
+
+    E1 -->|_on_event| EQ
+
+    EQ -->|队列满?| FullCheck{队列满?}
+    FullCheck -->|是| Drop[丢弃最旧事件]
+    FullCheck -->|否| Enqueue[入队]
+    Drop --> Enqueue
+
+    Enqueue --> QC
+    QC -->|get_nowait| Handler
+    Handler -->|处理完成| QC
+
+    subgraph Config["配置"]
+        C1[max_size=0: 无限制]
+        C2[max_size=N: 最多N个事件]
+    end
+
+    style EQ fill:#e3f2fd
+    style QC fill:#f3e5f5
+    style FullCheck fill:#fff9c4
+```
+
+**背压处理机制**：
+- 使用 `asyncio.Queue` 实现事件队列
+- 可配置 `max_size` 限制队列大小
+- 队列满时丢弃最旧的事件（FIFO）
+- 保证事件串行处理，避免并发问题
+
+### 5. V4.2 ToolRegistry 架构
+
+```mermaid
+graph TB
+    subgraph ToolRegistry["ToolRegistry 统一注册表"]
+        TR[ToolRegistry]
+        T1[Tool: query_province_data]
+        T2[Tool: send_message]
+        T3[Tool: create_task_session]
+    end
+
+    subgraph ToolDefinition["Tool 定义"]
+        Name[name: str]
+        Desc[description: str]
+        Params[parameters: JSON Schema]
+        Handler[handler: Callable]
+        Category[category: query|action|memory|session]
+    end
+
+    subgraph Agent["Agent 使用"]
+        Init[初始化时注册]
+        Schema[导出 Function Schema]
+        Call[LLM 调用 Handler]
+    end
+
+    TR --> T1 & T2 & T3
+    T1 & T2 & T3 --> Name & Desc & Params & Handler & Category
+
+    Init --> TR
+    Schema --> TR.to_function_definitions
+    Call --> TR.get
+
+    style ToolRegistry fill:#e8f5e9
+    style ToolDefinition fill:#fff9c4
+```
+
+**Tool 数据结构**：
+```python
+@dataclass
+class Tool:
+    name: str           # 工具名称（唯一标识符）
+    description: str    # 工具描述（用于 LLM Function Calling）
+    parameters: dict    # JSON Schema 参数定义
+    handler: Callable   # 工具处理函数
+    category: str       # 工具分类（query|action|memory|session）
+```
+
+### 6. V4.2 注入链路图
+
+```mermaid
+graph TB
+    subgraph Application["Application 层"]
+        APP[Application]
+    end
+
+    subgraph Manager["AgentManager"]
+        AM[AgentManager]
+    end
+
+    subgraph AgentInstance["Agent 实例"]
+        A[Agent]
+        MI[MemoryInitializer]
+    end
+
+    subgraph Injected["注入的依赖"]
+        TW[TapeWriter<br/>全局共享]
+        TMM[TapeMetadataManager<br/>全局共享]
+        TR[TapeRepository<br/>V4.2 新增]
+        ENG[Engine<br/>V4.2 新增]
+    end
+
+    APP -->|创建| AM
+    AM -->|创建| A
+    A -->|延迟初始化| MI
+
+    APP --> TW & TMM & TR & ENG
+    AM --> TW & TMM & TR & ENG
+    A --> TW & TMM & TR & ENG
+    MI --> TW & TMM & TR
+
+    style Injected fill:#e8f5e9
+    style TR fill:#c8e6c9
+    style ENG fill:#c8e6c9
 ```
 
 ## 运行流程详解
@@ -445,6 +575,24 @@ sequenceDiagram
 class Agent:
     """AI 官员 Agent - 文件驱动的被动响应者"""
 
+    # 初始化签名
+    def __init__(
+        self,
+        agent_id: str,
+        event_bus: EventBus,
+        llm_provider: LLMProvider,
+        data_dir: str | Path,
+        repository=None,
+        session_id: str | None = None,
+        skill_loader=None,
+        session_manager: SessionManager,
+        # V4.1: 注入全局共享实例
+        tape_writer: TapeWriter,
+        tape_metadata_mgr: TapeMetadataManager,
+        tape_repository: TapeRepository,  # V4.2: 新增
+        engine: Engine,                   # V4.2: 新增
+    )
+
     # 核心属性
     agent_id: str                    # 唯一标识符
     event_bus: EventBus              # 事件总线
@@ -463,6 +611,11 @@ class Agent:
     _context_manager: ContextManager # 上下文管理器（延迟初始化）
     _tape_writer: TapeWriter         # 磁带写入器
     _tape_metadata_mgr: TapeMetadataManager  # 元数据管理器
+    _tape_repository: TapeRepository # V4.2: Tape 仓库（持久化）
+    _engine: Engine                  # V4.2: 引擎实例（用于 incident 查询）
+
+    # V4.2: 事件队列（背压处理）
+    _event_queue: asyncio.Queue      # 事件队列（可配置 max_size）
 
     # Skill 系统
     _skill_loader: SkillLoader       # 技能加载器
@@ -476,6 +629,8 @@ class Agent:
     # 核心处理流程
     _process_event_with_llm(event)   # LLM 处理事件（Agent Loop）
     _ensure_memory_components(session_id)  # 确保记忆组件已初始化
+    start_event_queue_consumer()     # V4.2: 启动事件队列消费者
+    _enqueue_event(event)            # V4.2: 事件入队（带背压）
 ```
 
 ### 2. AgentManager 生命周期管理
@@ -483,6 +638,22 @@ class Agent:
 ```python
 class AgentManager:
     """Agent 管理器"""
+
+    # 初始化签名
+    def __init__(
+        self,
+        event_bus: EventBus,
+        llm_provider: LLMProvider,
+        template_dir: Path | str = Path("data/default_agents"),
+        agent_dir: Path | str = Path("data/agent"),
+        repository=None,
+        session_id: str | None = None,
+        session_manager=None,
+        tape_writer: TapeWriter,
+        tape_metadata_mgr: TapeMetadataManager,
+        tape_repository: TapeRepository,  # V4.2: 新增
+        engine: Engine,                   # V4.2: 新增
+    )
 
     # 核心功能
     initialize_agent(agent_id)       # 从模板初始化 Agent
@@ -498,6 +669,8 @@ class AgentManager:
     # 属性
     template_dir: Path               # Agent 模板目录
     agent_dir: Path                  # Agent 工作目录
+    tape_repository: TapeRepository  # V4.2: Tape 仓库
+    engine: Engine                   # V4.2: 引擎实例
     _active_agents: dict             # 活跃 Agent 字典
 ```
 
@@ -569,6 +742,7 @@ class QueryTools:
     async def list_provinces(args, event) -> str
     async def list_agents(args, event) -> str
     async def get_agent_info(args, event) -> str
+    async def query_incidents(args, event) -> str   # V4.2: 查询活跃事件
     # retrieve_memory 由 MemoryTools 提供
 ```
 
@@ -578,11 +752,16 @@ class QueryTools:
 class ActionTools:
     """执行工具处理器 - 执行副作用"""
 
-    async def send_message_to_agent(args, event) -> str
-    async def respond_to_player(args, event) -> tuple  # (msg, event)
+    # V4.2: 统一的消息发送（替代 send_message_to_agent + respond_to_player）
+    async def send_message(args, event) -> str | tuple
+        """统一消息发送 - 支持 player 和其他 agent"""
+
     async def finish_loop(args, event) -> str
     async def create_incident(args, event) -> str
     async def write_memory(args, event) -> None
+    async def write_long_term_memory(args, event) -> str  # V4.2: 写入长期记忆
+    async def update_soul(args, event) -> str             # V4.2: 更新性格记录
+    async def summarize_segment(args, event) -> str       # V4.2: 段落摘要
 ```
 
 #### TaskSessionTools - 任务会话工具
@@ -607,15 +786,19 @@ _function_handlers: dict[str, callable] = {
     "list_provinces": _query_tools.list_provinces,
     "list_agents": _query_tools.list_agents,
     "get_agent_info": _query_tools.get_agent_info,
+    "query_incidents": _query_tools.query_incidents,  # V4.2: 新增
 
     # Memory 类
     "retrieve_memory": _retrieve_memory_wrapper,
 
-    # Action 类
-    "send_message_to_agent": _create_action_wrapper(...),
-    "respond_to_player": _create_action_wrapper(...),
+    # Action 类（V4.2: 统一 send_message）
+    "send_message": _create_action_wrapper(...),
     "finish_loop": _create_action_wrapper(...),
     "create_incident": _create_action_wrapper(...),
+    "write_memory": _create_action_wrapper(...),
+    "write_long_term_memory": _create_action_wrapper(...),  # V4.2: 新增
+    "update_soul": _create_action_wrapper(...),             # V4.2: 新增
+    "summarize_segment": _create_action_wrapper(...),       # V4.2: 新增
 
     # Task Session 类
     "create_task_session": _wrap_create_task_session,
@@ -629,6 +812,17 @@ _function_handlers: dict[str, callable] = {
 ```python
 class MemoryInitializer:
     """记忆系统初始化器 - 延迟初始化 ContextManager 和 MemoryTools"""
+
+    # 初始化签名（V4.2）
+    def __init__(
+        self,
+        agent_id: str,
+        memory_dir: Path,
+        llm_provider: LLMProvider,
+        tape_writer: TapeWriter,
+        tape_metadata_mgr: TapeMetadataManager | None = None,
+        tape_repository: TapeRepository | None = None,  # V4.2: 新增
+    )
 
     async def initialize(session_id: str) -> tuple[ContextManager, MemoryTools]
 ```

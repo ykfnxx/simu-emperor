@@ -20,14 +20,20 @@ graph TB
         GameService[GameService]
         AgentService[AgentService]
         SessionService[SessionService]
+        MemoryService[MemoryService]
     end
 
     subgraph "Persistence Layer (持久化层)"
         direction TB
 
-        subgraph "Repositories"
+        subgraph "Repositories (database.py 单例连接)"
             GameRepo[GameRepository]
             AgentRepo[AgentRepository]
+            IncidentRepo[IncidentRepository]
+        end
+
+        subgraph "Repositories (独立连接)"
+            TapeRepo[TapeRepository]
         end
 
         subgraph "Serialization"
@@ -39,11 +45,14 @@ graph TB
         end
     end
 
-    subgraph "SQLite Database"
+    subgraph "SQLite Database (7 张表)"
         GameState[(game_state)]
         AgentState[(agent_state)]
         TurnMetrics[(turn_metrics)]
         Events[(events)]
+        Incidents[(incidents)]
+        TapeEvents[(tape_events)]
+        FailedEmbed[(failed_embeddings)]
     end
 
     %% Application to Persistence
@@ -53,33 +62,43 @@ graph TB
     AgentService -->|set_agent_active| AgentRepo
     AgentService -->|save_agent_config| AgentRepo
     AgentService -->|load_agent_config| AgentRepo
+    MemoryService -->|event_persistence| TapeRepo
 
     %% Repository to Serialization
     GameRepo -->|serialize| Serial
     GameRepo -->|deserialize| Serial
     AgentRepo -.->|no Decimal| Serial
 
-    %% Repository to Database
+    %% Repository to Database (单例连接)
     GameRepo -->|get_connection| DBMgr
     AgentRepo -->|get_connection| DBMgr
+    IncidentRepo -->|get_connection| DBMgr
     Serial -.->|no DB| DBMgr
+
+    %% TapeRepository 独立连接
+    TapeRepo -->|own aiosqlite| TapeEvents
+    TapeRepo -->|own aiosqlite| FailedEmbed
 
     %% Database to Tables
     DBMgr -->|query| GameState
     DBMgr -->|query| AgentState
     DBMgr -->|query| TurnMetrics
     DBMgr -->|query| Events
+    DBMgr -->|query| Incidents
 
     style GameService fill:#e1f5fe
     style AgentService fill:#e1f5fe
     style SessionService fill:#e1f5fe
+    style MemoryService fill:#e1f5fe
     style GameRepo fill:#fff3e0
     style AgentRepo fill:#fff3e0
+    style IncidentRepo fill:#fff3e0
+    style TapeRepo fill:#ffccbc
     style Serial fill:#f3e5f5
     style DBMgr fill:#e8f5e9
 ```
 
-### 数据库表结构关系
+### 数据库表结构关系 (V4.2 - 7 张表)
 
 ```mermaid
 erDiagram
@@ -119,6 +138,47 @@ erDiagram
         text payload "载荷JSON"
         timestamp timestamp "事件时间"
         timestamp created_at "创建时间"
+    }
+
+    incidents {
+        text incident_id PK
+        text title "标题"
+        text description "描述"
+        text source "来源"
+        int created_tick "创建tick"
+        int expired_tick "过期tick"
+        int remaining_ticks "剩余tick"
+        text status "状态"
+        text effects_json "效果JSON"
+        timestamp created_at "创建时间"
+        timestamp expired_at "过期时间"
+    }
+
+    tape_events {
+        int id PK "自增"
+        text event_id UK "事件ID唯一"
+        text session_id "会话ID"
+        text agent_id "Agent ID"
+        text src "源"
+        text dst "目标JSON"
+        text type "类型"
+        text payload "载荷JSON"
+        text timestamp "事件时间"
+        int tick "游戏tick"
+        text parent_event_id "父事件ID"
+        text root_event_id "根事件ID"
+        timestamp created_at "创建时间"
+    }
+
+    failed_embeddings {
+        int id PK "自增"
+        text segment_id UK "段落ID唯一"
+        text summary "摘要内容"
+        text metadata "元数据JSON"
+        text error "错误信息"
+        int retry_count "重试次数"
+        timestamp created_at "创建时间"
+        timestamp last_retry_at "最后重试时间"
     }
 
     game_state ||--o{ turn_metrics : "1:N"
@@ -181,6 +241,60 @@ async def save_agent_config(agent_id: str, soul_markdown: str = None, data_scope
 async def load_agent_config(agent_id: str) -> dict
 ```
 
+### IncidentRepository (Phase A - V4)
+Incident 持久化管理
+
+**核心方法**:
+```python
+async def save_incident(incident, tick: int) -> None
+async def expire_incident(incident_id: str, tick: int) -> None
+async def load_active_incidents() -> list[Incident]
+async def get_incident_history(limit: int = 20, source: str = None) -> list[dict]
+```
+
+### TapeRepository (Phase B - V4.2)
+磁带式事件存储仓库
+
+> ⚠️ **重要**: TapeRepository 拥有**独立的 aiosqlite 连接**，与 database.py 模块级单例连接分离。需手动调用 `initialize()` 和 `close()` 管理生命周期。
+
+**核心方法**:
+```python
+# 生命周期管理
+def __init__(db_path: str = "game.db")
+async def initialize() -> None      # 创建独立数据库连接
+async def close() -> None           # 关闭连接
+
+# tape_events 表操作
+async def insert_event(event: Event, agent_id: str, tick: int = None) -> None
+async def query_events(
+    session_id: str = None,
+    agent_id: str = None,
+    event_type: str = None,
+    tick: int = None,
+    limit: int = 100,
+    offset: int = 0
+) -> list[dict]
+async def count_events(session_id: str) -> int
+async def query_by_session(
+    session_id: str,
+    agent_id: str = None,
+    offset: int = 0,
+    limit: int = 10000
+) -> list[dict]  # ORDER BY timestamp ASC, id ASC
+async def count_by_session(session_id: str, agent_id: str = None) -> int
+
+# failed_embeddings 表操作
+async def record_failed_embedding(
+    segment_id: str,
+    summary: str,
+    metadata: dict,
+    error: str
+) -> None
+async def get_failed_embeddings(limit: int = 100) -> list[dict]
+async def mark_embedding_retried(segment_id: str) -> None
+async def remove_failed_embedding(segment_id: str) -> None
+```
+
 ## 数据库表结构
 
 ### game_state
@@ -218,19 +332,86 @@ CREATE TABLE events (
 );
 ```
 
+### incidents (Phase A - V4)
+```sql
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_tick INTEGER NOT NULL,
+    expired_tick INTEGER,
+    remaining_ticks INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    effects_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expired_at TEXT
+);
+```
+
+### tape_events (Phase B - V4.2)
+```sql
+CREATE TABLE IF NOT EXISTS tape_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL,
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    src TEXT NOT NULL,
+    dst TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    tick INTEGER,
+    parent_event_id TEXT,
+    root_event_id TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### failed_embeddings (Phase B - V4.2)
+```sql
+CREATE TABLE IF NOT EXISTS failed_embeddings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_id TEXT UNIQUE NOT NULL,
+    summary TEXT NOT NULL,
+    metadata TEXT NOT NULL,
+    error TEXT NOT NULL,
+    retry_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_retry_at TEXT
+);
+```
+
 ## 开发约束
 
 ### 连接管理
+
+**模块级单例连接** (database.py 管理):
 ```python
 # 应用启动时初始化
 await init_database()
 
-# 获取连接
+# 获取连接（GameRepository, AgentRepository, IncidentRepository 使用）
 conn = await get_connection()
 
 # 应用关闭时清理
 await close_database()
 ```
+
+**TapeRepository 独立连接** (V4.2 新增):
+```python
+# TapeRepository 有自己的 aiosqlite 连接，不使用模块单例
+tape_repo = TapeRepository(db_path="game.db")
+await tape_repo.initialize()  # 创建独立连接
+
+# 使用...
+await tape_repo.insert_event(event, agent_id, tick)
+
+# 必须手动关闭
+await tape_repo.close()
+```
+
+> ⚠️ **注意**: TapeRepository 的独立连接设计是为了隔离事件存储的 IO 负载，避免阻塞主数据库连接。
 
 ### V4 推荐 API
 ```python
@@ -257,10 +438,16 @@ sequenceDiagram
     DB->>SQLite: aiosqlite.connect(db_path)
     SQLite-->>DB: Connection
     DB->>DB: _create_schema(conn)
+    
+    Note over DB,SQLite: 创建 7 张表
     DB->>SQLite: EXECUTE CREATE TABLE game_state
     DB->>SQLite: EXECUTE CREATE TABLE turn_metrics
     DB->>SQLite: EXECUTE CREATE TABLE agent_state
     DB->>SQLite: EXECUTE CREATE TABLE events
+    DB->>SQLite: EXECUTE CREATE TABLE incidents (V4)
+    DB->>SQLite: EXECUTE CREATE TABLE tape_events (V4.2)
+    DB->>SQLite: EXECUTE CREATE TABLE failed_embeddings (V4.2)
+    
     DB->>SQLite: EXECUTE INSERT 默认状态
     DB->>SQLite: EXECUTE CREATE INDEXES
     DB->>SQLite: COMMIT
@@ -374,4 +561,45 @@ flowchart TD
     style G fill:#fff3e0
     style H fill:#c8e6c9
     style L fill:#f3e5f5
+```
+
+### TapeRepository 生命周期流程 (V4.2)
+
+```mermaid
+sequenceDiagram
+    participant App as MemoryService
+    participant Repo as TapeRepository
+    participant DB as SQLite
+
+    Note over App,DB: 初始化阶段
+    App->>Repo: new TapeRepository(db_path)
+    App->>Repo: initialize()
+    Repo->>DB: aiosqlite.connect(db_path)
+    DB-->>Repo: Connection (独立连接)
+    Repo-->>App: Ready
+
+    Note over App,DB: 事件记录
+    App->>Repo: insert_event(event, agent_id, tick)
+    Repo->>DB: INSERT INTO tape_events
+    DB-->>Repo: OK
+
+    Note over App,DB: 事件查询
+    App->>Repo: query_by_session(session_id)
+    Repo->>DB: SELECT * FROM tape_events WHERE...
+    DB-->>Repo: Rows
+    Repo-->>App: Event List
+
+    Note over App,DB: Embedding 失败记录
+    App->>Repo: record_failed_embedding(...)
+    Repo->>DB: INSERT INTO failed_embeddings
+    DB-->>Repo: OK
+
+    Note over App,DB: 关闭阶段
+    App->>Repo: close()
+    Repo->>DB: conn.close()
+    DB-->>Repo: Closed
+
+    style App fill:#e1f5fe
+    style Repo fill:#ffccbc
+    style DB fill:#e8f5e9
 ```
