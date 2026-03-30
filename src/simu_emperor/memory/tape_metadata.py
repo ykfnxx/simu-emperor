@@ -234,7 +234,6 @@ Guidelines:
         """Generate title asynchronously and update metadata file."""
         try:
             from simu_emperor.event_bus.event import Event
-            from simu_emperor.event_bus.event_types import EventType
 
             title = await self._generate_title(first_event, llm)
             async with self._metadata_lock:
@@ -257,22 +256,6 @@ Guidelines:
                     await self._update_entry_in_file(metadata_path, session_id, updated_entry)
                     logger.info(f"Updated title for {agent_id}/{session_id}: {title}")
 
-            if existing_entry and self._event_bus is not None:
-                await self._event_bus.send_event(
-                    Event(
-                        src="system:memory",
-                        dst=["*"],
-                        type=EventType.SESSION_STATE,
-                        session_id=session_id,
-                        payload={
-                            "session_id": session_id,
-                            "agent_id": agent_id,
-                            "title": title,
-                            "event_count": updated_entry.event_count,
-                            "last_update": updated_entry.last_updated_time,
-                        },
-                    )
-                )
         except Exception as e:
             logger.warning(f"Failed to update title for {session_id}: {e}")
 

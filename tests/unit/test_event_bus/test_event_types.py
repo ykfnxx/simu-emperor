@@ -15,7 +15,7 @@ class TestEventType:
         assert EventType.CHAT in all_types
         assert EventType.RESPONSE in all_types
         assert EventType.AGENT_MESSAGE in all_types
-        assert EventType.SESSION_STATE in all_types
+        assert EventType.MEMORY_INJECTED in all_types
         assert EventType.TICK_COMPLETED in all_types
         assert EventType.INCIDENT_CREATED in all_types
         assert EventType.TASK_CREATED in all_types
@@ -55,7 +55,6 @@ class TestEventType:
         system_events = EventType.system_events()
 
         assert EventType.TASK_TIMEOUT in system_events
-        assert EventType.SESSION_STATE in system_events
         assert EventType.TICK_COMPLETED in system_events
 
         assert EventType.RESPONSE not in system_events

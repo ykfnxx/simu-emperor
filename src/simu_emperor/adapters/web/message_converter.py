@@ -59,8 +59,9 @@ class MessageConverter:
         if event.type == EventType.INCIDENT_EXPIRED:
             return self._convert_incident_expired(event)
 
-        if event.type == EventType.SESSION_STATE:
-            return self._convert_session_state(event)
+        if event.type == EventType.AGENT_MESSAGE:
+            return self._convert_agent_message(event)
+        if event.type == EventType.CHAT:
 
         if event.type == EventType.AGENT_MESSAGE:
             logger.info(f"[MessageConverter] Converting AGENT_MESSAGE event: src={event.src}, dst={event.dst}")
@@ -118,19 +119,7 @@ class MessageConverter:
             },
         }
 
-    def _convert_session_state(self, event: Event) -> dict[str, Any]:
-        """转换session状态更新事件"""
-        payload = event.payload
-        return {
-            "kind": "session_state",
-            "data": {
-                "session_id": payload.get("session_id", event.session_id),
-                "agent_id": payload.get("agent_id", ""),
-                "title": payload.get("title"),
-                "event_count": payload.get("event_count", 0),
-                "last_update": payload.get("last_update", datetime.now(timezone.utc).isoformat()),
-            },
-        }
+
 
     async def _convert_tick_completed(self, event: Event) -> dict[str, Any]:
         """转换 tick 完成事件为 state 消息（V4 格式）"""

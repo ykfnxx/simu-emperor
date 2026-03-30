@@ -108,10 +108,8 @@ class TestTapeMetadataManager:
         assert updated_entry.last_updated_tick == 20  # Updated
 
     @pytest.mark.asyncio
-    async def test_async_title_update_publishes_session_state(
-        self, memory_dir, mock_event, mock_llm
-    ):
-        """Test async title update persists title and publishes session state."""
+    async def test_async_title_update(self, memory_dir, mock_event, mock_llm):
+        """Test async title update persists title."""
         event_bus = AsyncMock()
         metadata_mgr = TapeMetadataManager(memory_dir=memory_dir, event_bus=event_bus)
         agent_id = "test_agent"
@@ -136,14 +134,6 @@ class TestTapeMetadataManager:
 
         assert updated_entry is not None
         assert updated_entry.title == "直隶税收调整"
-        event_bus.send_event.assert_awaited_once()
-
-        sent_event = event_bus.send_event.await_args.args[0]
-        assert sent_event.type == EventType.SESSION_STATE
-        assert sent_event.session_id == session_id
-        assert sent_event.payload["agent_id"] == agent_id
-        assert sent_event.payload["title"] == "直隶税收调整"
-        assert sent_event.payload["event_count"] == 0
 
     @pytest.mark.asyncio
     async def test_generate_title_command(self, metadata_mgr):
