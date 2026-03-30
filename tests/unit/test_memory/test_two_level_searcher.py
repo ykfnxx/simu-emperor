@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
 from simu_emperor.memory.query_parser import StructuredQuery
-from simu_emperor.memory.models import TapeMetadataEntry, TapeSegment
+from simu_emperor.memory.models import TapeMetadataEntry, TapeView
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def mock_metadata_index():
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[],
+            anchor_index=[],
         ),
         TapeMetadataEntry(
             session_id="session_2",
@@ -39,7 +39,7 @@ def mock_metadata_index():
             last_updated_tick=40,
             last_updated_time="2026-03-11T14:00:00Z",
             event_count=30,
-            segment_index=[],
+            anchor_index=[],
         ),
     ]
 
@@ -55,24 +55,32 @@ def mock_segment_searcher():
 
     # Sample segments
     segments = [
-        TapeSegment(
+        TapeView(
+            view_id="view_1",
             session_id="session_1",
             agent_id="test_agent",
-            start_position=0,
-            end_position=10,
+            anchor_start_id=None,
+            anchor_end_id=None,
+            tape_position_start=0,
+            tape_position_end=10,
             event_count=11,
             events=[{"type": "command", "payload": {"query": "调整税收"}}],
+            anchor_state=None,
             tick_start=10,
             tick_end=15,
             relevance_score=0.8,
         ),
-        TapeSegment(
+        TapeView(
+            view_id="view_2",
             session_id="session_2",
             agent_id="test_agent",
-            start_position=0,
-            end_position=5,
+            anchor_start_id=None,
+            anchor_end_id=None,
+            tape_position_start=0,
+            tape_position_end=5,
             event_count=6,
             events=[{"type": "command", "payload": {"query": "赈灾拨款"}}],
+            anchor_state=None,
             tick_start=30,
             tick_end=35,
             relevance_score=0.6,
@@ -127,7 +135,7 @@ class TestTwoLevelSearcher:
 
         # Verify results
         assert len(results) == 2
-        assert all(isinstance(r, TapeSegment) for r in results)
+        assert all(isinstance(r, TapeView) for r in results)
 
     @pytest.mark.asyncio
     async def test_search_with_exclude_session(

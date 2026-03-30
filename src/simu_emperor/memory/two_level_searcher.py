@@ -3,7 +3,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from simu_emperor.memory.models import TapeSegment
+from simu_emperor.memory.models import TapeView
 from simu_emperor.memory.query_parser import StructuredQuery
 from simu_emperor.memory.config import DEFAULT_MAX_RESULTS
 
@@ -48,7 +48,7 @@ class TwoLevelSearcher:
         agent_id: str,
         exclude_session: str | None = None,
         max_results: int = DEFAULT_MAX_RESULTS,
-    ) -> list[TapeSegment]:
+    ) -> list[TapeView]:
         """
         Execute two-level search with optional vector ranking.
 
@@ -59,7 +59,7 @@ class TwoLevelSearcher:
             max_results: Maximum segments to return
 
         Returns:
-            List of TapeSegment, sorted by relevance
+            List of TapeView, sorted by relevance
 
         Flow:
             Level 1: TapeMetadataIndex.search_tape_metadata()
@@ -74,17 +74,13 @@ class TwoLevelSearcher:
 
         # Filter out excluded session if specified
         if exclude_session:
-            matching_entries = [
-                e for e in matching_entries if e.session_id != exclude_session
-            ]
+            matching_entries = [e for e in matching_entries if e.session_id != exclude_session]
 
         if not matching_entries:
             logger.debug(f"No matching tapes found for agent {agent_id}")
             return []
 
-        logger.debug(
-            f"Level 1 found {len(matching_entries)} matching tapes for agent {agent_id}"
-        )
+        logger.debug(f"Level 1 found {len(matching_entries)} matching tapes for agent {agent_id}")
 
         # Level 1.5: Vector search for semantic ranking (optional)
         candidate_segment_ids = None
