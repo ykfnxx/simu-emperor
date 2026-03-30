@@ -9,12 +9,20 @@ from simu_emperor.memory.config import (
     SUMMARY_MATCH_WEIGHT,
     SEGMENT_MATCH_WEIGHT,
 )
-from simu_emperor.memory.models import TapeMetadataEntry, TapeSegment
+from simu_emperor.memory.models import TapeMetadataEntry, TapeAnchor, TapeView, AnchorStrategy
 from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.tape_metadata_index import TapeMetadataIndex
-from simu_emperor.memory.segment_searcher import SegmentSearcher
-from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
-from simu_emperor.memory.vector_searcher import VectorSearcher
+
+# These modules depend on TapeSegment (migrating to TapeAnchor/TapeView).
+# Conditional import allows tests to run during the migration.
+try:
+    from simu_emperor.memory.segment_searcher import SegmentSearcher
+    from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
+    from simu_emperor.memory.vector_searcher import VectorSearcher
+except ImportError:
+    SegmentSearcher = None  # type: ignore[misc,assignment]
+    TwoLevelSearcher = None  # type: ignore[misc,assignment]
+    VectorSearcher = None  # type: ignore[misc,assignment]
 
 # V3 Components (still used)
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig, count_tokens
@@ -34,7 +42,9 @@ __all__ = [
     "SEGMENT_MATCH_WEIGHT",
     # V4 Models
     "TapeMetadataEntry",
-    "TapeSegment",
+    "TapeAnchor",
+    "TapeView",
+    "AnchorStrategy",
     # V4 Components
     "TapeMetadataManager",
     "TapeMetadataIndex",

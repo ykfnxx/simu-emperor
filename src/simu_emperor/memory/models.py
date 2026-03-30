@@ -1,6 +1,7 @@
 """Memory module data models."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -80,11 +81,7 @@ class TapeMetadataEntry:
         event_count: Number of events in the tape
         window_offset: Position anchor for incremental tape loading (default 0)
         summary: Cumulative summary of compacted events (default "")
-        segment_index: List of compacted segments with summaries
-
-    Note on naming convention:
-        - created_tick/last_updated_tick: Timestamp semantics (point in time)
-        - Contrast with TapeSegment.tick_start/tick_end which use range semantics
+        anchor_index: List of anchors with state summaries
     """
 
     session_id: str
@@ -96,7 +93,7 @@ class TapeMetadataEntry:
     event_count: int = 0
     window_offset: int = 0
     summary: str = ""
-    segment_index: list[dict] = field(default_factory=list)
+    anchor_index: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -110,7 +107,7 @@ class TapeMetadataEntry:
             "event_count": self.event_count,
             "window_offset": self.window_offset,
             "summary": self.summary,
-            "segment_index": self.segment_index,
+            "anchor_index": self.anchor_index,
         }
 
     @classmethod
@@ -126,59 +123,64 @@ class TapeMetadataEntry:
             event_count=data.get("event_count", 0),
             window_offset=data.get("window_offset", 0),
             summary=data.get("summary", ""),
-            segment_index=data.get("segment_index", []),
+            anchor_index=data.get("anchor_index", []),
         )
 
 
-@dataclass(frozen=True)
-class TapeSegment:
-    """
-    Continuous event segment from a tape.jsonl file (V4).
+@dataclass
+class TapeAnchor:
+    """tape.systems Anchor: state-bearing checkpoint."""
 
-    Represents a contiguous range of events for context-rich retrieval.
-
-    Attributes:
-        session_id: Session identifier
-        agent_id: Agent identifier
-        start_position: Starting line number in tape.jsonl (0-indexed)
-        end_position: Ending line number in tape.jsonl (inclusive)
-        event_count: Number of events in this segment
-        events: List of event dicts in this segment
-        tick_start: First tick number in segment (optional)
-        tick_end: Last tick number in segment (optional)
-        timestamp_start: First ISO timestamp in segment (optional)
-        timestamp_end: Last ISO timestamp in segment (optional)
-        relevance_score: Calculated relevance score (0.0-1.0)
-
-    Note on naming convention:
-        - tick_start/tick_end: Range semantics (start and end of a range)
-        - Contrast with TapeMetadataEntry.created_tick/last_updated_tick which use timestamp semantics
-    """
-
-    session_id: str
-    agent_id: str
-    start_position: int
-    end_position: int
-    event_count: int
-    events: list[dict]
-    tick_start: int | None = None
-    tick_end: int | None = None
-    timestamp_start: str | None = None
-    timestamp_end: str | None = None
-    relevance_score: float = 0.0
+    anchor_id: str
+    name: str
+    tape_position: int
+    state: dict
+    created_at: str
+    created_tick: int | None
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "session_id": self.session_id,
-            "agent_id": self.agent_id,
-            "start_position": self.start_position,
-            "end_position": self.end_position,
-            "event_count": self.event_count,
-            "events": self.events,
-            "tick_start": self.tick_start,
-            "tick_end": self.tick_end,
-            "timestamp_start": self.timestamp_start,
-            "timestamp_end": self.timestamp_end,
-            "relevance_score": self.relevance_score,
-        }
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TapeAnchor":
+        return cls(**data)
+
+
+@dataclass(frozen=True)
+class TapeView:
+    """tape.systems View: anchor-bounded immutable context window."""
+
+    view_id: str
+    session_id: str
+    agent_id: str
+    anchor_start_id: str | None
+    anchor_end_id: str | None
+    tape_position_start: int
+    tape_position_end: int
+    events: list[dict]
+    anchor_state: dict | None
+    tick_start: int | None
+    tick_end: int | None
+    event_count: int
+    relevance_score: float = 0.0
+
+    @property
+    def frozen(self) -> bool:
+        return True
+
+    def to_text(self) -> str:
+        parts = []
+        if self.anchor_state and "summary" in self.anchor_state:
+            parts.append(self.anchor_state["summary"])
+        for evt in self.events:
+            if isinstance(evt.get("payload"), dict):
+                msg = evt["payload"].get("message", "")
+                if msg:
+                    parts.append(msg)
+        return "\n".join(parts)
+
+
+class AnchorStrategy(Enum):
+    LAST_ANCHOR = "last_anchor"
+    NAMED = "named"
+    FULL = "full"
