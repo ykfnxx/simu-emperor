@@ -5,7 +5,7 @@ import pytest
 
 from simu_emperor.memory.segment_searcher import SegmentSearcher
 from simu_emperor.memory.query_parser import StructuredQuery
-from simu_emperor.memory.models import TapeMetadataEntry, TapeSegment
+from simu_emperor.memory.models import TapeMetadataEntry, TapeView
 
 
 @pytest.fixture
@@ -87,7 +87,6 @@ def sample_metadata_entries(sample_tape):
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=5,
-            segment_index=[],
         )
     ]
 
@@ -119,7 +118,7 @@ class TestSegmentSearcher:
 
         # Should find segments with "税收" keyword
         assert len(results) > 0
-        assert all(isinstance(r, TapeSegment) for r in results)
+        assert all(isinstance(r, TapeView) for r in results)
 
     @pytest.mark.asyncio
     async def test_search_segments_no_match(
@@ -197,8 +196,8 @@ class TestSegmentSearcher:
         for i in range(len(results) - 1):
             assert results[i].relevance_score >= results[i + 1].relevance_score
 
-    def test_create_segment(self, segment_searcher, sample_metadata_entries):
-        """Test creating a TapeSegment from events."""
+    def test_create_view(self, segment_searcher, sample_metadata_entries):
+        """Test creating a TapeView from events."""
         events = [
             {"type": "command", "payload": {"query": "test"}, "tick": 10},
             {"type": "response", "payload": {"narrative": "ok"}, "tick": 10},
@@ -206,16 +205,16 @@ class TestSegmentSearcher:
 
         entry = sample_metadata_entries[0]
 
-        segment = segment_searcher._create_segment(events, 0, entry, agent_id="test_agent")
+        view = segment_searcher._create_view(events, 0, entry, agent_id="test_agent")
 
-        assert segment.session_id == entry.session_id
-        assert segment.agent_id == "test_agent"
-        assert segment.start_position == 0
-        assert segment.end_position == 1
-        assert segment.event_count == 2
-        assert segment.events == events
-        assert segment.tick_start == 10
-        assert segment.tick_end == 10
+        assert view.session_id == entry.session_id
+        assert view.agent_id == "test_agent"
+        assert view.tape_position_start == 0
+        assert view.tape_position_end == 1
+        assert view.event_count == 2
+        assert view.events == events
+        assert view.tick_start == 10
+        assert view.tick_end == 10
 
     def test_calculate_segment_score_action_match(self, segment_searcher):
         """Test segment scoring with action matches."""

@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from simu_emperor.memory.models import TapeSegment, TapeMetadataEntry
+from simu_emperor.memory.models import TapeView, TapeMetadataEntry
 from simu_emperor.memory.query_parser import StructuredQuery
 from simu_emperor.memory.config import SEGMENT_SIZE
 
@@ -36,7 +36,7 @@ class SegmentSearcher:
         query: StructuredQuery,
         max_results: int = 5,
         candidate_segment_ids: list[str] | None = None,
-    ) -> list[TapeSegment]:
+    ) -> list[TapeView]:
         """
         Search segments within matching tapes.
 
@@ -48,7 +48,7 @@ class SegmentSearcher:
             candidate_segment_ids: Optional list from vector search for re-ranking
 
         Returns:
-            List of TapeSegment, sorted by relevance_score descending
+            List of TapeView, sorted by relevance_score descending
 
         Flow:
             1. For each entry, read corresponding tape.jsonl
@@ -91,20 +91,20 @@ class SegmentSearcher:
 
     def _apply_vector_ranking(
         self,
-        segments: list[TapeSegment],
+        segments: list[TapeView],
         candidate_ids: list[str],
         boost_factor: float = 2.0,
-    ) -> list[TapeSegment]:
+    ) -> list[TapeView]:
         """
         Boost relevance scores for segments that match vector search results.
 
         Args:
-            segments: List of segments to re-rank
+            segments: List of views to re-rank
             candidate_ids: Segment IDs from vector search (ordered by relevance)
             boost_factor: Score multiplier for vector matches
 
         Returns:
-            List of segments with updated relevance scores
+            List of views with updated relevance scores
         """
         # Create position map for ranked candidates
         id_to_rank = {seg_id: idx for idx, seg_id in enumerate(candidate_ids)}
@@ -122,35 +122,37 @@ class SegmentSearcher:
             else:
                 new_score = base_score * 0.5  # Penalize non-vector matches
 
-            # Create new segment with updated score
+            # Create new TapeView with updated score
             boosted_segments.append(
-                TapeSegment(
+                TapeView(
+                    view_id=segment.view_id,
                     session_id=segment.session_id,
                     agent_id=segment.agent_id,
-                    start_position=segment.start_position,
-                    end_position=segment.end_position,
-                    event_count=segment.event_count,
+                    anchor_start_id=segment.anchor_start_id,
+                    anchor_end_id=segment.anchor_end_id,
+                    tape_position_start=segment.tape_position_start,
+                    tape_position_end=segment.tape_position_end,
                     events=segment.events,
+                    anchor_state=segment.anchor_state,
                     tick_start=segment.tick_start,
                     tick_end=segment.tick_end,
-                    timestamp_start=segment.timestamp_start,
-                    timestamp_end=segment.timestamp_end,
+                    event_count=segment.event_count,
                     relevance_score=new_score,
                 )
             )
 
         return boosted_segments
 
-    def _make_segment_id(self, segment: TapeSegment) -> str:
+    def _make_segment_id(self, view: TapeView) -> str:
         """Generate segment ID matching VectorSearcher format."""
-        return f"{segment.session_id}:{segment.start_position}:{segment.end_position}"
+        return f"{view.session_id}:{view.tape_position_start}:{view.tape_position_end}"
 
     async def _search_single_tape(
         self,
         tape_path: Path,
         entry: TapeMetadataEntry,
         query: StructuredQuery,
-    ) -> list[TapeSegment]:
+    ) -> list[TapeView]:
         """
         Search a single tape file for matching segments.
 
@@ -160,7 +162,7 @@ class SegmentSearcher:
             query: Parsed query
 
         Returns:
-            List of TapeSegment from this tape
+            List of TapeView from this tape
         """
         if not tape_path.exists():
             return []
@@ -189,41 +191,43 @@ class SegmentSearcher:
         segments = []
         for i in range(0, len(events), SEGMENT_SIZE):
             segment_events = events[i : i + SEGMENT_SIZE]
-            segment = self._create_segment(
+            view = self._create_view(
                 segment_events, i, entry, agent_id=self._extract_agent_id(tape_path)
             )
             # Calculate relevance score
             segment_score = self._calculate_segment_score(segment_events, query.entities)
 
-            # Create new TapeSegment with score (frozen dataclass, so we recreate)
-            scored_segment = TapeSegment(
-                session_id=segment.session_id,
-                agent_id=segment.agent_id,
-                start_position=segment.start_position,
-                end_position=segment.end_position,
-                event_count=segment.event_count,
-                events=segment.events,
-                tick_start=segment.tick_start,
-                tick_end=segment.tick_end,
-                timestamp_start=segment.timestamp_start,
-                timestamp_end=segment.timestamp_end,
+            # Create new TapeView with score (frozen dataclass, so we recreate)
+            scored_view = TapeView(
+                view_id=view.view_id,
+                session_id=view.session_id,
+                agent_id=view.agent_id,
+                anchor_start_id=view.anchor_start_id,
+                anchor_end_id=view.anchor_end_id,
+                tape_position_start=view.tape_position_start,
+                tape_position_end=view.tape_position_end,
+                events=view.events,
+                anchor_state=view.anchor_state,
+                tick_start=view.tick_start,
+                tick_end=view.tick_end,
+                event_count=view.event_count,
                 relevance_score=segment_score,
             )
 
             if segment_score > 0:
-                segments.append(scored_segment)
+                segments.append(scored_view)
 
         return segments
 
-    def _create_segment(
+    def _create_view(
         self,
         events: list[dict],
         start_pos: int,
         entry: TapeMetadataEntry,
         agent_id: str,
-    ) -> TapeSegment:
+    ) -> TapeView:
         """
-        Create a TapeSegment from event list.
+        Create a TapeView from event list.
 
         Args:
             events: List of event dicts
@@ -232,28 +236,27 @@ class SegmentSearcher:
             agent_id: Agent identifier
 
         Returns:
-            TapeSegment instance
+            TapeView instance
         """
         tick_start, tick_end = self._extract_tick_range(events)
-        timestamp_start, timestamp_end = self._extract_timestamp_range(events)
 
-        return TapeSegment(
+        return TapeView(
+            view_id=f"view:{entry.session_id}:{start_pos}:{start_pos + len(events) - 1}",
             session_id=entry.session_id,
             agent_id=agent_id,
-            start_position=start_pos,
-            end_position=start_pos + len(events) - 1,
-            event_count=len(events),
+            anchor_start_id=None,
+            anchor_end_id=None,
+            tape_position_start=start_pos,
+            tape_position_end=start_pos + len(events) - 1,
             events=events,
+            anchor_state=None,
             tick_start=tick_start,
             tick_end=tick_end,
-            timestamp_start=timestamp_start,
-            timestamp_end=timestamp_end,
-            relevance_score=0.0,  # Set by caller
+            event_count=len(events),
+            relevance_score=0.0,
         )
 
-    def _calculate_segment_score(
-        self, segment_events: list[dict], entities: dict
-    ) -> float:
+    def _calculate_segment_score(self, segment_events: list[dict], entities: dict) -> float:
         """
         Calculate relevance score for a segment.
 
@@ -329,9 +332,7 @@ class SegmentSearcher:
             return min(ticks), max(ticks)
         return None, None
 
-    def _extract_timestamp_range(
-        self, events: list[dict]
-    ) -> tuple[str | None, str | None]:
+    def _extract_timestamp_range(self, events: list[dict]) -> tuple[str | None, str | None]:
         """
         Extract timestamp range from event list.
 
@@ -353,9 +354,7 @@ class SegmentSearcher:
 
     def _get_tape_path(self, agent_id: str, session_id: str) -> Path:
         """Get tape.jsonl path for a session."""
-        return (
-            self.memory_dir / "agents" / agent_id / "sessions" / session_id / "tape.jsonl"
-        )
+        return self.memory_dir / "agents" / agent_id / "sessions" / session_id / "tape.jsonl"
 
     def _extract_agent_id(self, tape_path: Path) -> str:
         """Extract agent_id from tape_path."""
