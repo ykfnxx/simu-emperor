@@ -34,6 +34,9 @@ class EventType:
     TOOL_CALL = "tool_call"  # 工具调用（写入 tape）
     TOOL_RESULT = "tool_result"  # 工具执行结果（写入 tape）
 
+    # 记忆注入事件
+    MEMORY_INJECTED = "memory_injected"  # 记忆注入完成
+
     # 系统事件
     SESSION_STATE = "session_state"  # 系统 → 客户端 (session状态同步)
     TICK_COMPLETED = "tick_completed"  # TickCoordinator → * (tick 完成，V4 新增)
@@ -66,6 +69,7 @@ class EventType:
             cls.TASK_FINISHED,
             cls.TASK_FAILED,
             cls.TASK_TIMEOUT,
+            cls.MEMORY_INJECTED,
         ]
 
     @classmethod
