@@ -454,21 +454,16 @@ class Agent:
             )
         )
 
-        # summarize_segment (段落摘要，用于向量存储)
+        # summarize_and_handoff (对话摘要 + handoff)
         self._tool_registry.register(
             Tool(
-                name="summarize_segment",
-                description="总结指定范围的事件段并生成向量存储",
+                name="summarize_and_handoff",
+                description="将本轮对话生成摘要并存入长期记忆。在对话即将结束、或本轮内容重要需要记忆时调用。非必选——仅在你认为有必要时调用。",
                 parameters={
                     "type": "object",
-                    "properties": {
-                        "start": {"type": "integer", "description": "起始事件序号（0-based）"},
-                        "end": {"type": "integer", "description": "结束事件序号（0-based）"},
-                        "summary": {"type": "string", "description": "摘要内容"},
-                    },
-                    "required": ["start", "end", "summary"],
+                    "properties": {},
                 },
-                handler=self._action_tools.summarize_segment,
+                handler=self._action_tools.summarize_and_handoff,
                 category="action",
             )
         )
@@ -644,6 +639,7 @@ class Agent:
             self._context_manager, self._memory_tools = await self._memory_initializer.initialize(
                 session_id
             )
+            self._action_tools._context_manager = self._context_manager
 
     async def _retrieve_memory_wrapper(self, args: dict, event: Event) -> str:
         """
