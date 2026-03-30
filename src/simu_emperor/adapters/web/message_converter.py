@@ -48,6 +48,7 @@ class MessageConverter:
         }
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         if event.type == EventType.TICK_COMPLETED:
@@ -61,13 +62,6 @@ class MessageConverter:
 
         if event.type == EventType.AGENT_MESSAGE:
             return self._convert_agent_message(event)
-        if event.type == EventType.CHAT:
-
-        if event.type == EventType.AGENT_MESSAGE:
-            logger.info(f"[MessageConverter] Converting AGENT_MESSAGE event: src={event.src}, dst={event.dst}")
-            result = self._convert_agent_message(event)
-            logger.info(f"[MessageConverter] AGENT_MESSAGE converted: {result is not None}")
-            return result
         elif event.type == EventType.CHAT:
             return self._convert_chat(event)
         elif event.type == EventType.RESPONSE:
@@ -118,8 +112,6 @@ class MessageConverter:
                 "session_id": event.session_id,
             },
         }
-
-
 
     async def _convert_tick_completed(self, event: Event) -> dict[str, Any]:
         """转换 tick 完成事件为 state 消息（V4 格式）"""
