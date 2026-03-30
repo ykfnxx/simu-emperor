@@ -39,12 +39,14 @@ class ActionTools:
         data_dir: Path,
         session_manager=None,
         on_soul_updated=None,
+        context_manager=None,
     ):
         self.agent_id = agent_id
         self.event_bus = event_bus
         self.data_dir = data_dir
         self.session_manager = session_manager
         self.on_soul_updated = on_soul_updated
+        self._context_manager = context_manager
 
     async def send_message(self, args: dict, event: Event) -> str | tuple:
         """统一的消息发送函数
@@ -297,16 +299,23 @@ class ActionTools:
 
         return effects
 
-    async def summarize_segment(self, args: dict, event: Event) -> str:
-        """Summarize an event segment for vector storage."""
-        start = args.get("start", 0)
-        end = args.get("end", 0)
-        summary = args.get("summary", "")
+    async def summarize_and_handoff(self, args: dict, event: Event) -> str:
+        """Agent 自主决定的对话摘要 + handoff 工具。
 
-        if not summary.strip():
-            return "❌ 摘要内容不能为空"
+        LLM 在 ReAct 循环中决定是否调用。调用后：
+        1. 对当前窗口事件执行 execute_handoff
+        2. 生成摘要、创建 anchor、写入向量库
+        3. 返回确认信息
+        """
+        if not self._context_manager:
+            return "❌ ContextManager 未初始化"
 
-        logger.info(
-            f"[Agent:{self.agent_id}] Summarized segment [{start}:{end}]: {summary[:50]}..."
-        )
-        return f"✅ 段落摘要已保存 [{start}:{end}]"
+        try:
+            anchor = await self._context_manager.execute_handoff(
+                events_to_handoff=self._context_manager.events,
+                reason="conversation_end",
+            )
+            return f"✅ 已生成本轮摘要并记录（anchor: {anchor.anchor_id}）"
+        except Exception as e:
+            logger.warning(f"Handoff failed: {e}")
+            return f"❌ 摘要生成失败: {e}"
