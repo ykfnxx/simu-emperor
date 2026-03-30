@@ -126,6 +126,7 @@ class MessageConverter:
             "data": {
                 "session_id": payload.get("session_id", event.session_id),
                 "agent_id": payload.get("agent_id", ""),
+                "title": payload.get("title"),
                 "event_count": payload.get("event_count", 0),
                 "last_update": payload.get("last_update", datetime.now(timezone.utc).isoformat()),
             },

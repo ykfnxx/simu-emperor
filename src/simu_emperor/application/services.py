@@ -120,7 +120,10 @@ class ApplicationServices:
         from simu_emperor.persistence.tape_repository import TapeRepository
 
         # 4. Initialize memory components
-        tape_metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
+        tape_metadata_mgr = TapeMetadataManager(
+            memory_dir=memory_dir,
+            event_bus=event_bus,
+        )
 
         tape_repo = TapeRepository(db_path=db_path)
         await tape_repo.initialize()

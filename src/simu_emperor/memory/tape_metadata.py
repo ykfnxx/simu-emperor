@@ -7,11 +7,13 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+import uuid
 
 from simu_emperor.memory.models import TapeMetadataEntry
 
 if TYPE_CHECKING:
     from simu_emperor.event_bus.event import Event
+    from simu_emperor.event_bus.core import EventBus
     from simu_emperor.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -32,7 +34,7 @@ async def _atomic_write(path: Path, content: str) -> None:
         IOError: If write or rename operation fails
     """
     # Create temp file in same directory (ensures same filesystem)
-    temp_path = path.with_suffix(".tmp")
+    temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
 
     try:
         # Write to temp file
@@ -58,14 +60,21 @@ class TapeMetadataManager:
     METADATA_FILE = "tape_meta.jsonl"
     MAX_TITLE_LENGTH = 50
 
-    def __init__(self, memory_dir: Path):
+    def __init__(
+        self,
+        memory_dir: Path,
+        event_bus: "EventBus | None" = None,
+    ):
         """
         Initialize TapeMetadataManager.
 
         Args:
             memory_dir: Base memory directory path
+            event_bus: Optional event bus for broadcasting metadata updates
         """
         self.memory_dir = memory_dir
+        self._event_bus = event_bus
+        self._metadata_lock = asyncio.Lock()
 
     async def append_or_update_entry(
         self,
@@ -92,46 +101,47 @@ class TapeMetadataManager:
         Returns:
             TapeMetadataEntry instance
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        existing_entry = await self._find_entry(metadata_path, session_id)
-        now = datetime.now(timezone.utc).isoformat()
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
+            now = datetime.now(timezone.utc).isoformat()
 
-        if existing_entry:
-            # Update existing entry
-            updated_entry = TapeMetadataEntry(
-                session_id=existing_entry.session_id,
-                title=existing_entry.title,
-                created_tick=existing_entry.created_tick,
-                created_time=existing_entry.created_time,
-                last_updated_tick=current_tick or existing_entry.last_updated_tick,
+            if existing_entry:
+                # Update existing entry
+                updated_entry = TapeMetadataEntry(
+                    session_id=existing_entry.session_id,
+                    title=existing_entry.title,
+                    created_tick=existing_entry.created_tick,
+                    created_time=existing_entry.created_time,
+                    last_updated_tick=current_tick or existing_entry.last_updated_tick,
+                    last_updated_time=now,
+                    event_count=existing_entry.event_count,
+                    window_offset=existing_entry.window_offset,
+                    summary=existing_entry.summary,
+                    segment_index=existing_entry.segment_index,
+                )
+                await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+                logger.debug(f"Updated tape metadata for {agent_id}/{session_id}")
+                return updated_entry
+
+            # Create new entry with placeholder title
+            title = f"Session {session_id[:8]}"  # Use session ID prefix as temp title
+
+            new_entry = TapeMetadataEntry(
+                session_id=session_id,
+                title=title,
+                created_tick=current_tick,
+                created_time=now,
+                last_updated_tick=current_tick,
                 last_updated_time=now,
-                event_count=existing_entry.event_count,
-                window_offset=existing_entry.window_offset,
-                summary=existing_entry.summary,
-                segment_index=existing_entry.segment_index,
+                event_count=0,
+                window_offset=0,
+                summary="",
+                segment_index=[],
             )
-            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
-            logger.debug(f"Updated tape metadata for {agent_id}/{session_id}")
-            return updated_entry
 
-        # Create new entry with placeholder title
-        title = f"Session {session_id[:8]}"  # Use session ID prefix as temp title
-
-        new_entry = TapeMetadataEntry(
-            session_id=session_id,
-            title=title,
-            created_tick=current_tick,
-            created_time=now,
-            last_updated_tick=current_tick,
-            last_updated_time=now,
-            event_count=0,
-            window_offset=0,
-            summary="",
-            segment_index=[],
-        )
-
-        await self._append_entry_to_file(metadata_path, new_entry)
-        logger.info(f"Created tape metadata for {agent_id}/{session_id}: {title}")
+            await self._append_entry_to_file(metadata_path, new_entry)
+            logger.info(f"Created tape metadata for {agent_id}/{session_id}: {title}")
 
         # Generate title asynchronously (non-blocking)
         if first_event and llm:
@@ -153,8 +163,9 @@ class TapeMetadataManager:
             agent_id: Agent identifier
             entry: Updated entry to write
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        await self._update_entry_in_file(metadata_path, entry.session_id, entry)
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            await self._update_entry_in_file(metadata_path, entry.session_id, entry)
 
     async def _generate_title(
         self, first_event: "Event", llm: "LLMProvider"
@@ -177,7 +188,7 @@ class TapeMetadataManager:
         payload = first_event.payload or {}
 
         # Extract relevant context from payload
-        query = payload.get("query", "")
+        query = payload.get("query", "") or payload.get("message", "")
         intent = payload.get("intent", "")
         province = payload.get("province", "")
 
@@ -222,16 +233,46 @@ Guidelines:
     ) -> None:
         """Generate title asynchronously and update metadata file."""
         try:
+            from simu_emperor.event_bus.event import Event
+            from simu_emperor.event_bus.event_types import EventType
+
             title = await self._generate_title(first_event, llm)
+            async with self._metadata_lock:
+                existing_entry = await self._find_entry(metadata_path, session_id)
 
-            # Read current entry
-            entries = await self._read_entries_from_file(metadata_path)
-            entry = next((e for e in entries if e.session_id == session_id), None)
+                if existing_entry:
+                    updated_time = datetime.now(timezone.utc).isoformat()
+                    updated_entry = TapeMetadataEntry(
+                        session_id=existing_entry.session_id,
+                        title=title,
+                        created_tick=existing_entry.created_tick,
+                        created_time=existing_entry.created_time,
+                        last_updated_tick=existing_entry.last_updated_tick,
+                        last_updated_time=updated_time,
+                        event_count=existing_entry.event_count,
+                        window_offset=existing_entry.window_offset,
+                        summary=existing_entry.summary,
+                        segment_index=existing_entry.segment_index,
+                    )
+                    await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+                    logger.info(f"Updated title for {agent_id}/{session_id}: {title}")
 
-            if entry:
-                entry.title = title
-                await self._update_entry_in_file(metadata_path, session_id, entry)
-                logger.info(f"Updated title for {agent_id}/{session_id}: {title}")
+            if existing_entry and self._event_bus is not None:
+                await self._event_bus.send_event(
+                    Event(
+                        src="system:memory",
+                        dst=["*"],
+                        type=EventType.SESSION_STATE,
+                        session_id=session_id,
+                        payload={
+                            "session_id": session_id,
+                            "agent_id": agent_id,
+                            "title": title,
+                            "event_count": updated_entry.event_count,
+                            "last_update": updated_entry.last_updated_time,
+                        },
+                    )
+                )
         except Exception as e:
             logger.warning(f"Failed to update title for {session_id}: {e}")
 
@@ -251,38 +292,41 @@ Guidelines:
             session_id: Session identifier
             segment_info: {"start": 0, "end": 10, "summary": "...", "tick": 5}
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        existing_entry = await self._find_entry(metadata_path, session_id)
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
 
-        if not existing_entry:
-            logger.warning(f"Cannot update segment_index: entry not found for {session_id}")
-            return
+            if not existing_entry:
+                logger.warning(f"Cannot update segment_index: entry not found for {session_id}")
+                return
 
-        # Check for duplicate ranges and remove them
-        updated_index = []
-        for seg in existing_entry.segment_index:
-            # Keep only segments with different ranges
-            if not (seg.get("start") == segment_info.get("start") and
-                    seg.get("end") == segment_info.get("end")):
-                updated_index.append(seg)
+            # Check for duplicate ranges and remove them
+            updated_index = []
+            for seg in existing_entry.segment_index:
+                # Keep only segments with different ranges
+                if not (
+                    seg.get("start") == segment_info.get("start")
+                    and seg.get("end") == segment_info.get("end")
+                ):
+                    updated_index.append(seg)
 
-        # Append new segment
-        updated_index.append(segment_info)
+            # Append new segment
+            updated_index.append(segment_info)
 
-        updated_entry = TapeMetadataEntry(
-            session_id=existing_entry.session_id,
-            title=existing_entry.title,
-            created_tick=existing_entry.created_tick,
-            created_time=existing_entry.created_time,
-            last_updated_tick=existing_entry.last_updated_tick,
-            last_updated_time=existing_entry.last_updated_time,
-            event_count=existing_entry.event_count,
-            window_offset=existing_entry.window_offset,
-            summary=existing_entry.summary,
-            segment_index=updated_index,
-        )
+            updated_entry = TapeMetadataEntry(
+                session_id=existing_entry.session_id,
+                title=existing_entry.title,
+                created_tick=existing_entry.created_tick,
+                created_time=existing_entry.created_time,
+                last_updated_tick=existing_entry.last_updated_tick,
+                last_updated_time=existing_entry.last_updated_time,
+                event_count=existing_entry.event_count,
+                window_offset=existing_entry.window_offset,
+                summary=existing_entry.summary,
+                segment_index=updated_index,
+            )
 
-        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
         logger.debug(f"Updated segment_index for {agent_id}/{session_id}")
 
     async def increment_event_count(
@@ -299,27 +343,28 @@ Guidelines:
             agent_id: Agent identifier
             session_id: Session identifier
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        existing_entry = await self._find_entry(metadata_path, session_id)
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
 
-        if not existing_entry:
-            logger.warning(f"Cannot increment event count: entry not found for {session_id}")
-            return
+            if not existing_entry:
+                logger.warning(f"Cannot increment event count: entry not found for {session_id}")
+                return
 
-        updated_entry = TapeMetadataEntry(
-            session_id=existing_entry.session_id,
-            title=existing_entry.title,
-            created_tick=existing_entry.created_tick,
-            created_time=existing_entry.created_time,
-            last_updated_tick=existing_entry.last_updated_tick,
-            last_updated_time=existing_entry.last_updated_time,
-            event_count=existing_entry.event_count + 1,
-            window_offset=existing_entry.window_offset,
-            summary=existing_entry.summary,
-            segment_index=existing_entry.segment_index,
-        )
+            updated_entry = TapeMetadataEntry(
+                session_id=existing_entry.session_id,
+                title=existing_entry.title,
+                created_tick=existing_entry.created_tick,
+                created_time=existing_entry.created_time,
+                last_updated_tick=existing_entry.last_updated_tick,
+                last_updated_time=existing_entry.last_updated_time,
+                event_count=existing_entry.event_count + 1,
+                window_offset=existing_entry.window_offset,
+                summary=existing_entry.summary,
+                segment_index=existing_entry.segment_index,
+            )
 
-        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
 
     async def update_summary(
         self,
@@ -337,27 +382,28 @@ Guidelines:
             session_id: Session identifier
             summary: New cumulative summary
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        existing_entry = await self._find_entry(metadata_path, session_id)
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
 
-        if not existing_entry:
-            logger.warning(f"Cannot update summary: entry not found for {session_id}")
-            return
+            if not existing_entry:
+                logger.warning(f"Cannot update summary: entry not found for {session_id}")
+                return
 
-        updated_entry = TapeMetadataEntry(
-            session_id=existing_entry.session_id,
-            title=existing_entry.title,
-            created_tick=existing_entry.created_tick,
-            created_time=existing_entry.created_time,
-            last_updated_tick=existing_entry.last_updated_tick,
-            last_updated_time=existing_entry.last_updated_time,
-            event_count=existing_entry.event_count,
-            window_offset=existing_entry.window_offset,
-            summary=summary,
-            segment_index=existing_entry.segment_index,
-        )
+            updated_entry = TapeMetadataEntry(
+                session_id=existing_entry.session_id,
+                title=existing_entry.title,
+                created_tick=existing_entry.created_tick,
+                created_time=existing_entry.created_time,
+                last_updated_tick=existing_entry.last_updated_tick,
+                last_updated_time=existing_entry.last_updated_time,
+                event_count=existing_entry.event_count,
+                window_offset=existing_entry.window_offset,
+                summary=summary,
+                segment_index=existing_entry.segment_index,
+            )
 
-        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
         logger.debug(f"Updated summary for {agent_id}/{session_id}")
 
     async def update_window_offset(
@@ -376,27 +422,28 @@ Guidelines:
             session_id: Session identifier
             window_offset: New window offset position
         """
-        metadata_path = self._get_metadata_path(agent_id)
-        existing_entry = await self._find_entry(metadata_path, session_id)
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
 
-        if not existing_entry:
-            logger.warning(f"Cannot update window_offset: entry not found for {session_id}")
-            return
+            if not existing_entry:
+                logger.warning(f"Cannot update window_offset: entry not found for {session_id}")
+                return
 
-        updated_entry = TapeMetadataEntry(
-            session_id=existing_entry.session_id,
-            title=existing_entry.title,
-            created_tick=existing_entry.created_tick,
-            created_time=existing_entry.created_time,
-            last_updated_tick=existing_entry.last_updated_tick,
-            last_updated_time=existing_entry.last_updated_time,
-            event_count=existing_entry.event_count,
-            window_offset=window_offset,
-            summary=existing_entry.summary,
-            segment_index=existing_entry.segment_index,
-        )
+            updated_entry = TapeMetadataEntry(
+                session_id=existing_entry.session_id,
+                title=existing_entry.title,
+                created_tick=existing_entry.created_tick,
+                created_time=existing_entry.created_time,
+                last_updated_tick=existing_entry.last_updated_tick,
+                last_updated_time=existing_entry.last_updated_time,
+                event_count=existing_entry.event_count,
+                window_offset=window_offset,
+                summary=existing_entry.summary,
+                segment_index=existing_entry.segment_index,
+            )
 
-        await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
         logger.debug(f"Updated window_offset for {agent_id}/{session_id}: {window_offset}")
 
     def _get_metadata_path(self, agent_id: str) -> Path:

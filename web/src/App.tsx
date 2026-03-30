@@ -1020,7 +1020,7 @@ export default function App() {
 
     const offSessionState = client.current.on<SessionStateData>('session_state', (data) => {
       if (!data) return;
-      // 更新对应session的事件计数
+      // 更新对应 session 的元数据（事件计数、更新时间、异步回填 title）
       setAgentSessions((prev) =>
         prev.map((group) => {
           if (group.agent_id === data.agent_id) {
@@ -1028,13 +1028,30 @@ export default function App() {
               ...group,
               sessions: group.sessions.map((session) =>
                 session.session_id === data.session_id
-                  ? { ...session, event_count: data.event_count, updated_at: data.last_update }
+                  ? {
+                      ...session,
+                      title: data.title ?? session.title,
+                      event_count: data.event_count,
+                      updated_at: data.last_update,
+                    }
                   : session
               ),
             };
           }
           return group;
         })
+      );
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.session_id === data.session_id
+            ? {
+                ...session,
+                title: data.title ?? session.title,
+                event_count: data.event_count,
+                updated_at: data.last_update,
+              }
+            : session
+        )
       );
     });
 

@@ -16,6 +16,7 @@ export interface WSMessage {
 export interface SessionStateData {
   session_id: string;
   agent_id: string;
+  title?: string;
   event_count: number;
   last_update: string;
 }

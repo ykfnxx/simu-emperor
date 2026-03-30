@@ -1,5 +1,6 @@
 """Integration tests for V4 Memory System."""
 
+import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -147,8 +148,17 @@ class TestV4MemoryIntegration:
             current_tick=10,
         )
 
+        assert entry.title == "Session test_ses"
         assert entry.created_tick == 10
         assert entry.last_updated_tick == 10
+
+        metadata_path = metadata_mgr._get_metadata_path(agent_id)
+        current_entry = None
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            current_entry = await metadata_mgr._find_entry(metadata_path, session_id)
+            if current_entry and current_entry.title == "Generated title":
+                break
 
         # Simulate tick completion (update without first_event)
         updated_entry = await metadata_mgr.append_or_update_entry(
@@ -162,7 +172,7 @@ class TestV4MemoryIntegration:
         assert updated_entry.session_id == session_id
         assert updated_entry.created_tick == 10  # Unchanged
         assert updated_entry.last_updated_tick == 20  # Updated
-        assert updated_entry.title == "Generated title"  # Unchanged
+        assert updated_entry.title == "Generated title"  # Unchanged after async update
 
     @pytest.mark.asyncio
     async def test_segment_index_update_on_compaction(

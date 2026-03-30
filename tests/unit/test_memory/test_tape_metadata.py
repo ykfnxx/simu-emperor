@@ -1,5 +1,6 @@
 """Unit tests for TapeMetadataManager (V4 Memory System)."""
 
+import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.models import TapeMetadataEntry
 from simu_emperor.event_bus.event import Event
+from simu_emperor.event_bus.event_types import EventType
 
 
 @pytest.fixture
@@ -57,7 +59,7 @@ class TestTapeMetadataManager:
         )
 
         assert entry.session_id == session_id
-        assert entry.title == "直隶税收调整"
+        assert entry.title == "Session session_"
         assert entry.created_tick == 10
         assert entry.last_updated_tick == 10
         assert entry.event_count == 0
@@ -66,6 +68,16 @@ class TestTapeMetadataManager:
         # Verify file was created
         metadata_path = metadata_mgr._get_metadata_path(agent_id)
         assert metadata_path.exists()
+
+        updated_entry = None
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            updated_entry = await metadata_mgr._find_entry(metadata_path, session_id)
+            if updated_entry and updated_entry.title == "直隶税收调整":
+                break
+
+        assert updated_entry is not None
+        assert updated_entry.title == "直隶税收调整"
 
     @pytest.mark.asyncio
     async def test_update_existing_entry(self, metadata_mgr, mock_event, mock_llm):
@@ -94,6 +106,42 @@ class TestTapeMetadataManager:
         assert updated_entry.session_id == session_id
         assert updated_entry.created_tick == 10  # Unchanged
         assert updated_entry.last_updated_tick == 20  # Updated
+
+    @pytest.mark.asyncio
+    async def test_async_title_update_publishes_session_state(self, memory_dir, mock_event, mock_llm):
+        """Test async title update persists title and publishes session state."""
+        event_bus = AsyncMock()
+        metadata_mgr = TapeMetadataManager(memory_dir=memory_dir, event_bus=event_bus)
+        agent_id = "test_agent"
+        session_id = "session_1"
+
+        entry = await metadata_mgr.append_or_update_entry(
+            agent_id=agent_id,
+            session_id=session_id,
+            first_event=mock_event,
+            llm=mock_llm,
+            current_tick=10,
+        )
+        assert entry.title == "Session session_"
+
+        updated_entry = None
+        metadata_path = metadata_mgr._get_metadata_path(agent_id)
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            updated_entry = await metadata_mgr._find_entry(metadata_path, session_id)
+            if updated_entry and updated_entry.title == "直隶税收调整":
+                break
+
+        assert updated_entry is not None
+        assert updated_entry.title == "直隶税收调整"
+        event_bus.send_event.assert_awaited_once()
+
+        sent_event = event_bus.send_event.await_args.args[0]
+        assert sent_event.type == EventType.SESSION_STATE
+        assert sent_event.session_id == session_id
+        assert sent_event.payload["agent_id"] == agent_id
+        assert sent_event.payload["title"] == "直隶税收调整"
+        assert sent_event.payload["event_count"] == 0
 
     @pytest.mark.asyncio
     async def test_generate_title_command(self, metadata_mgr):
