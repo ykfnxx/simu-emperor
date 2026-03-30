@@ -666,7 +666,7 @@ class TestContextManager:
 
 
 class TestContextManagerPositionTracking:
-    """Test V4 tape position tracking for segment_index updates."""
+    """Test V4 tape position tracking for anchor_index updates."""
 
     @pytest.mark.asyncio
     async def test_position_counter_initialized_from_tape(self, tmp_path):

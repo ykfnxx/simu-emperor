@@ -70,9 +70,7 @@ class TapeMetadataIndex:
         # Return entries only (without scores)
         return [entry for entry, _ in scored_entries]
 
-    def _calculate_entry_score(
-        self, entry: TapeMetadataEntry, entities: dict
-    ) -> float:
+    def _calculate_entry_score(self, entry: TapeMetadataEntry, entities: dict) -> float:
         """
         Calculate relevance score for a metadata entry.
 
@@ -86,7 +84,7 @@ class TapeMetadataIndex:
         Scoring:
             - title match: +TITLE_MATCH_WEIGHT per keyword
             - summary match: +SUMMARY_MATCH_WEIGHT per keyword
-            - segment_index match: +SEGMENT_MATCH_WEIGHT per matching segment
+            - anchor_index match: +SEGMENT_MATCH_WEIGHT per matching anchor
         """
         score = 0.0
 
@@ -104,18 +102,18 @@ class TapeMetadataIndex:
             if keyword.lower() in title_lower:
                 score += TITLE_MATCH_WEIGHT
 
-        # Score segment_index summaries (medium weight)
-        for segment in entry.segment_index:
+        # Score anchor_index summaries (medium weight)
+        for segment in entry.anchor_index:
             summary = segment.get("summary", "").lower()
             for keyword in all_keywords:
                 if keyword.lower() in summary:
                     score += SUMMARY_MATCH_WEIGHT
                     break  # Count each segment once
 
-        # Score segment_index tick ranges (context bonus)
+        # Score anchor_index tick ranges (context bonus)
         if time_entity and time_entity == "history":
             # Bonus for having historical segments
-            if entry.segment_index:
+            if entry.anchor_index:
                 score += SEGMENT_MATCH_WEIGHT
 
         return score

@@ -63,7 +63,7 @@ class TestTapeMetadataManager:
         assert entry.created_tick == 10
         assert entry.last_updated_tick == 10
         assert entry.event_count == 0
-        assert len(entry.segment_index) == 0
+        assert len(entry.anchor_index) == 0
 
         # Verify file was created
         metadata_path = metadata_mgr._get_metadata_path(agent_id)
@@ -108,7 +108,9 @@ class TestTapeMetadataManager:
         assert updated_entry.last_updated_tick == 20  # Updated
 
     @pytest.mark.asyncio
-    async def test_async_title_update_publishes_session_state(self, memory_dir, mock_event, mock_llm):
+    async def test_async_title_update_publishes_session_state(
+        self, memory_dir, mock_event, mock_llm
+    ):
         """Test async title update persists title and publishes session state."""
         event_bus = AsyncMock()
         metadata_mgr = TapeMetadataManager(memory_dir=memory_dir, event_bus=event_bus)
@@ -182,37 +184,6 @@ class TestTapeMetadataManager:
         title = await metadata_mgr._generate_title(mock_event, mock_llm)
 
         assert title == "Untitled (LLM failed)"
-
-    @pytest.mark.asyncio
-    async def test_update_segment_index(self, metadata_mgr):
-        """Test updating segment_index for an entry."""
-        agent_id = "test_agent"
-        session_id = "session_1"
-
-        # Create entry first
-        with patch.object(metadata_mgr, "_generate_title", return_value="Test"):
-            await metadata_mgr.append_or_update_entry(
-                agent_id=agent_id,
-                session_id=session_id,
-                first_event=MagicMock(),
-                llm=AsyncMock(),
-                current_tick=10,
-            )
-
-        # Update segment_index
-        segment_info = {"start": 0, "end": 10, "summary": "Initial segment", "tick": 5}
-        await metadata_mgr.update_segment_index(
-            agent_id=agent_id,
-            session_id=session_id,
-            segment_info=segment_info,
-        )
-
-        # Verify segment_index was updated
-        entry = await metadata_mgr._find_entry(
-            metadata_mgr._get_metadata_path(agent_id), session_id
-        )
-        assert len(entry.segment_index) == 1
-        assert entry.segment_index[0]["summary"] == "Initial segment"
 
     @pytest.mark.asyncio
     async def test_increment_event_count(self, metadata_mgr):
@@ -346,14 +317,19 @@ class TestTapeMetadataEdgeCases:
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_entry_fails_silently(self, metadata_mgr):
-        """Test updating segment_index for a nonexistent entry."""
-        # This should not raise an exception, just log a warning
-        await metadata_mgr.update_segment_index(
-            agent_id="nonexistent_agent",
-            session_id="nonexistent_session",
-            segment_info={"start": 0, "end": 10, "summary": "Test"},
+        """Test operations on nonexistent entry don't raise."""
+        from simu_emperor.memory.models import TapeAnchor
+
+        anchor = TapeAnchor(
+            anchor_id="anchor:nonexist:0",
+            name="handoff/test",
+            tape_position=0,
+            state={"summary": "test"},
+            created_at="2026-01-01T00:00:00Z",
+            created_tick=1,
         )
-        # If we get here without exception, the test passes
+        # Should not raise
+        await metadata_mgr.add_anchor("nonexistent_agent", "nonexist_session", anchor)
 
     @pytest.mark.asyncio
     async def test_increment_nonexistent_entry_fails_silently(self, metadata_mgr):

@@ -149,7 +149,7 @@ class StructuredRetriever:
         # Extract unique session IDs
         session_ids = list(set(s.session_id for s in segments))
 
-        # Convert TapeSegments to result dicts
+        # Convert TapeViews to result dicts
         results = [s.to_dict() for s in segments]
 
         return results, session_ids
@@ -164,10 +164,10 @@ class StructuredRetriever:
         Returns:
             Formatted overview results
         """
-        # For tape segments, show segment-level summary
+        # For tape views, show segment-level summary
         formatted = []
         for result in results:
-            # Check if this is a TapeSegment result
+            # Check if this is a TapeView result
             if "events" in result and result["events"]:
                 # Extract summary from first event or segment-level metadata
                 formatted.append(
@@ -186,17 +186,17 @@ class StructuredRetriever:
 
     def _format_tape_results(self, results: list[dict]) -> list[dict]:
         """
-        Format results for tape depth (V4: handles TapeSegment format).
+        Format results for tape depth (V4: handles TapeView format).
 
         Args:
-            results: Raw results (TapeSegment dicts)
+            results: Raw results (TapeView dicts)
 
         Returns:
             Formatted tape results with event details
         """
         formatted = []
         for result in results:
-            # Check if this is a TapeSegment result
+            # Check if this is a TapeView result
             if "events" in result:
                 # Format as segment with events
                 formatted.append(

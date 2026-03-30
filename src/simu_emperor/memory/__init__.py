@@ -13,16 +13,9 @@ from simu_emperor.memory.models import TapeMetadataEntry, TapeAnchor, TapeView, 
 from simu_emperor.memory.tape_metadata import TapeMetadataManager
 from simu_emperor.memory.tape_metadata_index import TapeMetadataIndex
 
-# These modules depend on TapeSegment (migrating to TapeAnchor/TapeView).
-# Conditional import allows tests to run during the migration.
-try:
-    from simu_emperor.memory.segment_searcher import SegmentSearcher
-    from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
-    from simu_emperor.memory.vector_searcher import VectorSearcher
-except ImportError:
-    SegmentSearcher = None  # type: ignore[misc,assignment]
-    TwoLevelSearcher = None  # type: ignore[misc,assignment]
-    VectorSearcher = None  # type: ignore[misc,assignment]
+from simu_emperor.memory.segment_searcher import SegmentSearcher
+from simu_emperor.memory.two_level_searcher import TwoLevelSearcher
+from simu_emperor.memory.vector_searcher import VectorSearcher
 
 # V3 Components (still used)
 from simu_emperor.memory.context_manager import ContextManager, ContextConfig, count_tokens

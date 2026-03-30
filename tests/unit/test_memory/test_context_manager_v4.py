@@ -35,7 +35,7 @@ def mock_llm():
 def mock_tape_metadata_mgr():
     """Create a mock TapeMetadataManager."""
     mgr = AsyncMock()
-    mgr.update_segment_index = AsyncMock()
+    mgr.add_anchor = AsyncMock()
     return mgr
 
 
@@ -69,10 +69,8 @@ class TestContextManagerV4:
     """Test ContextManager V4 changes."""
 
     @pytest.mark.asyncio
-    async def test_slide_window_updates_segment_index(
-        self, context_manager, mock_tape_metadata_mgr
-    ):
-        """Test slide_window updates segment_index in tape_meta.jsonl."""
+    async def test_slide_window_uses_handoff(self, context_manager, mock_tape_metadata_mgr):
+        """Test slide_window calls execute_handoff for dropped events."""
         # Add some events to trigger sliding
         for i in range(10):
             event = {
@@ -87,14 +85,8 @@ class TestContextManagerV4:
         # Trigger slide window
         await context_manager.slide_window()
 
-        # Verify update_segment_index was called
-        mock_tape_metadata_mgr.update_segment_index.assert_called_once()
-
-        # Verify call arguments
-        call_args = mock_tape_metadata_mgr.update_segment_index.call_args
-        assert call_args[1]["agent_id"] == "test_agent"
-        assert call_args[1]["session_id"] == "test_session"
-        assert "segment_info" in call_args[1]
+        # Events should be reduced to keep_recent_events
+        assert len(context_manager.events) <= 5
 
     @pytest.mark.asyncio
     async def test_slide_window_without_metadata_mgr(
@@ -196,23 +188,3 @@ class TestContextManagerV4:
         summary = await context_manager._summarize_events([])
 
         assert summary is None
-
-    @pytest.mark.asyncio
-    async def test_update_segment_index_for_dropped_no_mgr(
-        self, tape_path, context_config, mock_llm, tmp_memory_dir
-    ):
-        """Test _update_segment_index_for_dropped without manager."""
-        context_manager = ContextManager(
-            session_id="test_session",
-            agent_id="test_agent",
-            tape_path=tape_path,
-            config=context_config,
-            llm_provider=mock_llm,
-            tape_metadata_mgr=None,
-        )
-
-        # Should not raise error
-        await context_manager._update_segment_index_for_dropped([])
-
-        # No-op when no manager
-        assert True

@@ -37,7 +37,7 @@ def sample_entries(tmp_path):
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[{"start": 0, "end": 10, "summary": "讨论税收政策", "tick": 12}],
+            anchor_index=[{"start": 0, "end": 10, "summary": "讨论税收政策", "tick": 12}],
         ),
         TapeMetadataEntry(
             session_id="session_2",
@@ -47,7 +47,7 @@ def sample_entries(tmp_path):
             last_updated_tick=40,
             last_updated_time="2026-03-11T14:00:00Z",
             event_count=30,
-            segment_index=[{"start": 0, "end": 10, "summary": "拨款赈灾", "tick": 35}],
+            anchor_index=[{"start": 0, "end": 10, "summary": "拨款赈灾", "tick": 35}],
         ),
         TapeMetadataEntry(
             session_id="session_3",
@@ -57,7 +57,7 @@ def sample_entries(tmp_path):
             last_updated_tick=60,
             last_updated_time="2026-03-11T16:00:00Z",
             event_count=20,
-            segment_index=[],
+            anchor_index=[],
         ),
     ]
 
@@ -143,7 +143,7 @@ class TestTapeMetadataIndex:
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[],
+            anchor_index=[],
         )
 
         entities = {"action": ["税收"], "target": ["直隶"], "time": ""}
@@ -163,7 +163,7 @@ class TestTapeMetadataIndex:
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[{"start": 0, "end": 10, "summary": "讨论拨款赈灾事宜", "tick": 12}],
+            anchor_index=[{"start": 0, "end": 10, "summary": "讨论拨款赈灾事宜", "tick": 12}],
         )
 
         entities = {"action": ["拨款"], "target": [], "time": ""}
@@ -183,7 +183,7 @@ class TestTapeMetadataIndex:
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[],
+            anchor_index=[],
         )
 
         entities = {"action": ["打仗", "军事"], "target": [], "time": ""}
@@ -203,12 +203,12 @@ class TestTapeMetadataIndex:
             last_updated_tick=20,
             last_updated_time="2026-03-11T12:00:00Z",
             event_count=50,
-            segment_index=[{"start": 0, "end": 10, "summary": "讨论", "tick": 12}],
+            anchor_index=[{"start": 0, "end": 10, "summary": "讨论", "tick": 12}],
         )
 
         entities = {"action": [], "target": [], "time": "history"}
 
         score = metadata_index._calculate_entry_score(entry, entities)
 
-        # Has segment_index, so gets bonus for "history"
+        # Has anchor_index, so gets bonus for "history"
         assert score > 0

@@ -55,7 +55,7 @@ class TestV4MemoryIntegration:
         3. QueryParser parses natural language query
         4. TwoLevelSearcher searches metadata (Level 1)
         5. SegmentSearcher searches segments (Level 2)
-        6. Returns TapeSegment results
+        6. Returns TapeView results
         """
         # Setup: Create metadata and tape files
         metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
@@ -175,17 +175,17 @@ class TestV4MemoryIntegration:
         assert updated_entry.title == "Generated title"  # Unchanged after async update
 
     @pytest.mark.asyncio
-    async def test_segment_index_update_on_compaction(
-        self, memory_dir, agent_id, session_id, mock_llm
-    ):
+    async def test_anchor_update_on_compaction(self, memory_dir, agent_id, session_id, mock_llm):
         """
-        Test segment_index update on window compaction (V4).
+        Test anchor creation on window compaction (V4).
 
         Flow:
         1. Create metadata entry
-        2. Update segment_index
-        3. Verify segment_index is persisted
+        2. Add anchor
+        3. Verify anchor_index is persisted
         """
+        from simu_emperor.memory.models import TapeAnchor
+
         metadata_mgr = TapeMetadataManager(memory_dir=memory_dir)
 
         # Create entry
@@ -197,27 +197,23 @@ class TestV4MemoryIntegration:
             current_tick=10,
         )
 
-        # Update segment_index
-        segment_info = {
-            "start": 0,
-            "end": 10,
-            "summary": "Compacted segment",
-            "tick": 5,
-        }
-
-        await metadata_mgr.update_segment_index(
-            agent_id=agent_id,
-            session_id=session_id,
-            segment_info=segment_info,
+        # Add anchor
+        anchor = TapeAnchor(
+            anchor_id=f"anchor:{session_id}:0",
+            name="handoff/compaction",
+            tape_position=0,
+            state={"summary": "Compacted segment", "tick": 5},
+            created_at="2026-01-01T00:00:00Z",
+            created_tick=5,
         )
+        await metadata_mgr.add_anchor(agent_id, session_id, anchor)
 
-        # Verify by reading the entry back
-        metadata_path = metadata_mgr._get_metadata_path(agent_id)
-        entry = await metadata_mgr._find_entry(metadata_path, session_id)
-
-        assert len(entry.segment_index) == 1
-        assert entry.segment_index[0]["summary"] == "Compacted segment"
-        assert entry.segment_index[0]["tick"] == 5
+        # Verify anchor was persisted
+        entry = await metadata_mgr._find_entry(
+            metadata_mgr._get_metadata_path(agent_id), session_id
+        )
+        assert len(entry.anchor_index) == 1
+        assert entry.anchor_index[0]["state"]["summary"] == "Compacted segment"
 
     @pytest.mark.asyncio
     async def test_multi_session_retrieval(self, memory_dir, agent_id):

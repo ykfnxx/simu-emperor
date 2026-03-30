@@ -159,7 +159,7 @@ class MemoryTools:
 
     def _format_retrieval_result(self, result) -> str:
         """
-        Format retrieval result for LLM consumption (V4: handles TapeSegment).
+        Format retrieval result for LLM consumption (V4: handles TapeView).
 
         Args:
             result: RetrievalResult from StructuredRetriever
@@ -221,7 +221,7 @@ class MemoryTools:
                         lines.append(f"- 内容: {content}")
 
                 elif item_type == "segment_summary":
-                    # V4: TapeSegment summary format
+                    # V4: TapeView summary format
                     lines.append(f"**片段摘要** (相关度: {item.get('relevance_score', 0):.2f})")
                     if item.get("tick_start") is not None:
                         lines.append(
@@ -230,7 +230,7 @@ class MemoryTools:
                     lines.append(f"- 事件数: {item.get('event_count', 0)}")
 
                 elif item_type == "segment":
-                    # V4: Full TapeSegment format
+                    # V4: Full TapeView format
                     lines.append(f"**事件片段** (相关度: {item.get('relevance_score', 0):.2f})")
                     lines.append(
                         f"- 位置: {item.get('start_position', '?')} - {item.get('end_position', '?')}"
