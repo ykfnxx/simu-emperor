@@ -3,7 +3,7 @@
 import pytest
 
 from simu_emperor.config import EmbeddingConfig
-from simu_emperor.memory.models import TapeSegment
+from simu_emperor.memory.models import TapeView
 from simu_emperor.memory.vector_searcher import VectorSearcher, CHROMADB_AVAILABLE
 
 
@@ -25,34 +25,42 @@ def mock_embedding_config():
 @pytest.fixture
 def sample_segments():
     """Create sample segments for testing."""
-    segment1 = TapeSegment(
+    segment1 = TapeView(
+        view_id="view:sess1:0:2",
         session_id="sess1",
         agent_id="revenue_minister",
-        start_position=0,
-        end_position=2,
-        event_count=3,
+        anchor_start_id=None,
+        anchor_end_id=None,
+        tape_position_start=0,
+        tape_position_end=2,
         events=[
             {"type": "USER_QUERY", "payload": {"query": "给直隶拨款"}},
             {"type": "TOOL_CALL", "payload": {"intent": "adjust_funds"}},
             {"type": "RESPONSE", "payload": {"response": "已批准拨款"}},
         ],
+        anchor_state=None,
         tick_start=10,
         tick_end=12,
+        event_count=3,
     )
 
-    segment2 = TapeSegment(
+    segment2 = TapeView(
+        view_id="view:sess1:3:5",
         session_id="sess1",
         agent_id="revenue_minister",
-        start_position=3,
-        end_position=5,
-        event_count=3,
+        anchor_start_id=None,
+        anchor_end_id=None,
+        tape_position_start=3,
+        tape_position_end=5,
         events=[
             {"type": "USER_QUERY", "payload": {"query": "查看税收情况"}},
             {"type": "TOOL_CALL", "payload": {"intent": "query_tax"}},
             {"type": "RESPONSE", "payload": {"response": "税收正常"}},
         ],
+        anchor_state=None,
         tick_start=13,
         tick_end=15,
+        event_count=3,
     )
 
     return [segment1, segment2]
@@ -141,37 +149,48 @@ class TestVectorSearcher:
         """Test _segment_to_text extraction."""
         searcher = VectorSearcher(temp_memory_dir, mock_embedding_config)
 
-        segment = TapeSegment(
+        segment = TapeView(
+            view_id="view:sess1:0:0",
             session_id="sess1",
             agent_id="agent1",
-            start_position=0,
-            end_position=0,
-            event_count=1,
+            anchor_start_id=None,
+            anchor_end_id=None,
+            tape_position_start=0,
+            tape_position_end=0,
             events=[
                 {
                     "type": "USER_QUERY",
-                    "payload": {"query": "测试查询", "intent": "test_intent"},
+                    "payload": {"message": "测试查询"},
                 }
             ],
+            anchor_state={"summary": "anchor summary"},
+            tick_start=None,
+            tick_end=None,
+            event_count=1,
         )
 
         text = searcher._segment_to_text(segment)
 
         assert "测试查询" in text
-        assert "test_intent" in text
-        assert "USER_QUERY" in text
+        assert "anchor summary" in text
 
     def test_make_id(self, temp_memory_dir, mock_embedding_config):
         """Test _make_id generates unique IDs."""
         searcher = VectorSearcher(temp_memory_dir, mock_embedding_config)
 
-        segment = TapeSegment(
+        segment = TapeView(
+            view_id="view:sess1:10:20",
             session_id="sess1",
             agent_id="agent1",
-            start_position=10,
-            end_position=20,
-            event_count=1,
+            anchor_start_id=None,
+            anchor_end_id=None,
+            tape_position_start=10,
+            tape_position_end=20,
             events=[],
+            anchor_state=None,
+            tick_start=None,
+            tick_end=None,
+            event_count=1,
         )
 
         segment_id = searcher._make_id(segment)

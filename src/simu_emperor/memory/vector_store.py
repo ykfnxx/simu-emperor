@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Callable, Awaitable
 
 from simu_emperor.config import settings
-from simu_emperor.memory.models import TapeSegment
+from simu_emperor.memory.models import TapeView
 
 if TYPE_CHECKING:
     from simu_emperor.memory.vector_searcher import VectorSearcher
@@ -49,33 +49,33 @@ class VectorStore:
             settings.embedding.enabled and settings.chromadb.enabled and self._searcher is not None
         )
 
-    async def add_segments_with_retry(self, segments: list[TapeSegment]) -> None:
+    async def add_segments_with_retry(self, segments: list[TapeView]) -> None:
         """
         Add segments to vector store with retry logic.
 
         Args:
-            segments: List of TapeSegment to add
+            segments: List of TapeView to add
         """
         if not self.enabled or not segments:
             return
 
         for segment in segments:
-            segment_id = f"seg_{segment.session_id}_{segment.start_position}_{segment.end_position}"
+            segment_id = f"seg_{segment.session_id}_{segment.tape_position_start}_{segment.tape_position_end}"
             metadata = {
                 "agent_id": segment.agent_id,
                 "session_id": segment.session_id,
-                "segment_start": segment.start_position,
-                "segment_end": segment.end_position,
+                "segment_start": segment.tape_position_start,
+                "segment_end": segment.tape_position_end,
                 "tick": segment.tick_start,
             }
-            doc = self._searcher._segment_to_text(segment) if self._searcher else ""
+            doc = self._searcher._segment_to_text(segment) if self._searcher else segment.to_text()
             try:
                 await self._store_with_retry(segment_id, doc, metadata, segment)
             except Exception:
                 pass  # Failure already logged and tracked via on_embedding_failed
 
     async def _store_with_retry(
-        self, segment_id: str, document: str, metadata: dict, segment: TapeSegment
+        self, segment_id: str, document: str, metadata: dict, segment: TapeView
     ) -> None:
         """
         Store a segment with exponential backoff retry.
@@ -84,7 +84,7 @@ class VectorStore:
             segment_id: Unique segment identifier
             document: Text document for embedding
             metadata: Metadata dict
-            segment: TapeSegment object
+            segment: TapeView object
         """
         last_error: Exception | None = None
 
@@ -153,15 +153,19 @@ class VectorStore:
                     if isinstance(record["metadata"], str)
                     else record["metadata"]
                 )
-                segment = TapeSegment(
+                segment = TapeView(
+                    view_id=f"view:{metadata.get('session_id', '')}:{metadata.get('segment_start', 0)}:{metadata.get('segment_end', 0)}",
                     session_id=metadata.get("session_id", ""),
                     agent_id=metadata.get("agent_id", ""),
-                    start_position=metadata.get("segment_start", 0),
-                    end_position=metadata.get("segment_end", 0),
-                    event_count=0,
+                    anchor_start_id=None,
+                    anchor_end_id=None,
+                    tape_position_start=metadata.get("segment_start", 0),
+                    tape_position_end=metadata.get("segment_end", 0),
                     events=[],
+                    anchor_state=None,
                     tick_start=metadata.get("tick"),
                     tick_end=metadata.get("tick"),
+                    event_count=0,
                 )
                 await self._store_with_retry(
                     record["segment_id"], record["summary"], metadata, segment

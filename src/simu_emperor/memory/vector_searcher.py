@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from simu_emperor.memory.models import TapeSegment
+from simu_emperor.memory.models import TapeView
 
 if TYPE_CHECKING:
     from simu_emperor.config import EmbeddingConfig
@@ -67,19 +67,21 @@ class VectorSearcher:
             metadata={"hnsw:space": "cosine"},
         )
 
-        logger.info(f"VectorSearcher initialized with provider={config.provider}, db_path={db_path}")
+        logger.info(
+            f"VectorSearcher initialized with provider={config.provider}, db_path={db_path}"
+        )
 
-    async def add_segments(self, segments: list[TapeSegment]) -> None:
+    async def add_segments(self, segments: list[TapeView]) -> None:
         """
         Add segments to vector store.
 
         Args:
-            segments: List of TapeSegment to add
+            segments: List of TapeView to add
         """
         if not segments:
             return
 
-        documents = [self._segment_to_text(s) for s in segments]
+        documents = [s.to_text() for s in segments]
         metadatas = [
             {
                 "session_id": s.session_id,
@@ -126,58 +128,35 @@ class VectorSearcher:
         )
 
         segment_ids = results["ids"][0] if results.get("ids") else []
-        logger.debug(f"Vector search returned {len(segment_ids)} results for query: {query[:50]}...")
+        logger.debug(
+            f"Vector search returned {len(segment_ids)} results for query: {query[:50]}..."
+        )
 
         return segment_ids
 
-    def _segment_to_text(self, segment: TapeSegment) -> str:
+    def _segment_to_text(self, segment: TapeView) -> str:
         """
         Convert segment to text for embedding.
 
         Args:
-            segment: TapeSegment to convert
+            segment: TapeView to convert
 
         Returns:
             Text representation
         """
-        parts = []
+        return segment.to_text()
 
-        for event in segment.events:
-            # Extract text from payload or content
-            payload = event.get("payload") or event.get("content", {})
-
-            if isinstance(payload, dict):
-                query = payload.get("query", "")
-                intent = payload.get("intent", "")
-                response = payload.get("response", "")
-
-                if query:
-                    parts.append(query)
-                if intent:
-                    parts.append(intent)
-                if response:
-                    parts.append(response)
-            elif isinstance(payload, str):
-                parts.append(payload)
-
-            # Also include event type
-            event_type = event.get("type") or event.get("event_type", "")
-            if event_type:
-                parts.append(event_type)
-
-        return " ".join(parts)
-
-    def _make_id(self, segment: TapeSegment) -> str:
+    def _make_id(self, segment: TapeView) -> str:
         """
         Generate unique ID for a segment.
 
         Args:
-            segment: TapeSegment
+            segment: TapeView
 
         Returns:
             Unique ID string
         """
-        return f"{segment.session_id}:{segment.start_position}:{segment.end_position}"
+        return f"{segment.session_id}:{segment.tape_position_start}:{segment.tape_position_end}"
 
 
 class _MockEmbeddingFunction(embedding_functions.EmbeddingFunction):
@@ -192,6 +171,4 @@ class _MockEmbeddingFunction(embedding_functions.EmbeddingFunction):
 
     def __call__(self, input_texts):
         """Generate mock embeddings."""
-        return [
-            [self._random.random() for _ in range(self.dimension)] for _ in input_texts
-        ]
+        return [[self._random.random() for _ in range(self.dimension)] for _ in input_texts]
