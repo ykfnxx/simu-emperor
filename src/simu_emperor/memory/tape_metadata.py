@@ -118,7 +118,7 @@ class TapeMetadataManager:
                     event_count=existing_entry.event_count,
                     window_offset=existing_entry.window_offset,
                     summary=existing_entry.summary,
-                    segment_index=existing_entry.segment_index,
+                    anchor_index=existing_entry.anchor_index,
                 )
                 await self._update_entry_in_file(metadata_path, session_id, updated_entry)
                 logger.debug(f"Updated tape metadata for {agent_id}/{session_id}")
@@ -137,7 +137,7 @@ class TapeMetadataManager:
                 event_count=0,
                 window_offset=0,
                 summary="",
-                segment_index=[],
+                anchor_index=[],
             )
 
             await self._append_entry_to_file(metadata_path, new_entry)
@@ -145,9 +145,11 @@ class TapeMetadataManager:
 
         # Generate title asynchronously (non-blocking)
         if first_event and llm:
-            asyncio.create_task(self._generate_and_update_title(
-                agent_id, session_id, first_event, llm, metadata_path
-            ))
+            asyncio.create_task(
+                self._generate_and_update_title(
+                    agent_id, session_id, first_event, llm, metadata_path
+                )
+            )
 
         return new_entry
 
@@ -157,7 +159,7 @@ class TapeMetadataManager:
         entry: TapeMetadataEntry,
     ) -> None:
         """
-        Update existing entry (for segment_index updates).
+        Update existing entry (for anchor_index updates).
 
         Args:
             agent_id: Agent identifier
@@ -167,9 +169,7 @@ class TapeMetadataManager:
             metadata_path = self._get_metadata_path(agent_id)
             await self._update_entry_in_file(metadata_path, entry.session_id, entry)
 
-    async def _generate_title(
-        self, first_event: "Event", llm: "LLMProvider"
-    ) -> str:
+    async def _generate_title(self, first_event: "Event", llm: "LLMProvider") -> str:
         """
         Use LLM to generate session title.
 
@@ -252,7 +252,7 @@ Guidelines:
                         event_count=existing_entry.event_count,
                         window_offset=existing_entry.window_offset,
                         summary=existing_entry.summary,
-                        segment_index=existing_entry.segment_index,
+                        anchor_index=existing_entry.anchor_index,
                     )
                     await self._update_entry_in_file(metadata_path, session_id, updated_entry)
                     logger.info(f"Updated title for {agent_id}/{session_id}: {title}")
@@ -275,59 +275,6 @@ Guidelines:
                 )
         except Exception as e:
             logger.warning(f"Failed to update title for {session_id}: {e}")
-
-    async def update_segment_index(
-        self,
-        agent_id: str,
-        session_id: str,
-        segment_info: dict,
-    ) -> None:
-        """
-        Update segment_index for a specific tape.
-
-        Called by ContextManager.slide_window() after compaction.
-
-        Args:
-            agent_id: Agent identifier
-            session_id: Session identifier
-            segment_info: {"start": 0, "end": 10, "summary": "...", "tick": 5}
-        """
-        async with self._metadata_lock:
-            metadata_path = self._get_metadata_path(agent_id)
-            existing_entry = await self._find_entry(metadata_path, session_id)
-
-            if not existing_entry:
-                logger.warning(f"Cannot update segment_index: entry not found for {session_id}")
-                return
-
-            # Check for duplicate ranges and remove them
-            updated_index = []
-            for seg in existing_entry.segment_index:
-                # Keep only segments with different ranges
-                if not (
-                    seg.get("start") == segment_info.get("start")
-                    and seg.get("end") == segment_info.get("end")
-                ):
-                    updated_index.append(seg)
-
-            # Append new segment
-            updated_index.append(segment_info)
-
-            updated_entry = TapeMetadataEntry(
-                session_id=existing_entry.session_id,
-                title=existing_entry.title,
-                created_tick=existing_entry.created_tick,
-                created_time=existing_entry.created_time,
-                last_updated_tick=existing_entry.last_updated_tick,
-                last_updated_time=existing_entry.last_updated_time,
-                event_count=existing_entry.event_count,
-                window_offset=existing_entry.window_offset,
-                summary=existing_entry.summary,
-                segment_index=updated_index,
-            )
-
-            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
-        logger.debug(f"Updated segment_index for {agent_id}/{session_id}")
 
     async def increment_event_count(
         self,
@@ -361,7 +308,7 @@ Guidelines:
                 event_count=existing_entry.event_count + 1,
                 window_offset=existing_entry.window_offset,
                 summary=existing_entry.summary,
-                segment_index=existing_entry.segment_index,
+                anchor_index=existing_entry.anchor_index,
             )
 
             await self._update_entry_in_file(metadata_path, session_id, updated_entry)
@@ -400,7 +347,7 @@ Guidelines:
                 event_count=existing_entry.event_count,
                 window_offset=existing_entry.window_offset,
                 summary=summary,
-                segment_index=existing_entry.segment_index,
+                anchor_index=existing_entry.anchor_index,
             )
 
             await self._update_entry_in_file(metadata_path, session_id, updated_entry)
@@ -440,11 +387,56 @@ Guidelines:
                 event_count=existing_entry.event_count,
                 window_offset=window_offset,
                 summary=existing_entry.summary,
-                segment_index=existing_entry.segment_index,
+                anchor_index=existing_entry.anchor_index,
             )
 
             await self._update_entry_in_file(metadata_path, session_id, updated_entry)
         logger.debug(f"Updated window_offset for {agent_id}/{session_id}: {window_offset}")
+
+    async def add_anchor(
+        self,
+        agent_id: str,
+        session_id: str,
+        anchor: "TapeAnchor",
+    ) -> None:
+        """Add a TapeAnchor to anchor_index for a session."""
+        from simu_emperor.memory.models import TapeAnchor as TapeAnchorType
+
+        async with self._metadata_lock:
+            metadata_path = self._get_metadata_path(agent_id)
+            existing_entry = await self._find_entry(metadata_path, session_id)
+            if not existing_entry:
+                logger.warning(f"Cannot add anchor: entry not found for {session_id}")
+                return
+
+            updated_index = list(existing_entry.anchor_index)
+            updated_index.append(anchor.to_dict())
+
+            updated_entry = TapeMetadataEntry(
+                session_id=existing_entry.session_id,
+                title=existing_entry.title,
+                created_tick=existing_entry.created_tick,
+                created_time=existing_entry.created_time,
+                last_updated_tick=existing_entry.last_updated_tick,
+                last_updated_time=existing_entry.last_updated_time,
+                event_count=existing_entry.event_count,
+                window_offset=existing_entry.window_offset,
+                summary=existing_entry.summary,
+                anchor_index=updated_index,
+            )
+            await self._update_entry_in_file(metadata_path, session_id, updated_entry)
+        logger.debug(f"Added anchor {anchor.anchor_id} for {agent_id}/{session_id}")
+
+    async def get_anchors(self, agent_id: str, session_id: str) -> list[dict]:
+        """Get all anchors for a session."""
+        metadata_path = self._get_metadata_path(agent_id)
+        entry = await self._find_entry(metadata_path, session_id)
+        return entry.anchor_index if entry else []
+
+    async def get_latest_anchor(self, agent_id: str, session_id: str) -> dict | None:
+        """Get the most recent anchor for a session."""
+        anchors = await self.get_anchors(agent_id, session_id)
+        return anchors[-1] if anchors else None
 
     def _get_metadata_path(self, agent_id: str) -> Path:
         """
@@ -456,13 +448,9 @@ Guidelines:
         Returns:
             Path to tape_meta.jsonl file
         """
-        return (
-            self.memory_dir / "agents" / agent_id / self.METADATA_FILE
-        )
+        return self.memory_dir / "agents" / agent_id / self.METADATA_FILE
 
-    async def _find_entry(
-        self, metadata_path: Path, session_id: str
-    ) -> TapeMetadataEntry | None:
+    async def _find_entry(self, metadata_path: Path, session_id: str) -> TapeMetadataEntry | None:
         """
         Find an entry by session_id in tape_meta.jsonl.
 
@@ -491,9 +479,7 @@ Guidelines:
 
         return None
 
-    async def _append_entry_to_file(
-        self, metadata_path: Path, entry: TapeMetadataEntry
-    ) -> None:
+    async def _append_entry_to_file(self, metadata_path: Path, entry: TapeMetadataEntry) -> None:
         """
         Append a new entry to tape_meta.jsonl using atomic write pattern.
 
@@ -568,9 +554,7 @@ Guidelines:
         entries.append(updated_entry.to_dict())
 
         # Build content for atomic write
-        content = "\n".join(
-            json.dumps(entry_data, ensure_ascii=False) for entry_data in entries
-        )
+        content = "\n".join(json.dumps(entry_data, ensure_ascii=False) for entry_data in entries)
         if content:  # Ensure trailing newline
             content += "\n"
 
