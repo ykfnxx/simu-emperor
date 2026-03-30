@@ -96,6 +96,7 @@ class ContextManager:
         # V4: Track absolute tape position for segment_index updates
         self._tape_position_counter: int = 0  # Current position in tape.jsonl
         self._window_offset: int = 0  # Position anchor for incremental loading
+        self._current_anchor_id: str | None = None
 
     def event_to_messages(self, event: dict) -> list[dict]:
         """
@@ -196,6 +197,23 @@ class ContextManager:
                 return [{"role": "user", "content": "\n".join(parts)}]
             else:
                 return []
+        elif event_type == EventType.MEMORY_INJECTED:
+            results = event.get("payload", {}).get("results", [])
+            source = event.get("payload", {}).get("source", "unknown")
+            query = event.get("payload", {}).get("query", "")
+            parts = ["\n🧠 ===== 记忆回忆 ====="]
+            if query:
+                parts.append(f"查询: {query}")
+            parts.append(f"来源: {source}")
+            for i, result in enumerate(results):
+                parts.append(f"\n--- 记忆片段 {i + 1} ---")
+                parts.append(f"摘要: {result.get('summary', '')}")
+                if result.get("tick_range"):
+                    parts.append(f"时间: Tick {result['tick_range'][0]}-{result['tick_range'][1]}")
+                if result.get("entities"):
+                    parts.append(f"相关: {', '.join(result['entities'])}")
+            parts.append("===== 记忆结束 =====\n")
+            return [{"role": "user", "content": "\n".join(parts)}]
         else:
             return [{"role": "user", "content": f"[{event_type}] {str(payload)}"}]
 
@@ -276,7 +294,11 @@ class ContextManager:
                 dropped_events = [
                     e for e in original_events if e.get("event_id") in dropped_event_ids
                 ]
-                await self._update_segment_index_for_dropped(dropped_events)
+                try:
+                    await self.execute_handoff(dropped_events, reason="compaction")
+                    self._window_offset += len(dropped_events)
+                except Exception as e:
+                    logger.warning(f"Handoff during load_from_tape failed: {e}")
 
             logger.info(
                 f"自动 compact 完成，最终事件数: {len(self.events)}，"
@@ -535,19 +557,162 @@ class ContextManager:
         # Step 4: 计算 dropped_events 并更新 segment_index
         dropped_events = [e for e in original_events if e not in self.events]
 
-        # Step 5: 更新累积摘要（如果有事件被压缩）
-        if dropped_events and self.tape_metadata_mgr:
-            new_summary = await self._summarize_with_previous(dropped_events, old_summary)
-            if new_summary:
-                self.summary = new_summary
-                await self.tape_metadata_mgr.update_summary(
-                    agent_id=self.agent_id,
-                    session_id=self.session_id,
-                    summary=new_summary,
-                )
-                logger.debug(f"Updated cumulative summary for {self.session_id}")
+        # Step 5: Update via execute_handoff if events were dropped
+        if dropped_events:
+            try:
+                anchor = await self.execute_handoff(dropped_events, reason="compaction")
+                if self.tape_metadata_mgr:
+                    new_summary = anchor.state.get("summary", "")
+                    if new_summary:
+                        self.summary = new_summary
+                        await self.tape_metadata_mgr.update_summary(
+                            agent_id=self.agent_id,
+                            session_id=self.session_id,
+                            summary=new_summary,
+                        )
+                    self._window_offset += len(dropped_events)
+                    await self.tape_metadata_mgr.update_window_offset(
+                        agent_id=self.agent_id,
+                        session_id=self.session_id,
+                        window_offset=self._window_offset,
+                    )
+            except Exception as e:
+                logger.warning(f"Handoff during slide_window failed: {e}")
 
-        await self._update_segment_index_for_dropped(dropped_events)
+    async def execute_handoff(
+        self,
+        events_to_handoff: list[dict],
+        reason: str = "conversation_end",
+    ) -> "TapeAnchor":
+        from simu_emperor.memory.models import TapeAnchor
+        from datetime import datetime, timezone
+
+        if not events_to_handoff:
+            raise ValueError("Cannot handoff empty event list")
+
+        event_brief = self._format_events_brief(events_to_handoff[:10])
+        try:
+            summary = await self.llm.call(
+                prompt=f"请用1-2句话总结以下对话内容（≤100字）：\n{event_brief}",
+                system_prompt="你是对话总结器。",
+                temperature=0.3,
+                max_tokens=100,
+                task_type="memory_summarize",
+            )
+            summary = (summary or "").strip()[:100]
+        except Exception as e:
+            logger.debug(f"Handoff summarization failed: {e}")
+            summary = f"{len(events_to_handoff)} events handed off"
+
+        entities = await self._extract_entities(events_to_handoff)
+        decisions = self._extract_decisions(events_to_handoff)
+        tick_range = self._extract_tick_range(events_to_handoff)
+        source_entry_ids = [e.get("event_id", "") for e in events_to_handoff]
+
+        anchor_id = f"anchor:{self.session_id}:{self._tape_position_counter}"
+        now = datetime.now(timezone.utc).isoformat()
+        anchor = TapeAnchor(
+            anchor_id=anchor_id,
+            name=f"handoff/{reason}",
+            tape_position=self._tape_position_counter,
+            state={
+                "summary": summary,
+                "source_entry_ids": source_entry_ids,
+                "tick_range": tick_range,
+                "entities": entities,
+                "decisions": decisions,
+            },
+            created_at=now,
+            created_tick=tick_range[0] if tick_range and tick_range[0] else None,
+        )
+
+        self._current_anchor_id = anchor_id
+
+        if self.tape_metadata_mgr:
+            await self.tape_metadata_mgr.add_anchor(
+                agent_id=self.agent_id,
+                session_id=self.session_id,
+                anchor=anchor,
+            )
+
+        if self._vector_searcher:
+            try:
+                from simu_emperor.memory.models import TapeView
+
+                view = TapeView(
+                    view_id=f"view:{anchor_id}",
+                    session_id=self.session_id,
+                    agent_id=self.agent_id,
+                    anchor_start_id=None,
+                    anchor_end_id=anchor_id,
+                    tape_position_start=self._window_offset,
+                    tape_position_end=self._tape_position_counter - 1,
+                    events=events_to_handoff,
+                    anchor_state=anchor.state,
+                    tick_start=tick_range[0] if tick_range else None,
+                    tick_end=tick_range[1] if tick_range else None,
+                    event_count=len(events_to_handoff),
+                )
+                await self._vector_searcher.add_segments([view])
+            except Exception as e:
+                logger.warning(f"Failed to add handoff view to vector store: {e}")
+
+        logger.info(
+            f"Handoff complete: anchor={anchor_id}, reason={reason}, events={len(events_to_handoff)}"
+        )
+        return anchor
+
+    async def _extract_entities(self, events: list[dict]) -> list[str]:
+        event_brief = self._format_events_brief(events[:10])
+        try:
+            result = await self.llm.call(
+                prompt=f"从以下对话中提取关键实体（人名、地名、机构名），只返回逗号分隔的列表，不要解释：\n{event_brief}",
+                system_prompt="你是实体提取器。",
+                temperature=0.1,
+                max_tokens=50,
+                task_type="memory_extract",
+            )
+            if result:
+                return [e.strip() for e in result.split(",") if e.strip()][:10]
+        except Exception as e:
+            logger.debug(f"Entity extraction failed: {e}")
+        return []
+
+    def _extract_decisions(self, events: list[dict]) -> list[str]:
+        import json as _json
+
+        decisions = []
+        for event in events:
+            event_type = event.get("type", "")
+            payload = event.get("payload", {})
+            if isinstance(payload, dict):
+                if event_type == "observation":
+                    action = payload.get("action", "")
+                    if action in (
+                        "allocate_funds",
+                        "adjust_tax",
+                        "build_irrigation",
+                        "recruit_troops",
+                    ):
+                        decisions.append(
+                            f"{action}: {_json.dumps(payload, ensure_ascii=False)[:100]}"
+                        )
+        return decisions[:5]
+
+    def _extract_tick_range(self, events: list[dict]) -> list[int | None]:
+        ticks = []
+        for event in events:
+            tick = event.get("tick")
+            if tick is None and isinstance(event.get("payload"), dict):
+                tick = event["payload"].get("tick")
+            if tick is not None:
+                try:
+                    ticks.append(int(tick))
+                except (ValueError, TypeError):
+                    pass
+        if ticks:
+            return [min(ticks), max(ticks)]
+        return [None, None]
 
     def get_context_messages(self) -> list[dict]:
         """
@@ -647,102 +812,6 @@ class ContextManager:
 
         return False
 
-    async def _update_segment_index_for_dropped(self, dropped_events: list[dict]) -> None:
-        """
-        V4: Update segment_index in tape_meta.jsonl for dropped events.
-
-        Called during window sliding to record compacted segments.
-
-        Args:
-            dropped_events: Events that were dropped from the window
-        """
-        if not dropped_events or not self.tape_metadata_mgr:
-            return
-
-        try:
-            # Calculate segment info
-            tick = self._extract_tick_from_events(dropped_events)
-
-            # Generate summary for dropped segment
-            dropped_summary = await self._summarize_events(dropped_events)
-
-            if not dropped_summary:
-                return
-
-            # Calculate absolute positions using window_offset
-            # The dropped events were at positions [window_offset, window_offset + len(dropped_events))
-            start_position = self._window_offset
-            end_position = self._window_offset + len(dropped_events) - 1
-
-            segment_info = {
-                "start": start_position,
-                "end": end_position,
-                "summary": dropped_summary,
-                "tick": tick,
-            }
-
-            await self.tape_metadata_mgr.update_segment_index(
-                agent_id=self.agent_id,
-                session_id=self.session_id,
-                segment_info=segment_info,
-            )
-
-            # V4+: Add segment to vector store for semantic search
-            if self._vector_searcher:
-                await self._add_segment_to_vector_store(
-                    dropped_events, start_position, end_position, tick
-                )
-
-            # Move window offset forward after recording segment
-            self._window_offset += len(dropped_events)
-            await self.tape_metadata_mgr.update_window_offset(
-                agent_id=self.agent_id,
-                session_id=self.session_id,
-                window_offset=self._window_offset,
-            )
-
-            logger.debug(
-                f"Updated segment_index for {self.session_id}: "
-                f"positions [{start_position}-{end_position}], {len(dropped_events)} events, "
-                f"new window_offset: {self._window_offset}"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to update segment_index: {e}")
-
-    async def _add_segment_to_vector_store(
-        self, events: list[dict], start_pos: int, end_pos: int, tick: int | None
-    ) -> None:
-        """
-        V4+: Add compacted segment to vector store for semantic search.
-
-        Args:
-            events: Dropped events to add
-            start_pos: Start position in tape
-            end_pos: End position in tape
-            tick: Tick number
-        """
-        if not self._vector_searcher:
-            return
-
-        try:
-            from simu_emperor.memory.models import TapeSegment
-
-            segment = TapeSegment(
-                session_id=self.session_id,
-                agent_id=self.agent_id,
-                start_position=start_pos,
-                end_position=end_pos,
-                event_count=len(events),
-                events=events,
-                tick_start=tick,
-                tick_end=tick,
-            )
-
-            await self._vector_searcher.add_segments([segment])
-            logger.debug(f"Added segment to vector store: {self.session_id}:{start_pos}:{end_pos}")
-        except Exception as e:
-            logger.warning(f"Failed to add segment to vector store: {e}")
-
     async def _summarize_events(self, events: list[dict]) -> str | None:
         """
         Generate a summary for a list of events.
@@ -832,57 +901,6 @@ class ContextManager:
             if isinstance(payload, dict) and (tick := payload.get("tick")):
                 return tick
         return None
-
-    async def _summarize_with_previous(
-        self,
-        dropped_events: list[dict],
-        previous_summary: str,
-    ) -> str | None:
-        """
-        Generate a cumulative summary by combining previous summary with dropped events.
-
-        Args:
-            dropped_events: Events that were dropped from the window
-            previous_summary: Previous cumulative summary
-
-        Returns:
-            New cumulative summary, or None if no events were dropped
-        """
-        if not dropped_events:
-            return None
-
-        dropped_brief = self._format_events_brief(dropped_events)
-
-        try:
-            prompt = f"""请根据以下信息，生成一份累积的对话摘要：
-
-【之前的对话摘要】
-{previous_summary if previous_summary else "(这是对话开始，无之前摘要)"}
-
-【刚刚结束的对话】
-{dropped_brief}
-
-请生成新的摘要，要求：
-1. 整合两部分内容，保持时间线连贯
-2. 简洁但保留关键信息
-3. 控制在 150 字以内
-"""
-
-            new_summary = await self.llm.call(
-                prompt=prompt,
-                system_prompt="你是历史记录整理员。",
-                temperature=0.3,
-                max_tokens=200,
-                task_type="memory_summarize",
-            )
-
-            return new_summary.strip()[:200] if new_summary else previous_summary
-        except Exception as e:
-            logger.debug(f"LLM cumulative summarization failed: {type(e).__name__}: {e}")
-            # Fallback: append brief to previous summary
-            if previous_summary:
-                return f"{previous_summary} | {dropped_brief[:100]}"
-            return dropped_brief[:150]
 
     def _format_events_brief(self, events: list[dict]) -> str:
         """
