@@ -2,7 +2,7 @@ display_name: 江南巡抚
 
 skills:
   query_data:
-    provinces: [jiangsu]
+    provinces: [jiangnan]
     fields:
       - population.*
       - agriculture.*

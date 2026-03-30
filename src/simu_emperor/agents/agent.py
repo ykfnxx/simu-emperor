@@ -213,7 +213,7 @@ class Agent:
                             "type": "string",
                             "enum": [
                                 "zhili",
-                                "jiangsu",
+                                "jiangnan",
                                 "zhejiang",
                                 "fujian",
                                 "huguang",
