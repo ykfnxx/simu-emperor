@@ -5,12 +5,11 @@ from simu_emperor.persistence.database import (
     get_connection,
     init_database,
 )
-from simu_emperor.persistence.repositories import AgentRepository, GameRepository
+from simu_emperor.persistence.repositories import GameRepository
 
 __all__ = [
     "init_database",
     "get_connection",
     "close_database",
     "GameRepository",
-    "AgentRepository",
 ]

@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
@@ -81,14 +82,16 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, tmp_path, monkeypatch):
     mock_tape_metadata_mgr = AsyncMock()
 
     agent = Agent(
-        agent_id="test_agent",
-        event_bus=mock_event_bus,
-        llm_provider=mock_llm,
-        data_dir=temp_data_dir,
-        repository=Mock(),
-        session_manager=mock_session_manager,
-        tape_writer=mock_tape_writer,
-        tape_metadata_mgr=mock_tape_metadata_mgr,
+        AgentConfig(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=Mock(),
+            session_manager=mock_session_manager,
+            tape_writer=mock_tape_writer,
+            tape_metadata_mgr=mock_tape_metadata_mgr,
+        )
     )
 
     yield agent

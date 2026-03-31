@@ -635,6 +635,14 @@ Engine → apply_tick() → applies active Effects
 Game state updates → tick_completed event → Agents notified
 ```
 
+### Session State Isolation
+
+Every agent maintains independent state within each session. All state checks and mutations must be scoped to the calling agent — never shared across agents in the same session.
+
+- **`agent_states: dict[str, str]`** — per-agent state (`ACTIVE` / `WAITING_REPLY` / `FINISHED` / `FAILED`).
+- **`pending_async_replies: dict[str, int]`** — per-agent async reply counter. Each agent tracks only replies to messages it initiated. An agent must never be blocked by another agent's pending count.
+- **Cross-session messages**: when agent A sends `await_reply=true` to agent B from a task session, only A's pending counter increments and only A enters `WAITING_REPLY`. B processes the message normally.
+
 ### Key Patterns
 
 - **Pydantic v2** models with `Decimal` precision for all game data

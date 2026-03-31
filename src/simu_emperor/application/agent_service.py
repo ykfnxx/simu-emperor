@@ -208,12 +208,12 @@ class AgentService:
         Raises:
             RuntimeError: AgentGenerator not initialized
         """
-        from simu_emperor.agents.agent_generator import AgentConfig
+        from simu_emperor.agents.agent_generator import AgentProfile
 
         if not self._agent_generator:
             raise RuntimeError("AgentGenerator not initialized")
 
-        config = AgentConfig(
+        config = AgentProfile(
             agent_id=agent_id,
             title=title,
             name=name,
@@ -247,59 +247,6 @@ class AgentService:
             "data_scope": generated.data_scope,
             "role_map_entry": generated.role_map_entry,
         }
-
-    async def add_generated_agent(
-        self,
-        agent_id: str,
-        title: str,
-        name: str,
-        duty: str,
-        personality: str,
-        province: str | None = None,
-    ) -> dict:
-        """生成配置并启动 agent（完整流程）
-
-        Args:
-            agent_id: Agent 唯一标识符
-            title: 官职
-            name: 姓名
-            duty: 职责描述
-            personality: 为人描述
-            province: 管辖省份（可选）
-
-        Returns:
-            {
-                "success": bool,
-                "agent_id": str,
-                "message": str,
-                "soul_md": str,
-                "data_scope": str,
-                "role_map_entry": str,
-            }
-        """
-        # 1. 生成配置文件
-        result = await self.generate_agent(
-            agent_id=agent_id,
-            title=title,
-            name=name,
-            duty=duty,
-            personality=personality,
-            province=province,
-        )
-
-        # 2. 初始化并启动
-        if self.agent_manager:
-            if self.agent_manager.initialize_agent(agent_id):
-                self.agent_manager.add_agent(agent_id)
-                result["message"] = f"Agent {agent_id} 生成并启动成功"
-            else:
-                result["message"] = f"Agent {agent_id} 配置已生成，但初始化失败"
-                result["success"] = False
-        else:
-            result["message"] = f"Agent {agent_id} 配置已生成，但 AgentManager 未初始化"
-            result["success"] = False
-
-        return result
 
     def _append_to_role_map(self, entry: str) -> None:
         """追加条目到 role_map.md
@@ -356,7 +303,7 @@ class AgentService:
             self._task_tracker = get_task_tracker()
         return self._task_tracker
 
-    async def add_generated_agent_async(
+    async def add_generated_agent(
         self,
         agent_id: str,
         title: str,

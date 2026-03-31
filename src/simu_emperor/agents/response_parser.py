@@ -39,25 +39,7 @@ def parse_execution_result(response: str) -> dict[str, Any]:
     try:
         data = json.loads(response.strip())
         if isinstance(data, dict):
-            # 提取必需字段
-            narrative = data.get("narrative", response)
-            action = data.get("action", "unknown")
-
-            # 提取可选字段到 params
-            params = {}
-            for key in ["effects", "fidelity", "notifications"]:
-                if key in data:
-                    params[key] = data[key]
-
-            # 如果有 params 字段，合并它
-            if "params" in data and isinstance(data["params"], dict):
-                params.update(data["params"])
-
-            return {
-                "narrative": narrative,
-                "action": action,
-                "params": params,
-            }
+            return _extract_from_dict(data, response)
     except json.JSONDecodeError:
         pass
 
@@ -67,25 +49,7 @@ def parse_execution_result(response: str) -> dict[str, Any]:
         try:
             data = json.loads(json_match.group(1).strip())
             if isinstance(data, dict):
-                # 提取必需字段
-                narrative = data.get("narrative", response)
-                action = data.get("action", "unknown")
-
-                # 提取可选字段到 params
-                params = {}
-                for key in ["effects", "fidelity", "notifications"]:
-                    if key in data:
-                        params[key] = data[key]
-
-                # 如果有 params 字段，合并它
-                if "params" in data and isinstance(data["params"], dict):
-                    params.update(data["params"])
-
-                return {
-                    "narrative": narrative,
-                    "action": action,
-                    "params": params,
-                }
+                return _extract_from_dict(data, response)
         except json.JSONDecodeError:
             pass
 
@@ -104,32 +68,28 @@ def parse_execution_result(response: str) -> dict[str, Any]:
     return _get_default_result(response)
 
 
-def _validate_result(data: dict[str, Any]) -> bool:
+def _extract_from_dict(data: dict, response: str) -> dict[str, Any]:
+    """Extract execution result from a parsed JSON dict.
+
+    Merges known optional fields (effects, fidelity, notifications)
+    and any nested ``params`` dict into a single ``params`` dict.
     """
-    验证解析结果是否有效
+    narrative = data.get("narrative", response)
+    action = data.get("action", "unknown")
 
-    Args:
-        data: 解析后的字典
+    params: dict[str, Any] = {}
+    for key in ("effects", "fidelity", "notifications"):
+        if key in data:
+            params[key] = data[key]
 
-    Returns:
-        是否有效
-    """
-    # 必需字段：narrative, action
-    if "narrative" not in data or "action" not in data:
-        return False
+    if "params" in data and isinstance(data["params"], dict):
+        params.update(data["params"])
 
-    # 字段类型检查
-    if not isinstance(data["narrative"], str):
-        return False
-
-    if not isinstance(data["action"], str):
-        return False
-
-    # params 是可选的
-    if "params" in data and not isinstance(data["params"], dict):
-        return False
-
-    return True
+    return {
+        "narrative": narrative,
+        "action": action,
+        "params": params,
+    }
 
 
 def _get_default_result(response: str) -> dict[str, Any]:

@@ -44,8 +44,10 @@ class Session:
     # 等待管理（Main Session 专用）
     waiting_for_tasks: list[str] = field(default_factory=list)  # 正在等待的 task 列表
 
-    # 异步响应计数（Task Session 专用）
-    pending_async_replies: int = 0  # 正在等待的异步响应数量
+    # Per-agent async reply counters
+    pending_async_replies: dict[str, int] = field(default_factory=dict)
+    # Format: {"agent:revenue_minister": 2, "agent:governor_jiangnan": 0}
+    # Each agent tracks only replies to messages it initiated.
     pending_message_ids: list[str] = field(default_factory=list)  # 发出的消息ID列表
 
     # Per-agent 状态管理（每个 agent 在 session 中的独立状态）
@@ -93,6 +95,15 @@ class Session:
                 return None
             return datetime.fromisoformat(value)
 
+        raw_pending = data.get("pending_async_replies", {})
+        if isinstance(raw_pending, int):
+            # Migrate legacy format: session-level int → per-agent dict
+            pending_async_replies = {}
+        elif isinstance(raw_pending, dict):
+            pending_async_replies = raw_pending
+        else:
+            pending_async_replies = {}
+
         return cls(
             session_id=session_id,
             parent_id=data.get("parent_id"),
@@ -103,7 +114,7 @@ class Session:
             timeout_notified_at=parse_datetime(data.get("timeout_notified_at")),
             root_event_id=data.get("root_event_id"),
             waiting_for_tasks=data.get("waiting_for_tasks", []),
-            pending_async_replies=data.get("pending_async_replies", 0),
+            pending_async_replies=pending_async_replies,
             pending_message_ids=data.get("pending_message_ids", []),
             agent_states=data.get("agent_states", {}),
             created_at=parse_datetime(data.get("created_at")) or utcnow(),

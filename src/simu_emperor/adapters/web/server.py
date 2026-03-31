@@ -553,7 +553,7 @@ async def add_generated_agent(request: AgentGenerateRequest):
             try:
                 await task_tracker.run_task(
                     task.task_id,
-                    lambda: game_instance.agent_service.add_generated_agent_async(
+                    lambda: game_instance.agent_service.add_generated_agent(
                         agent_id=request.agent_id,
                         title=request.title,
                         name=request.name,

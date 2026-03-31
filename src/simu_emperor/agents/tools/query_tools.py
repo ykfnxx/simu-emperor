@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from simu_emperor.event_bus.event import Event
+from simu_emperor.agents.tools.registry import ToolProvider, tool
 from simu_emperor.agents.tools.role_map_parser import RoleMapParser
 
 
 logger = logging.getLogger(__name__)
 
 
-class QueryTools:
+class QueryTools(ToolProvider):
     """Query tool handlers - return data to LLM
 
     This class contains all query-type tool handlers that retrieve
@@ -52,6 +53,32 @@ class QueryTools:
         self.engine = engine
         self._role_map_parser = RoleMapParser(data_dir)
 
+    @tool(
+        name="query_province_data",
+        description="查询某个省份的特定数据字段",
+        parameters={
+            "type": "object",
+            "properties": {
+                "province_id": {
+                    "type": "string",
+                    "enum": [
+                        "zhili",
+                        "jiangnan",
+                        "zhejiang",
+                        "fujian",
+                        "huguang",
+                        "sichuan",
+                        "shaanxi",
+                        "shandong",
+                        "jiangxi",
+                    ],
+                },
+                "field_path": {"type": "string"},
+            },
+            "required": ["province_id", "field_path"],
+        },
+        category="query",
+    )
     async def query_province_data(self, args: dict, event: Event) -> str:
         """Query province-specific data (V4: 4 core fields)"""
         if not self.repository:
@@ -96,6 +123,27 @@ class QueryTools:
             logger.error(f"Agent {self.agent_id} error querying province data: {e}")
             return f"❌ 查询失败：{str(e)}"
 
+    @tool(
+        name="query_national_data",
+        description="查询国家级数据",
+        parameters={
+            "type": "object",
+            "properties": {
+                "field_name": {
+                    "type": "string",
+                    "enum": [
+                        "imperial_treasury",
+                        "turn",
+                        "base_tax_rate",
+                        "tribute_rate",
+                        "fixed_expenditure",
+                    ],
+                }
+            },
+            "required": ["field_name"],
+        },
+        category="query",
+    )
     async def query_national_data(self, args: dict, event: Event) -> str:
         """Query national-level data"""
         if not self.repository:
@@ -130,6 +178,12 @@ class QueryTools:
             logger.error(f"Agent {self.agent_id} error querying national data: {e}")
             return f"❌ 查询失败：{str(e)}"
 
+    @tool(
+        name="list_provinces",
+        description="列出所有可访问的省份 ID",
+        parameters={"type": "object", "properties": {}, "required": []},
+        category="query",
+    )
     async def list_provinces(self, args: dict, event: Event) -> str:
         """List all available provinces"""
         if not self.repository:
@@ -151,6 +205,12 @@ class QueryTools:
             logger.error(f"Agent {self.agent_id} error listing provinces: {e}")
             return f"❌ 查询失败：{str(e)}"
 
+    @tool(
+        name="list_agents",
+        description="列出所有活跃的官员",
+        parameters={"type": "object", "properties": {}, "required": []},
+        category="query",
+    )
     async def list_agents(self, args: dict, event: Event) -> str:
         """List all active agents from role_map.md"""
         agents = self._role_map_parser.parse()
@@ -170,6 +230,16 @@ class QueryTools:
         logger.info(f"Agent {self.agent_id} listed agents: {[a['agent_id'] for a in agents]}")
         return "\n".join(result_lines)
 
+    @tool(
+        name="get_agent_info",
+        description="获取某个官员的详细信息",
+        parameters={
+            "type": "object",
+            "properties": {"agent_id": {"type": "string"}},
+            "required": ["agent_id"],
+        },
+        category="query",
+    )
     async def get_agent_info(self, args: dict, event: Event) -> str:
         """Get detailed information about a specific agent"""
         agent_id = args.get("agent_id")
@@ -189,6 +259,25 @@ class QueryTools:
 
         return f"## {title} {name}\n**职责**: {duty}\n**适用命令**: {commands}"
 
+    @tool(
+        name="query_incidents",
+        description="查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤",
+        parameters={
+            "type": "object",
+            "properties": {
+                "filter_province": {
+                    "type": "string",
+                    "description": "按省份 ID 过滤（可选）",
+                },
+                "filter_source": {
+                    "type": "string",
+                    "description": "按来源过滤（可选）",
+                },
+            },
+            "required": [],
+        },
+        category="query",
+    )
     async def query_incidents(self, args: dict, event: Event) -> str:
         """Query active incidents, optionally filtered by province or source."""
         if not self.engine:
@@ -201,11 +290,9 @@ class QueryTools:
 
         if filter_province:
             incidents = [
-                inc for inc in incidents
-                if any(
-                    f"provinces.{filter_province}." in eff.target_path
-                    for eff in inc.effects
-                )
+                inc
+                for inc in incidents
+                if any(f"provinces.{filter_province}." in eff.target_path for eff in inc.effects)
             ]
 
         if filter_source:

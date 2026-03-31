@@ -2,7 +2,6 @@
 
 V4 数据模型：
 - GameRepository - NationData 持久化
-- AgentRepository - Agent 状态管理
 - IncidentRepository - Incident 持久化
 """
 
@@ -181,119 +180,6 @@ class GameRepository:
         await self.save_nation_data(nation)
 
 
-class AgentRepository:
-    """Agent 状态 Repository (V4).
-
-    负责：
-    - 管理 Agent 活跃状态
-    - 保存/加载 Agent 配置 (soul, data_scope)
-    """
-
-    def __init__(self, conn: Connection | None = None):
-        """初始化 Repository.
-
-        Args:
-            conn: 数据库连接，如果为 None 则自动获取
-        """
-        self.conn = conn
-
-    async def _get_conn(self) -> Connection:
-        """获取数据库连接."""
-        if self.conn is None:
-            return await get_connection()
-        return self.conn
-
-    async def get_active_agents(self) -> list[str]:
-        """获取所有活跃的 Agent ID.
-
-        Returns:
-            Agent ID 列表
-        """
-        conn = await self._get_conn()
-        cursor = await conn.execute("SELECT agent_id FROM agent_state WHERE is_active = 1")
-        rows = await cursor.fetchall()
-
-        return [row[0] for row in rows]
-
-    async def set_agent_active(self, agent_id: str, is_active: bool = True) -> None:
-        """设置 Agent 活跃状态.
-
-        Args:
-            agent_id: Agent ID
-            is_active: 是否活跃
-        """
-        conn = await self._get_conn()
-        await conn.execute(
-            """
-            INSERT INTO agent_state (agent_id, is_active, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                is_active = excluded.is_active,
-                updated_at = excluded.updated_at
-            """,
-            (
-                agent_id,
-                1 if is_active else 0,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        await conn.commit()
-        logger.info(f"Agent {agent_id} active status set to {is_active}")
-
-    async def save_agent_config(
-        self,
-        agent_id: str,
-        soul_markdown: str | None = None,
-        data_scope_yaml: str | None = None,
-    ) -> None:
-        """保存 Agent 配置.
-
-        Args:
-            agent_id: Agent ID
-            soul_markdown: Soul 内容
-            data_scope_yaml: Data Scope 内容
-        """
-        conn = await self._get_conn()
-        await conn.execute(
-            """
-            INSERT OR REPLACE INTO agent_state (agent_id, soul_markdown, data_scope_yaml, updated_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                agent_id,
-                soul_markdown,
-                data_scope_yaml,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        await conn.commit()
-        logger.debug(f"Agent config saved: {agent_id}")
-
-    async def load_agent_config(self, agent_id: str) -> dict[str, str | None]:
-        """加载 Agent 配置.
-
-        Args:
-            agent_id: Agent ID
-
-        Returns:
-            配置字典，包含 soul_markdown 和 data_scope_yaml
-        """
-        conn = await self._get_conn()
-        cursor = await conn.execute(
-            "SELECT soul_markdown, data_scope_yaml FROM agent_state WHERE agent_id = ?",
-            (agent_id,),
-        )
-        row = await cursor.fetchone()
-
-        if row is None:
-            return {"soul_markdown": None, "data_scope_yaml": None}
-
-        return {
-            "soul_markdown": row[0],
-            "data_scope_yaml": row[1],
-        }
-
-
 class IncidentRepository:
     """Incident 持久化 Repository (V4).
 
@@ -320,14 +206,16 @@ class IncidentRepository:
         """
         conn = await self._get_conn()
 
-        effects_json = json.dumps([
-            {
-                "target_path": eff.target_path,
-                "add": str(eff.add) if eff.add is not None else None,
-                "factor": str(eff.factor) if eff.factor is not None else None,
-            }
-            for eff in incident.effects
-        ])
+        effects_json = json.dumps(
+            [
+                {
+                    "target_path": eff.target_path,
+                    "add": str(eff.add) if eff.add is not None else None,
+                    "factor": str(eff.factor) if eff.factor is not None else None,
+                }
+                for eff in incident.effects
+            ]
+        )
 
         await conn.execute(
             """
@@ -397,27 +285,29 @@ class IncidentRepository:
             effects_data = json.loads(effects_json_str)
             effects = []
             for eff_data in effects_data:
-                effects.append(Effect(
-                    target_path=eff_data["target_path"],
-                    add=Decimal(eff_data["add"]) if eff_data.get("add") else None,
-                    factor=Decimal(eff_data["factor"]) if eff_data.get("factor") else None,
-                ))
-            incidents.append(Incident(
-                incident_id=incident_id,
-                title=title,
-                description=description,
-                effects=effects,
-                source=source,
-                remaining_ticks=remaining_ticks,
-                applied=True,  # 从 DB 恢复的 incident，add 效果已经应用过
-            ))
+                effects.append(
+                    Effect(
+                        target_path=eff_data["target_path"],
+                        add=Decimal(eff_data["add"]) if eff_data.get("add") else None,
+                        factor=Decimal(eff_data["factor"]) if eff_data.get("factor") else None,
+                    )
+                )
+            incidents.append(
+                Incident(
+                    incident_id=incident_id,
+                    title=title,
+                    description=description,
+                    effects=effects,
+                    source=source,
+                    remaining_ticks=remaining_ticks,
+                    applied=True,  # 从 DB 恢复的 incident，add 效果已经应用过
+                )
+            )
 
         logger.debug(f"Loaded {len(incidents)} active incidents")
         return incidents
 
-    async def get_incident_history(
-        self, limit: int = 20, source: str | None = None
-    ) -> list[dict]:
+    async def get_incident_history(self, limit: int = 20, source: str | None = None) -> list[dict]:
         """查询 Incident 历史.
 
         Args:

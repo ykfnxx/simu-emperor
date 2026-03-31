@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from simu_emperor.agents.config import AgentState
 from simu_emperor.common import FileOperationsHelper
 from simu_emperor.config import settings
 from simu_emperor.session.constants import MAX_TASK_DEPTH
@@ -131,7 +132,7 @@ class SessionManager:
 
         # 惰性初始化：首次访问时自动设置为 ACTIVE
         if normalized_id not in session.agent_states:
-            session.agent_states[normalized_id] = "ACTIVE"
+            session.agent_states[normalized_id] = AgentState.ACTIVE.value
             await self.save_manifest()
 
         return session.agent_states[normalized_id]
@@ -194,11 +195,14 @@ class SessionManager:
         if not session:
             raise ValueError(f"Session not found: {session_id}")
 
-        session.pending_async_replies += count
+        normalized_id = agent_id if agent_id.startswith("agent:") else f"agent:{agent_id}"
+
+        session.pending_async_replies[normalized_id] = (
+            session.pending_async_replies.get(normalized_id, 0) + count
+        )
         session.updated_at = datetime.now(timezone.utc)
 
-        # 设置调用者 agent 的状态为 WAITING_REPLY
-        await self.set_agent_state(session_id, agent_id, "WAITING_REPLY")
+        await self.set_agent_state(session_id, agent_id, AgentState.WAITING_REPLY.value)
 
         await self.save_manifest()
 
@@ -219,18 +223,24 @@ class SessionManager:
         if not session:
             raise ValueError(f"Session not found: {session_id}")
 
-        session.pending_async_replies = max(0, session.pending_async_replies - count)
+        normalized_id = agent_id if agent_id.startswith("agent:") else f"agent:{agent_id}"
+
+        current = session.pending_async_replies.get(normalized_id, 0)
+        new_count = max(0, current - count)
+        if new_count > 0:
+            session.pending_async_replies[normalized_id] = new_count
+        else:
+            session.pending_async_replies.pop(normalized_id, None)
         session.updated_at = datetime.now(timezone.utc)
 
-        all_replies_received = session.pending_async_replies == 0
+        all_replies_received = new_count == 0
 
         if all_replies_received:
-            # 恢复 agent 状态为 ACTIVE
-            await self.set_agent_state(session_id, agent_id, "ACTIVE")
+            await self.set_agent_state(session_id, agent_id, AgentState.ACTIVE.value)
 
         await self.save_manifest()
 
-        return (all_replies_received, session.pending_async_replies)
+        return (all_replies_received, new_count)
 
     async def get_context_manager(
         self, session_id: str, agent_id: str, include_ancestors: bool = False

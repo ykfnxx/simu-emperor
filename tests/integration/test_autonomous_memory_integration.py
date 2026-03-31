@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -33,13 +34,15 @@ def agent(mock_event_bus, mock_tape_metadata_mgr, tmp_path):
     soul_path.write_text("# 李卫\n\n你是直隶巡抚李卫，性格刚直。\n", encoding="utf-8")
 
     return Agent(
-        agent_id="governor_zhili",
-        event_bus=mock_event_bus,
-        llm_provider=MockProvider(),
-        data_dir=tmp_path,
-        session_manager=None,
-        tape_writer=MagicMock(),
-        tape_metadata_mgr=mock_tape_metadata_mgr,
+        AgentConfig(
+            agent_id="governor_zhili",
+            event_bus=mock_event_bus,
+            llm_provider=MockProvider(),
+            data_dir=tmp_path,
+            session_manager=None,
+            tape_writer=MagicMock(),
+            tape_metadata_mgr=mock_tape_metadata_mgr,
+        )
     )
 
 
@@ -82,31 +85,31 @@ class TestTickCounterIncrement:
             mock_settings.autonomous_memory.check_interval_ticks = 2
             mock_settings.memory.memory_dir = "data/memory"
 
-            # Mock _process_event_with_llm to track calls
-            agent._process_event_with_llm = AsyncMock()
+            # Mock _react_loop.run to track calls (Phase 2: ReActLoop extracted)
+            agent._react_loop.run = AsyncMock()
             agent._ensure_memory_components = AsyncMock()
 
             # Tick 1: counter becomes 1, 1 % 2 != 0 → no reflection
             await agent._on_event(make_tick_event(1))
             assert agent._memory_tick_counter == 1
-            agent._process_event_with_llm.assert_not_called()
+            agent._react_loop.run.assert_not_called()
 
             # Tick 2: counter becomes 2, 2 % 2 == 0 → reflection!
             await agent._on_event(make_tick_event(2))
             assert agent._memory_tick_counter == 2
-            agent._process_event_with_llm.assert_called_once()
+            agent._react_loop.run.assert_called_once()
 
-            agent._process_event_with_llm.reset_mock()
+            agent._react_loop.run.reset_mock()
 
             # Tick 3: counter becomes 3, 3 % 2 != 0 → no reflection
             await agent._on_event(make_tick_event(3))
             assert agent._memory_tick_counter == 3
-            agent._process_event_with_llm.assert_not_called()
+            agent._react_loop.run.assert_not_called()
 
             # Tick 4: counter becomes 4, 4 % 2 == 0 → reflection!
             await agent._on_event(make_tick_event(4))
             assert agent._memory_tick_counter == 4
-            agent._process_event_with_llm.assert_called_once()
+            agent._react_loop.run.assert_called_once()
 
 
 class TestSoulEvolutionIntegration:

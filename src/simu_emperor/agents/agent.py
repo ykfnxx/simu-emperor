@@ -14,17 +14,22 @@ import logging
 import logging.handlers
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from simu_emperor.agents.config import AgentConfig, AgentState
+from simu_emperor.agents.react_loop import ReActLoop
 from simu_emperor.agents.system_prompts import get_system_prompt
 from simu_emperor.agents.tools import ActionTools, QueryTools
-from simu_emperor.agents.tools.tool_registry import Tool, ToolRegistry
+from simu_emperor.agents.tools.registry import ToolRegistry
+from simu_emperor.agents.utils import write_llm_log
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.llm.base import LLMProvider
-from simu_emperor.session.manager import SessionManager
+
+if TYPE_CHECKING:
+    from simu_emperor.session.manager import SessionManager
 
 
 logger = logging.getLogger(__name__)
@@ -47,46 +52,15 @@ class Agent:
         data_dir: 数据目录
     """
 
-    def __init__(
-        self,
-        agent_id: str,
-        event_bus: EventBus,
-        llm_provider: LLMProvider,
-        data_dir: str | Path,
-        repository=None,
-        session_id: str | None = None,
-        skill_loader=None,
-        session_manager=SessionManager,
-        # V4.1: 注入全局共享实例
-        tape_writer=None,
-        tape_metadata_mgr=None,
-        tape_repository=None,
-        engine=None,
-    ):
-        """
-        初始化 Agent
-
-        Args:
-            agent_id: Agent 唯一标识符
-            event_bus: 事件总线
-            llm_provider: LLM 提供商
-            data_dir: 数据目录（包含 soul.md 和 data_scope.yaml）
-            repository: GameRepository（用于数据查询）
-            session_id: 会话标识符（用于 Context 组装）
-            skill_loader: SkillLoader 实例（用于动态加载 Skill 内容）
-            session_manager: SessionManager（V4 Task Session 支持）
-            tape_writer: V4.1 全局共享的 TapeWriter 实例
-            tape_metadata_mgr: V4.1 全局共享的 TapeMetadataManager 实例
-            engine: Engine 实例（用于 incident 查询）
-        """
-        self.agent_id = agent_id
-        self.event_bus = event_bus
-        self.llm_provider = llm_provider
-        self.data_dir = Path(data_dir)
-        self.repository = repository
-        self.session_id = session_id
-        self._skill_loader = skill_loader
-        self.session_manager = session_manager
+    def __init__(self, config: AgentConfig):
+        self.agent_id = config.agent_id
+        self.event_bus = config.event_bus
+        self.llm_provider = config.llm_provider
+        self.data_dir = Path(config.data_dir)
+        self.repository = config.repository
+        self.session_id = config.session_id
+        self._skill_loader = config.skill_loader
+        self.session_manager = config.session_manager
 
         # 加载 soul 和 data_scope
         self._soul: str | None = None
@@ -95,9 +69,9 @@ class Agent:
         self._load_data_scope()
 
         # V4.1: 使用注入的实例（不再创建自己的副本）
-        self._tape_writer = tape_writer
-        self._tape_metadata_mgr = tape_metadata_mgr
-        self._tape_repository = tape_repository
+        self._tape_writer = config.tape_writer
+        self._tape_metadata_mgr = config.tape_metadata_mgr
+        self._tape_repository = config.tape_repository
 
         # V4.1: Use configured memory_dir
         self._memory_dir = Path(settings.memory.memory_dir).resolve()
@@ -107,7 +81,7 @@ class Agent:
             agent_id=self.agent_id,
             repository=self.repository,
             data_dir=self.data_dir,
-            engine=engine,
+            engine=config.engine,
         )
         self._action_tools = ActionTools(
             agent_id=self.agent_id,
@@ -140,6 +114,22 @@ class Agent:
         self._tool_registry = ToolRegistry()
         self._register_tools()
 
+        # 初始化 ReAct 循环（Phase 2: 从 Agent 中提取）
+        self._react_loop = ReActLoop(
+            agent_id=self.agent_id,
+            llm_provider=self.llm_provider,
+            tool_registry=self._tool_registry,
+            event_bus=self.event_bus,
+            get_context_manager=lambda: self._context_manager,
+            tape_writer=self._tape_writer,
+            agent_logger=self._agent_logger,
+            llm_log_path=self._llm_log_path,
+            call_function=self._call_function_with_result,
+            get_root_event_type=self._get_root_event_type,
+            get_system_prompt=self._get_system_prompt_for_event,
+            check_and_restore_state=self._check_and_restore_agent_state,
+        )
+
         # 初始化记忆系统初始化器
         from simu_emperor.agents.memory_initializer import MemoryInitializer
 
@@ -160,7 +150,7 @@ class Agent:
         self._queue_task: asyncio.Task | None = None
         self._running = False
 
-        logger.info(f"Agent {agent_id} initialized")
+        logger.info(f"Agent {config.agent_id} initialized")
 
     def _init_agent_logger(self) -> None:
         """初始化 Agent 独立日志"""
@@ -192,407 +182,36 @@ class Agent:
         self._llm_log_path = log_dir / f"{self.agent_id}_llm.jsonl"
 
     def _register_tools(self) -> None:
-        """统一注册所有工具到 ToolRegistry"""
-        self._register_query_tools()
-        self._register_memory_tools()
-        self._register_action_tools()
+        """Register all tools via decorator-based discovery."""
+        self._tool_registry.register_provider(self._query_tools)
+        self._tool_registry.register_provider(self._action_tools)
         if self._task_session_tools:
-            self._register_session_tools()
-
-    def _register_query_tools(self) -> None:
-        """注册 Query 类型工具"""
-        # query_province_data
-        self._tool_registry.register(
-            Tool(
-                name="query_province_data",
-                description="查询某个省份的特定数据字段",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "province_id": {
-                            "type": "string",
-                            "enum": [
-                                "zhili",
-                                "jiangnan",
-                                "zhejiang",
-                                "fujian",
-                                "huguang",
-                                "sichuan",
-                                "shaanxi",
-                                "shandong",
-                                "jiangxi",
-                            ],
-                        },
-                        "field_path": {"type": "string"},
-                    },
-                    "required": ["province_id", "field_path"],
-                },
-                handler=self._query_tools.query_province_data,
-                category="query",
-            )
-        )
-
-        # query_national_data
-        self._tool_registry.register(
-            Tool(
-                name="query_national_data",
-                description="查询国家级数据",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "field_name": {
-                            "type": "string",
-                            "enum": [
-                                "imperial_treasury",
-                                "turn",
-                                "base_tax_rate",
-                                "tribute_rate",
-                                "fixed_expenditure",
-                            ],
-                        }
-                    },
-                    "required": ["field_name"],
-                },
-                handler=self._query_tools.query_national_data,
-                category="query",
-            )
-        )
-
-        # list_provinces
-        self._tool_registry.register(
-            Tool(
-                name="list_provinces",
-                description="列出所有可访问的省份 ID",
-                parameters={"type": "object", "properties": {}, "required": []},
-                handler=self._query_tools.list_provinces,
-                category="query",
-            )
-        )
-
-        # list_agents
-        self._tool_registry.register(
-            Tool(
-                name="list_agents",
-                description="列出所有活跃的官员",
-                parameters={"type": "object", "properties": {}, "required": []},
-                handler=self._query_tools.list_agents,
-                category="query",
-            )
-        )
-
-        # get_agent_info
-        self._tool_registry.register(
-            Tool(
-                name="get_agent_info",
-                description="获取某个官员的详细信息",
-                parameters={
-                    "type": "object",
-                    "properties": {"agent_id": {"type": "string"}},
-                    "required": ["agent_id"],
-                },
-                handler=self._query_tools.get_agent_info,
-                category="query",
-            )
-        )
-
-        # query_incidents
-        self._tool_registry.register(
-            Tool(
-                name="query_incidents",
-                description="查询当前活跃的游戏事件（旱灾、丰收等），可按省份或来源过滤",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "filter_province": {
-                            "type": "string",
-                            "description": "按省份 ID 过滤（可选）",
-                        },
-                        "filter_source": {
-                            "type": "string",
-                            "description": "按来源过滤（可选）",
-                        },
-                    },
-                    "required": [],
-                },
-                handler=self._query_tools.query_incidents,
-                category="query",
-            )
-        )
+            self._tool_registry.register_provider(self._task_session_tools)
+        self._register_memory_tools()
 
     def _register_memory_tools(self) -> None:
-        """注册 Memory 类型工具"""
-        self._tool_registry.register(
-            Tool(
-                name="retrieve_memory",
-                description="检索历史记忆",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                        "max_results": {"type": "integer", "default": 5},
-                    },
-                    "required": ["query"],
+        """Register memory tool (uses wrapper for lazy init)."""
+        from simu_emperor.agents.tools.registry import tool as tool_dec
+
+        @tool_dec(
+            name="retrieve_memory",
+            description="检索历史记忆",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer", "default": 5},
                 },
-                handler=self._retrieve_memory_wrapper,
-                category="memory",
-            )
+                "required": ["query"],
+            },
+            category="memory",
         )
+        async def retrieve_memory_wrapper(args: dict, event: Event) -> str:
+            return await self._retrieve_memory_wrapper(args, event)
 
-    def _register_action_tools(self) -> None:
-        """注册 Action 类型工具"""
-        # send_message (统一的消息发送接口)
-        self._tool_registry.register(
-            Tool(
-                name="send_message",
-                description="发送消息（统一接口）",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "recipients": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "content": {"type": "string"},
-                        "await_reply": {"type": "boolean", "default": False},
-                    },
-                    "required": ["recipients", "content"],
-                },
-                handler=self._action_tools.send_message,
-                category="action",
-            )
+        self._tool_registry.register_tool(
+            "retrieve_memory", retrieve_memory_wrapper._tool_meta, retrieve_memory_wrapper
         )
-
-        # finish_loop
-        self._tool_registry.register(
-            Tool(
-                name="finish_loop",
-                description="结束当前 agent loop",
-                parameters={
-                    "type": "object",
-                    "properties": {"reason": {"type": "string"}},
-                    "required": ["reason"],
-                },
-                handler=self._action_tools.finish_loop,
-                category="action",
-            )
-        )
-
-        # create_incident
-        self._tool_registry.register(
-            Tool(
-                name="create_incident",
-                description="创建持续 N 个 tick 的游戏事件",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string"},
-                        "description": {"type": "string"},
-                        "effects": {"type": "array", "items": {"type": "object"}},
-                        "duration_ticks": {"type": "integer", "minimum": 1},
-                    },
-                    "required": ["title", "description", "effects", "duration_ticks"],
-                },
-                handler=self._action_tools.create_incident,
-                category="action",
-            )
-        )
-
-        # write_memory (短期记忆，turn_*.md)
-        self._tool_registry.register(
-            Tool(
-                name="write_memory",
-                description="写入短期记忆摘要（turn_*.md，保留最近3回合）",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "content": {"type": "string", "description": "记忆内容"},
-                    },
-                    "required": ["content"],
-                },
-                handler=self._action_tools.write_memory,
-                category="action",
-            )
-        )
-
-        # write_long_term_memory (长期记忆，MEMORY.md)
-        self._tool_registry.register(
-            Tool(
-                name="write_long_term_memory",
-                description="写入长期记忆（MEMORY.md，永久保存的重要记忆）",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "长期记忆内容（重要事件、关键决策、深刻感悟）",
-                        },
-                    },
-                    "required": ["content"],
-                },
-                handler=self._action_tools.write_long_term_memory,
-                category="action",
-            )
-        )
-
-        # update_soul (性格演化，soul.md 追加)
-        self._tool_registry.register(
-            Tool(
-                name="update_soul",
-                description="记录性格变化（追加到 soul.md，仅在重大转变时使用）",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "性格变化描述（什么事件导致了什么性格转变）",
-                        },
-                    },
-                    "required": ["content"],
-                },
-                handler=self._action_tools.update_soul,
-                category="action",
-            )
-        )
-
-        # summarize_and_handoff (对话摘要 + handoff)
-        self._tool_registry.register(
-            Tool(
-                name="summarize_and_handoff",
-                description="将本轮对话生成摘要并存入长期记忆。在对话即将结束、或本轮内容重要需要记忆时调用。非必选——仅在你认为有必要时调用。",
-                parameters={
-                    "type": "object",
-                    "properties": {},
-                },
-                handler=self._action_tools.summarize_and_handoff,
-                category="action",
-            )
-        )
-
-    def _register_session_tools(self) -> None:
-        """注册 Session 类型工具"""
-        self._tool_registry.register(
-            Tool(
-                name="create_task_session",
-                description="创建任务会话",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "timeout_seconds": {"type": "integer", "default": 300},
-                        "description": {"type": "string"},
-                        "goal": {"type": "string"},
-                        "constraints": {"type": "string"},
-                    },
-                    "required": [],
-                },
-                handler=self._wrap_create_task_session,
-                category="session",
-            )
-        )
-
-        self._tool_registry.register(
-            Tool(
-                name="finish_task_session",
-                description="完成任务会话",
-                parameters={
-                    "type": "object",
-                    "properties": {"result": {"type": "string"}},
-                    "required": ["result"],
-                },
-                handler=self._wrap_finish_task_session,
-                category="session",
-            )
-        )
-
-        self._tool_registry.register(
-            Tool(
-                name="fail_task_session",
-                description="任务会话失败",
-                parameters={
-                    "type": "object",
-                    "properties": {"reason": {"type": "string"}},
-                    "required": ["reason"],
-                },
-                handler=self._wrap_fail_task_session,
-                category="session",
-            )
-        )
-
-    async def _wrap_create_task_session(self, args: dict, event: Event) -> str:
-        """包装 create_task_session 以符合 Agent 调用约定"""
-        import json
-
-        result = await self._task_session_tools.create_task_session(
-            timeout_seconds=args.get("timeout_seconds", 300),
-            description=args.get("description", ""),
-            current_session_id=event.session_id,
-        )
-        return json.dumps(result, ensure_ascii=False)
-
-    async def _wrap_finish_task_session(self, args: dict, event: Event) -> str:
-        """包装 finish_task_session 以符合 Agent 调用约定
-
-        注意：此工具只能从任务会话（task session）内部调用。
-        从主会话（main session）调用将返回错误。
-        """
-        import json
-
-        # 获取当前会话
-        session = await self.session_manager.get_session(event.session_id)
-        if not session:
-            return json.dumps(
-                {"success": False, "error": "Session not found"},
-                ensure_ascii=False,
-            )
-
-        # 只能从任务会话中调用
-        if not session.is_task:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": "finish_task_session can only be called from a task session, not from main session",
-                },
-                ensure_ascii=False,
-            )
-
-        # 直接使用当前 session_id（因为它就是 task session）
-        result = await self._task_session_tools.finish_task_session(
-            task_session_id=event.session_id,
-            result=args.get("result", ""),
-        )
-        return json.dumps(result, ensure_ascii=False)
-
-    async def _wrap_fail_task_session(self, args: dict, event: Event) -> str:
-        """包装 fail_task_session 以符合 Agent 调用约定
-
-        注意：此工具只能从任务会话（task session）内部调用。
-        从主会话（main session）调用将返回错误。
-        """
-        import json
-
-        # 获取当前会话
-        session = await self.session_manager.get_session(event.session_id)
-        if not session:
-            return json.dumps(
-                {"success": False, "error": "Session not found"},
-                ensure_ascii=False,
-            )
-
-        # 只能从任务会话中调用
-        if not session.is_task:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": "fail_task_session can only be called from a task session, not from main session",
-                },
-                ensure_ascii=False,
-            )
-
-        # 直接使用当前 session_id（因为它就是 task session）
-        result = await self._task_session_tools.fail_task_session(
-            task_session_id=event.session_id,
-            reason=args.get("reason", ""),
-        )
-        return json.dumps(result, ensure_ascii=False)
 
     def _log_event(self, action: str, event: Event, message: str = "") -> None:
         """记录事件日志"""
@@ -610,27 +229,18 @@ class Agent:
         response: dict,
         duration_ms: float,
     ) -> None:
-        """记录 LLM 调用详情到 JSONL"""
-        record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "event_id": event_id,
-            "session_id": session_id,
-            "iteration": iteration,
-            "model": getattr(self.llm_provider, "model", "unknown"),
-            "duration_ms": duration_ms,
-            "request": request,
-            "response": response,
-        }
-        with open(self._llm_log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        write_llm_log(
+            self._llm_log_path,
+            event_id=event_id,
+            session_id=session_id,
+            iteration=iteration,
+            model=getattr(self.llm_provider, "model", "unknown"),
+            request=request,
+            response=response,
+            duration_ms=duration_ms,
+        )
 
     async def _ensure_memory_components(self, session_id: str) -> None:
-        """
-        确保记忆系统组件已初始化（延迟初始化）
-
-        Args:
-            session_id: 会话ID
-        """
         if (
             not self._context_manager
             or not self._memory_tools
@@ -639,57 +249,26 @@ class Agent:
             self._context_manager, self._memory_tools = await self._memory_initializer.initialize(
                 session_id
             )
-            self._action_tools._context_manager = self._context_manager
+            self._action_tools.set_context_manager(self._context_manager)
 
     async def _retrieve_memory_wrapper(self, args: dict, event: Event) -> str:
-        """
-        retrieve_memory 的包装器，确保记忆组件已初始化
-
-        Args:
-            args: 函数参数
-            event: 当前事件
-
-        Returns:
-            检索结果字符串
-        """
         await self._ensure_memory_components(event.session_id)
         return await self._memory_tools.retrieve_memory(args, event)
 
     def _count_tokens(self, text: str | Event | dict) -> int:
-        """
-        使用 tiktoken 计算 token 数
-
-        Args:
-            text: 文本、Event 或 dict
-
-        Returns:
-            Token 数量（近似值）
-        """
+        raw = (
+            text
+            if isinstance(text, str)
+            else text.to_json()
+            if isinstance(text, Event)
+            else json.dumps(text, ensure_ascii=False)
+        )
         try:
             import tiktoken
 
-            encoding = tiktoken.encoding_for_model("gpt-4")
-
-            if isinstance(text, str):
-                return len(encoding.encode(text))
-            elif isinstance(text, Event):
-                return len(encoding.encode(text.to_json()))
-            elif isinstance(text, dict):
-                return len(encoding.encode(json.dumps(text, ensure_ascii=False)))
-            else:
-                return 0
+            return len(tiktoken.encoding_for_model("gpt-4").encode(raw))
         except Exception:
-            # Fallback: 粗略估算（2字符 ≈ 1 token）
-            if isinstance(text, str):
-                return len(text) // 2
-            elif isinstance(text, Event):
-                text_str = text.to_json()
-                return len(text_str) // 2
-            elif isinstance(text, dict):
-                text_str = json.dumps(text, ensure_ascii=False)
-                return len(text_str) // 2
-            else:
-                return 0
+            return len(raw) // 2
 
     def start(self) -> None:
         """
@@ -811,7 +390,7 @@ class Agent:
             self._memory_tick_counter += 1
             if self._should_do_memory_reflection():
                 await self._ensure_memory_components(event.session_id)
-                await self._process_event_with_llm(event, event.session_id)
+                await self._react_loop.run(event, event.session_id)
             return
 
         # 3. 记录日志和初始化记忆组件
@@ -826,16 +405,12 @@ class Agent:
 
         # 4. 处理事件（V4: ContextManager 自动处理所有 tape 写入）
         try:
-            await self._process_event_with_llm(event, session_id)
+            await self._react_loop.run(event, session_id)
         except Exception as e:
             logger.error(
                 f"❌ [Agent:{self.agent_id}:{session_id}] Error processing event: {e}",
                 exc_info=True,
             )
-
-    def _should_handle_event(self, event: Event) -> bool:
-        """检查是否应该处理此事件"""
-        return f"agent:{self.agent_id}" in event.dst or "agent:*" in event.dst or "*" in event.dst
 
     async def _should_process_event(self, event: Event) -> bool:
         """检查 agent 是否应该处理此事件（基于状态和事件类型）
@@ -866,7 +441,7 @@ class Agent:
         agent_state = await self.session_manager.get_agent_state(event.session_id, self.agent_id)
 
         # 如果状态是 WAITING_REPLY，只处理特定事件
-        if agent_state == "WAITING_REPLY":
+        if agent_state == AgentState.WAITING_REPLY:
             return event.type in (
                 EventType.AGENT_MESSAGE,  # 其他 agent 的回复
                 EventType.TASK_FINISHED,  # 任务完成
@@ -897,10 +472,13 @@ class Agent:
         if not session:
             return True
 
+        agent_key = f"agent:{self.agent_id}"
+        my_pending = session.pending_async_replies.get(agent_key, 0)
+
         # 如果收到 AGENT_MESSAGE，说明收到了回复，减少异步回复计数
-        if event.type == EventType.AGENT_MESSAGE and session.pending_async_replies > 0:
+        if event.type == EventType.AGENT_MESSAGE and my_pending > 0:
             all_received, remaining = await self.session_manager.decrement_async_replies(
-                session_id, self.agent_id, count=1
+                session_id, agent_key, count=1
             )
             if all_received:
                 logger.info(
@@ -913,327 +491,14 @@ class Agent:
                 return False
 
         # 如果还有待完成的异步任务，不处理此事件
-        if session.pending_async_replies > 0:
+        my_pending = session.pending_async_replies.get(agent_key, 0)
+        if my_pending > 0:
             logger.info(
-                f"⏳ [Agent:{self.agent_id}:{session_id}] Has {session.pending_async_replies} pending async replies, skipping processing"
+                f"⏳ [Agent:{self.agent_id}:{session_id}] Has {my_pending} pending async replies, skipping processing"
             )
             return False
 
         return True
-
-    async def _process_event_with_llm(self, event: Event, session_id: str) -> None:
-        """
-        使用 LLM 处理事件（ReAct Observation 模式）。
-
-        ReAct 循环架构：
-        1. LLM 返回 thought + tool_calls
-        2. 执行工具并创建 Observation
-        3. 将 Observation 添加到 tape
-        4. 检查是否应该停止（send_message, finish_loop, create_task_session）
-        5. 重复直到可以给出最终响应
-
-        所有事件通过 ContextManager.add_event_and_maybe_compact() 添加。
-        ContextManager 内部负责写入 tape.jsonl。
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-        """
-        # 检查是否有尚待完成的异步任务，如果有则跳过处理
-        if not await self._check_and_restore_agent_state(event, session_id):
-            return
-
-        # Capture turn start time to ensure event ordering
-        turn_start_time = datetime.now(timezone.utc).isoformat()
-
-        # V4: 设置 system_prompt（仅首次）
-        if self._context_manager and self._context_manager._system_prompt is None:
-            root_event_type = await self._get_root_event_type(event, session_id)
-            system_prompt = self._get_system_prompt_for_event(root_event_type)
-            self._context_manager._system_prompt = system_prompt
-
-        # V4: 将当前事件添加到 ContextManager（内部自动写入 tape）
-        await self._context_manager.add_event_and_maybe_compact(event)
-
-        # 多轮 function calling 循环
-        max_iterations = 10  # 防止无限循环
-        iteration = 0
-
-        while iteration < max_iterations:
-            iteration += 1
-            logger.info(
-                f"🔄 [Agent:{self.agent_id}:{session_id}] Iteration {iteration}: Calling LLM..."
-            )
-
-            # V4: 每次迭代从 ContextManager 获取最新消息
-            messages = await self._context_manager.get_llm_messages()
-
-            # 调用 LLM
-            result = await self._call_llm(event, session_id, iteration, messages)
-
-            # 提取结果
-            tool_calls = result.get("tool_calls", [])
-            response_text = result.get("response_text", "").strip()
-
-            logger.info(
-                f"🔧 [Agent:{self.agent_id}:{session_id}] Iteration {iteration}: LLM returned {len(tool_calls)} tool calls"
-            )
-            logger.info(
-                f"💬 [Agent:{self.agent_id}:{session_id}] LLM response text: {response_text[:200] if response_text else '(empty)'}"
-            )
-
-            # 处理响应
-            if not tool_calls:
-                await self._handle_no_tool_calls(event, session_id, response_text)
-                break
-
-            # 执行 tool calls 并创建 Observation（ReAct 模式）
-            observation = await self._execute_tools_and_create_observation(
-                event,
-                session_id,
-                iteration,
-                tool_calls,
-                response_text,
-                turn_start_time,
-            )
-
-            # 将 Observation 添加到 tape
-            await self._add_observation_to_tape(event, session_id, observation)
-
-            # 检查退出条件
-            # create_task_session 优先级最高，创建任务后应立即停止主session的LLM循环
-            if observation.get("has_create_task_session"):
-                logger.info(
-                    f"📋 [Agent:{self.agent_id}:{session_id}] create_task_session called, task session created. "
-                    f"Main session loop ending to wait for task completion."
-                )
-                break
-
-            # finish_loop 其次
-            if observation.get("has_finish_loop"):
-                logger.info(
-                    f"🔄 [Agent:{self.agent_id}:{session_id}] finish_loop called (priority check), ending loop"
-                )
-                break
-
-            # 如果已经有send_message（发送给player），说明第一轮LLM已经生成了最终响应，可以结束
-            if observation.get("has_send_message"):
-                logger.info(
-                    f"✅ [Agent:{self.agent_id}:{session_id}] send_message called, ending loop"
-                )
-                break
-
-            # 否则继续循环，让 LLM 基于工具调用结果生成最终响应
-            logger.info(
-                f"✅ [Agent:{self.agent_id}:{session_id}] Tool calls executed, requesting final response from LLM..."
-            )
-
-        if iteration >= max_iterations:
-            logger.warning(
-                f"⚠️  [Agent:{self.agent_id}:{session_id}] Reached max iterations ({max_iterations})"
-            )
-
-    async def _call_llm(
-        self, event: Event, session_id: str, iteration: int, messages: list[dict]
-    ) -> dict:
-        """
-        调用 LLM with functions
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-            iteration: 迭代次数
-            messages: 消息历史
-
-        Returns:
-            LLM 响应结果
-        """
-        start_time = datetime.now(timezone.utc)
-
-        # Debug: 打印 messages 结构
-        logger.debug(f"🔍 [Agent:{self.agent_id}:{session_id}] Messages being sent to LLM:")
-        for i, msg in enumerate(messages):
-            role = msg.get("role", "unknown")
-            content_preview = str(msg.get("content", ""))[:100]
-            tool_calls = msg.get("tool_calls")
-            if tool_calls:
-                logger.debug(f"  [{i}] role={role}, tool_calls={tool_calls}")
-            else:
-                logger.debug(f"  [{i}] role={role}, content={content_preview}")
-
-        # 调用 LLM（传递完整的messages历史）
-        functions = self._tool_registry.to_function_definitions()
-        result = await self.llm_provider.call_with_functions(
-            functions=functions,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1000,
-            task_type="agent_response",
-        )
-
-        # 记录 LLM 调用详情
-        duration_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-        self._log_llm_call(
-            event_id=event.event_id,
-            session_id=event.session_id,
-            iteration=iteration,
-            request={"messages": messages, "functions": functions},
-            response=result,
-            duration_ms=duration_ms,
-        )
-
-        return result
-
-    async def _execute_tools_and_create_observation(
-        self,
-        event: Event,
-        session_id: str,
-        iteration: int,
-        tool_calls: list,
-        response_text: str,
-        turn_start_time: str,
-    ) -> dict:
-        """
-        执行工具并创建 Observation（ReAct 模式）
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-            iteration: 迭代次数
-            tool_calls: 工具调用列表
-            response_text: LLM 响应文本（thought）
-            turn_start_time: Turn开始时间戳（用于确保事件顺序）
-
-        Returns:
-            Observation dict 包含 thought, actions, has_send_message, has_finish_loop, has_create_task_session
-        """
-        observation = {
-            "thought": response_text,
-            "actions": [],
-            "has_send_message": False,
-            "has_finish_loop": False,
-            "has_create_task_session": False,
-        }
-
-        for idx, tool_call in enumerate(tool_calls, 1):
-            function_name = tool_call["function"]["name"]
-            function_args = json.loads(tool_call["function"]["arguments"])
-
-            logger.info(
-                f"⚙️  [Agent:{self.agent_id}:{session_id}] [Iter {iteration}, {idx}/{len(tool_calls)}] Calling: {function_name}"
-            )
-
-            result = await self._call_function_with_result(function_name, function_args, event)
-
-            # V4: 处理 tool 返回值
-            # 如果返回元组 (message, event)，提取消息和事件
-            result_str = result
-            result_event = None
-            if isinstance(result, tuple):
-                result_str, result_event = result
-
-            # 记录 action
-            observation["actions"].append(
-                {
-                    "tool": function_name,
-                    "result": result_str,
-                }
-            )
-
-            # 检查函数是否成功执行
-            if function_name == "finish_loop":
-                # finish_loop 成功时返回 "✅ finish_loop 已执行..."
-                if result_str.startswith("✅"):
-                    observation["has_finish_loop"] = True
-                else:
-                    logger.warning(
-                        f"⚠️ [Agent:{self.agent_id}:{session_id}] finish_loop 执行失败: {result_str}"
-                    )
-
-            if function_name == "send_message":
-                # V4: send_message 返回元组 (message, event)
-                # 只要消息以 ✅ 或 等待 开头就认为成功
-                if result_str.startswith("✅") or result_str.startswith("等待"):
-                    observation["has_send_message"] = True
-                # V4: 将事件添加到 ContextManager（如果返回了事件）
-                if result_event:
-                    await self._context_manager.add_event_and_maybe_compact(result_event)
-
-            if function_name == "create_task_session":
-                # create_task_session 返回 JSON，需要解析检查 success 字段
-                try:
-                    result_data = json.loads(result_str)
-                    if result_data.get("success") is True:
-                        observation["has_create_task_session"] = True
-                    else:
-                        logger.warning(
-                            f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 执行失败: {result_str}"
-                        )
-                except json.JSONDecodeError:
-                    logger.warning(
-                        f"⚠️ [Agent:{self.agent_id}:{session_id}] create_task_session 返回无效 JSON: {result_str}"
-                    )
-
-        return observation
-
-    async def _add_observation_to_tape(
-        self, event: Event, session_id: str, observation: dict
-    ) -> None:
-        """
-        将 Observation 添加到 tape 并发送到 EventBus
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-            observation: Observation dict
-        """
-        observation_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=[f"benchmark:{session_id}"],
-            type=EventType.OBSERVATION,
-            payload=observation,
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self._context_manager.add_event_and_maybe_compact(observation_event)
-        await self.event_bus.send_event(observation_event)
-
-    async def _handle_no_tool_calls(
-        self, event: Event, session_id: str, response_text: str
-    ) -> None:
-        """
-        处理无 tool calls 的情况（直接创建 AGENT_MESSAGE 事件）
-
-        Args:
-            event: 当前事件
-            session_id: 会话 ID
-            response_text: LLM 响应文本
-        """
-        logger.info(f"✅ [Agent:{self.agent_id}:{session_id}] No more tool calls, ending loop")
-
-        # 发送最终响应（即使为空也要响应）
-        final_message = response_text if response_text else "抱歉，我暂时无法理解您的请求。"
-
-        # 直接创建 AGENT_MESSAGE 事件（不通过工具调用）
-        message_event = Event(
-            src=f"agent:{self.agent_id}",
-            dst=["player"],
-            type=EventType.AGENT_MESSAGE,
-            payload={"content": final_message, "await_reply": False},
-            session_id=event.session_id,
-            parent_event_id=event.event_id,
-            root_event_id=event.root_event_id,
-        )
-        await self.event_bus.send_event(message_event)
-
-        # 将 AGENT_MESSAGE 事件添加到 tape
-        if self._context_manager:
-            await self._context_manager.add_event_and_maybe_compact(message_event)
-
-        logger.info(
-            f"💬 [Agent:{self.agent_id}:{session_id}] Sending final response: {final_message[:50]}..."
-        )
 
     async def _get_root_event_type(self, event: Event, session_id: str) -> str:
         """
@@ -1269,42 +534,29 @@ class Agent:
         return event.type
 
     def _get_system_prompt_for_event(self, event_type: str) -> str:
-        """
-        根据事件类型获取 system prompt（支持动态 Skill 加载）
-
-        Args:
-            event_type: 事件类型
-
-        Returns:
-            System prompt
-        """
-        # 1. Soul（不变）
         soul_part = f"# 你的角色\n{self._soul}\n" if self._soul else ""
-
-        # 2. Data Scope（不变）
-        scope_part = ""
-        if self._data_scope:
-            import yaml
-
-            scope_yaml = yaml.dump(self._data_scope, allow_unicode=True)
-            scope_part = f"# 数据权限\n```yaml\n{scope_yaml}```\n"
-
-        # 3. Skill Content（动态加载）
-        task_part = ""
-        if self._skill_loader:
-            skill_name = self._skill_loader.registry.get_skill_for_event(event_type)
-            if skill_name:
-                skill = self._skill_loader.load(skill_name)
-                if skill:
-                    task_part = self._inject_skill_variables(skill.content)
-                else:
-                    task_part = self._get_hardcoded_instruction(event_type)
-            else:
-                task_part = self._get_hardcoded_instruction(event_type)
-        else:
-            task_part = self._get_hardcoded_instruction(event_type)
-
+        scope_part = self._build_scope_part()
+        task_part = self._resolve_task_instruction(event_type)
         return "\n".join(filter(None, [soul_part, scope_part, task_part])).strip()
+
+    def _build_scope_part(self) -> str:
+        if not self._data_scope:
+            return ""
+        import yaml
+
+        scope_yaml = yaml.dump(self._data_scope, allow_unicode=True)
+        return f"# 数据权限\n```yaml\n{scope_yaml}```\n"
+
+    def _resolve_task_instruction(self, event_type: str) -> str:
+        if not self._skill_loader:
+            return self._get_hardcoded_instruction(event_type)
+        skill_name = self._skill_loader.registry.get_skill_for_event(event_type)
+        if not skill_name:
+            return self._get_hardcoded_instruction(event_type)
+        skill = self._skill_loader.load(skill_name)
+        if skill:
+            return self._inject_skill_variables(skill.content)
+        return self._get_hardcoded_instruction(event_type)
 
     def event_to_messages(self, event: Event) -> dict:
         """
@@ -1331,7 +583,7 @@ class Agent:
                     result = action.get("result", "")
                     parts.append(f"- **{tool}**: {result[:200]}...")
 
-            return {"role": "user", "content": "\n".join(parts)}
+            return {"role": "assistant", "content": "\n".join(parts)}
 
         # 4. 其他事件 → user (内联构建内容)
         parts = [
@@ -1349,10 +601,28 @@ class Agent:
 
         # AGENT_MESSAGE
         elif event.type == EventType.AGENT_MESSAGE and event.payload:
-            message = event.payload.get("message", "")
+            message = event.payload.get("message", "") or event.payload.get("content", "")
             source = event.src.replace("agent:", "")
             if message:
                 parts.extend([f"\n# 来自 {source} 的消息：", f"```\n{message}\n```"])
+            await_reply = event.payload.get("await_reply", False)
+            if await_reply:
+                parts.append("\n⚠️ 对方期待你的回复。")
+
+            # Inject task session role context
+            if event.session_id and event.session_id.startswith("task:"):
+                segments = event.session_id.split(":")
+                task_creator = segments[1] if len(segments) > 1 else ""
+                if task_creator == self.agent_id:
+                    parts.append(
+                        "\n**[角色：你是此任务的创建者] 对方是对你之前消息的回复。"
+                        "评估任务目标是否已完成，如果完成则调用 `finish_task_session`。**"
+                    )
+                else:
+                    parts.append(
+                        f"\n**[角色：你是此任务的参与者，由 {task_creator} 创建] "
+                        '你需要回复对方。禁止调用 finish_task_session 或 send_message(recipients=["player"])。**'
+                    )
 
         # TASK_FINISHED
         elif event.type == EventType.TASK_FINISHED and event.payload:
@@ -1447,32 +717,17 @@ class Agent:
     async def _call_function_with_result(
         self, function_name: str, arguments: dict, original_event: Event
     ) -> str:
-        """
-        调用 function handler 并返回结果（多轮模式）
-
-        使用 ToolRegistry 获取工具处理器。
-
-        Args:
-            function_name: 函数名称
-            arguments: 函数参数
-            original_event: 原始事件
-
-        Returns:
-            函数执行结果（返回给LLM）
-        """
         session_id = original_event.session_id
 
         logger.info(f"🎯 [Agent:{self.agent_id}:{session_id}] Executing function: {function_name}")
         logger.debug(f"📋 [Agent:{self.agent_id}:{session_id}] Function arguments: {arguments}")
 
         try:
-            # 从 ToolRegistry 获取工具
-            tool = self._tool_registry.get(function_name)
-            if tool is None:
+            handler = self._tool_registry.get_handler(function_name)
+            if handler is None:
                 return f"❌ 未知工具: {function_name}"
 
-            # 执行工具处理函数
-            result = await tool.handler(arguments, original_event)
+            result = await handler(arguments, original_event)
             return result
 
         except Exception as e:

@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.llm.mock import MockProvider
 
@@ -23,13 +24,15 @@ def agent(mock_event_bus, tmp_path):
     soul_path.write_text("# Test Agent\n", encoding="utf-8")
 
     return Agent(
-        agent_id="test_agent",
-        event_bus=mock_event_bus,
-        llm_provider=MockProvider(),
-        data_dir=tmp_path,
-        session_manager=None,
-        tape_writer=MagicMock(),
-        tape_metadata_mgr=MagicMock(),
+        AgentConfig(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=MockProvider(),
+            data_dir=tmp_path,
+            session_manager=None,
+            tape_writer=MagicMock(),
+            tape_metadata_mgr=MagicMock(),
+        )
     )
 
 

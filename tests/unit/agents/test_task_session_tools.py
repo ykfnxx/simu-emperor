@@ -75,9 +75,9 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        result = await task_tools_agent_a.finish_task_session(
-            task_session_id=task.session_id,
-            result="Task completed",
+        result = await task_tools_agent_a._finish_task(
+            task.session_id,
+            "Task completed",
         )
 
         assert result["success"] is True
@@ -98,11 +98,12 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        with pytest.raises(ValueError, match="权限错误"):
-            await task_tools_agent_b.finish_task_session(
-                task_session_id=task.session_id,
-                result="Unauthorized finish",
-            )
+        result = await task_tools_agent_b._finish_task(
+            task.session_id,
+            "Unauthorized finish",
+        )
+        assert result["success"] is False
+        assert "权限错误" in result["error"]
 
     @pytest.mark.asyncio
     async def test_fail_own_task_succeeds(self, session_manager, task_tools_agent_a):
@@ -117,9 +118,9 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        result = await task_tools_agent_a.fail_task_session(
-            task_session_id=task.session_id,
-            reason="Task failed",
+        result = await task_tools_agent_a._fail_task(
+            task.session_id,
+            "Task failed",
         )
 
         assert result["success"] is True
@@ -140,11 +141,12 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        with pytest.raises(ValueError, match="权限错误"):
-            await task_tools_agent_b.fail_task_session(
-                task_session_id=task.session_id,
-                reason="Unauthorized fail",
-            )
+        result = await task_tools_agent_b._fail_task(
+            task.session_id,
+            "Unauthorized fail",
+        )
+        assert result["success"] is False
+        assert "权限错误" in result["error"]
 
     @pytest.mark.asyncio
     async def test_finish_non_task_session_fails(self, session_manager, task_tools_agent_a):
@@ -153,11 +155,12 @@ class TestTaskSessionToolsPermission:
             created_by="player",
         )
 
-        with pytest.raises(ValueError, match="is not a task session"):
-            await task_tools_agent_a.finish_task_session(
-                task_session_id="session:main",
-                result="Invalid operation",
-            )
+        result = await task_tools_agent_a._finish_task(
+            "session:main",
+            "Invalid operation",
+        )
+        assert result["success"] is False
+        assert "not a task session" in result["error"]
 
     @pytest.mark.asyncio
     async def test_fail_non_task_session_fails(self, session_manager, task_tools_agent_a):
@@ -166,23 +169,24 @@ class TestTaskSessionToolsPermission:
             created_by="player",
         )
 
-        with pytest.raises(ValueError, match="is not a task session"):
-            await task_tools_agent_a.fail_task_session(
-                task_session_id="session:main",
-                reason="Invalid operation",
-            )
+        result = await task_tools_agent_a._fail_task(
+            "session:main",
+            "Invalid operation",
+        )
+        assert result["success"] is False
+        assert "not a task session" in result["error"]
 
     @pytest.mark.asyncio
     async def test_finish_nonexistent_task_fails(self, task_tools_agent_a):
-        with pytest.raises(ValueError, match="Task session not found"):
-            await task_tools_agent_a.finish_task_session(
-                task_session_id="task:nonexistent",
-                result="Invalid",
-            )
+        result = await task_tools_agent_a._finish_task(
+            "task:nonexistent",
+            "Invalid",
+        )
+        assert result["success"] is False
+        assert "not found" in result["error"]
 
     @pytest.mark.asyncio
     async def test_finish_already_finished_task_fails(self, session_manager, task_tools_agent_a):
-        """Test that finishing an already finished task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
             created_by="player",
@@ -194,22 +198,20 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        # First finish should succeed
-        await task_tools_agent_a.finish_task_session(
-            task_session_id=task.session_id,
-            result="Task completed",
+        await task_tools_agent_a._finish_task(
+            task.session_id,
+            "Task completed",
         )
 
-        # Second finish should fail
-        with pytest.raises(ValueError, match="已完成"):
-            await task_tools_agent_a.finish_task_session(
-                task_session_id=task.session_id,
-                result="Duplicate finish",
-            )
+        result = await task_tools_agent_a._finish_task(
+            task.session_id,
+            "Duplicate finish",
+        )
+        assert result["success"] is False
+        assert "已结束" in result["error"]
 
     @pytest.mark.asyncio
     async def test_finish_already_failed_task_fails(self, session_manager, task_tools_agent_a):
-        """Test that finishing an already failed task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
             created_by="player",
@@ -221,22 +223,20 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        # First fail the task
-        await task_tools_agent_a.fail_task_session(
-            task_session_id=task.session_id,
-            reason="Task failed",
+        await task_tools_agent_a._fail_task(
+            task.session_id,
+            "Task failed",
         )
 
-        # Trying to finish should fail
-        with pytest.raises(ValueError, match="已失败"):
-            await task_tools_agent_a.finish_task_session(
-                task_session_id=task.session_id,
-                result="Should not work",
-            )
+        result = await task_tools_agent_a._finish_task(
+            task.session_id,
+            "Should not work",
+        )
+        assert result["success"] is False
+        assert "已结束" in result["error"]
 
     @pytest.mark.asyncio
     async def test_fail_already_finished_task_fails(self, session_manager, task_tools_agent_a):
-        """Test that failing an already finished task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
             created_by="player",
@@ -248,22 +248,20 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        # First finish the task
-        await task_tools_agent_a.finish_task_session(
-            task_session_id=task.session_id,
-            result="Task completed",
+        await task_tools_agent_a._finish_task(
+            task.session_id,
+            "Task completed",
         )
 
-        # Trying to fail should fail
-        with pytest.raises(ValueError, match="已完成"):
-            await task_tools_agent_a.fail_task_session(
-                task_session_id=task.session_id,
-                reason="Should not work",
-            )
+        result = await task_tools_agent_a._fail_task(
+            task.session_id,
+            "Should not work",
+        )
+        assert result["success"] is False
+        assert "已结束" in result["error"]
 
     @pytest.mark.asyncio
     async def test_fail_already_failed_task_fails(self, session_manager, task_tools_agent_a):
-        """Test that failing an already failed task raises an error."""
         parent = await session_manager.create_session(
             session_id="session:main",
             created_by="player",
@@ -275,15 +273,14 @@ class TestTaskSessionToolsPermission:
             timeout_seconds=300,
         )
 
-        # First fail should succeed
-        await task_tools_agent_a.fail_task_session(
-            task_session_id=task.session_id,
-            reason="Task failed",
+        await task_tools_agent_a._fail_task(
+            task.session_id,
+            "Task failed",
         )
 
-        # Second fail should also fail
-        with pytest.raises(ValueError, match="已失败"):
-            await task_tools_agent_a.fail_task_session(
-                task_session_id=task.session_id,
-                reason="Duplicate fail",
-            )
+        result = await task_tools_agent_a._fail_task(
+            task.session_id,
+            "Duplicate fail",
+        )
+        assert result["success"] is False
+        assert "已结束" in result["error"]

@@ -14,12 +14,13 @@ from pathlib import Path
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
+from simu_emperor.agents.tools.registry import ToolProvider, ToolResult, tool
 
 
 logger = logging.getLogger(__name__)
 
 
-class ActionTools:
+class ActionTools(ToolProvider):
     """Action tool handlers - execute side effects
 
     This class contains all action-type tool handlers that perform
@@ -48,6 +49,27 @@ class ActionTools:
         self.on_soul_updated = on_soul_updated
         self._context_manager = context_manager
 
+    def set_context_manager(self, context_manager) -> None:
+        """Set the context manager (called by Agent after lazy initialization)."""
+        self._context_manager = context_manager
+
+    @tool(
+        name="send_message",
+        description="发送消息（统一接口）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "recipients": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "content": {"type": "string"},
+                "await_reply": {"type": "boolean", "default": False},
+            },
+            "required": ["recipients", "content"],
+        },
+        category="action",
+    )
     async def send_message(self, args: dict, event: Event) -> str | tuple:
         """统一的消息发送函数
 
@@ -58,11 +80,11 @@ class ActionTools:
         await_reply = args.get("await_reply", False)
 
         if not recipients:
-            return "❌ 接收者列表不能为空"
+            return ToolResult(output="❌ 接收者列表不能为空", success=False)
         if not content:
-            return "❌ 消息内容不能为空"
+            return ToolResult(output="❌ 消息内容不能为空", success=False)
         if await_reply and "player" in recipients:
-            return "❌ await_reply=true 只能用于 agent 间消息"
+            return ToolResult(output="❌ await_reply=true 只能用于 agent 间消息", success=False)
 
         # 标准化 recipients
         normalized_recipients = []
@@ -77,13 +99,13 @@ class ActionTools:
         # 防止向自己发送消息
         self_agent = f"agent:{self.agent_id}"
         if self_agent in normalized_recipients:
-            return "❌ 不能向自己发送消息"
+            return ToolResult(output="❌ 不能向自己发送消息", success=False)
 
         # 处理 await_reply
         if await_reply and self.session_manager:
             session = await self.session_manager.get_session(event.session_id)
             if not session or not session.is_task:
-                return "❌ await_reply=true 只能在任务会话中使用"
+                return ToolResult(output="❌ await_reply=true 只能在任务会话中使用", success=False)
             await self.session_manager.increment_async_replies(
                 event.session_id, self.agent_id, count=1
             )
@@ -101,32 +123,60 @@ class ActionTools:
         await self.event_bus.send_event(message_event)
 
         status_msg = "等待回复..." if await_reply else "✅ 消息已发送"
-        return (status_msg, message_event)
+        return ToolResult(output=status_msg, side_effect=message_event)
 
+    @tool(
+        name="finish_loop",
+        description="结束当前 agent loop",
+        parameters={
+            "type": "object",
+            "properties": {"reason": {"type": "string"}},
+            "required": ["reason"],
+        },
+        category="action",
+    )
     async def finish_loop(self, args: dict, event: Event) -> str:
         """结束 agent loop（仅在成员 > 2 时生效）"""
         if not self.session_manager:
-            return "⚠️ SessionManager 未初始化，finish_loop 不可用"
+            return ToolResult(output="⚠️ SessionManager 未初始化，finish_loop 不可用", success=False)
 
         session = await self.session_manager.get_session(event.session_id)
         if not session:
-            return "❌ Session not found"
+            return ToolResult(output="❌ Session not found", success=False)
 
         member_count = len(session.agent_states)
 
         if member_count <= 2:
-            return (
-                f"⚠️ Session 成员数为 {member_count}，finish_loop 不生效。\n"
-                f"原因：防止只有一方在等待。\n"
-                f"请使用其他方式继续对话或使用 respond_to_player 结束。"
+            return ToolResult(
+                output=(
+                    f"⚠️ Session 成员数为 {member_count}，finish_loop 不生效。\n"
+                    f"原因：防止只有一方在等待。\n"
+                    f"请使用其他方式继续对话或使用 respond_to_player 结束。"
+                ),
+                success=False,
             )
 
         reason = args.get("reason", "")
         logger.info(
             f"🔄 [Agent:{self.agent_id}] finish_loop called in session with {member_count} members. Reason: {reason}"
         )
-        return f"✅ finish_loop 已执行，agent loop 将退出。原因：{reason}"
+        return ToolResult(
+            output=f"✅ finish_loop 已执行，agent loop 将退出。原因：{reason}",
+            ends_loop=True,
+        )
 
+    @tool(
+        name="write_memory",
+        description="写入短期记忆摘要（turn_*.md，保留最近3回合）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "记忆内容"},
+            },
+            "required": ["content"],
+        },
+        category="action",
+    )
     async def write_memory(self, args: dict, event: Event) -> None:
         """Write memory summaries to files"""
         content = args.get("content", "")
@@ -150,6 +200,21 @@ class ActionTools:
 
         logger.info(f"✅ Agent {self.agent_id} wrote memory for turn {turn}")
 
+    @tool(
+        name="write_long_term_memory",
+        description="写入长期记忆（MEMORY.md，永久保存的重要记忆）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "长期记忆内容（重要事件、关键决策、深刻感悟）",
+                },
+            },
+            "required": ["content"],
+        },
+        category="action",
+    )
     async def write_long_term_memory(self, args: dict, event: Event) -> str:
         """Write long-term memory to MEMORY.md"""
         content = args.get("content", "")
@@ -176,6 +241,21 @@ class ActionTools:
         logger.info(f"✅ Agent {self.agent_id} wrote long-term memory at tick {tick}")
         return f"✅ 长期记忆已写入 MEMORY.md (Tick {tick})"
 
+    @tool(
+        name="update_soul",
+        description="记录性格变化（追加到 soul.md，仅在重大转变时使用）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "性格变化描述（什么事件导致了什么性格转变）",
+                },
+            },
+            "required": ["content"],
+        },
+        category="action",
+    )
     async def update_soul(self, args: dict, event: Event) -> str:
         """Append personality evolution record to soul.md"""
         content = args.get("content", "")
@@ -227,6 +307,41 @@ class ActionTools:
                 except (ValueError, IndexError):
                     continue
 
+    @tool(
+        name="create_incident",
+        description="创建持续 N 个 tick 的游戏事件",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "effects": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target_path": {
+                                "type": "string",
+                                "description": "目标路径，如 provinces.zhili.stockpile、nation.imperial_treasury",
+                            },
+                            "add": {
+                                "type": "number",
+                                "description": "一次性增减（stockpile、imperial_treasury）",
+                            },
+                            "factor": {
+                                "type": "number",
+                                "description": "持续倍率（production_value、population、tax_modifier），如 1.1 表示+10%",
+                            },
+                        },
+                        "required": ["target_path"],
+                    },
+                },
+                "duration_ticks": {"type": "integer", "minimum": 1},
+            },
+            "required": ["title", "description", "effects", "duration_ticks"],
+        },
+        category="action",
+    )
     async def create_incident(self, args: dict, event: Event) -> str:
         incident_id = (
             f"inc_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -299,6 +414,15 @@ class ActionTools:
 
         return effects
 
+    @tool(
+        name="summarize_and_handoff",
+        description="将本轮对话生成摘要并存入长期记忆。在对话即将结束、或本轮内容重要需要记忆时调用。非必选——仅在你认为有必要时调用。",
+        parameters={
+            "type": "object",
+            "properties": {},
+        },
+        category="action",
+    )
     async def summarize_and_handoff(self, args: dict, event: Event) -> str:
         """Agent 自主决定的对话摘要 + handoff 工具。
 

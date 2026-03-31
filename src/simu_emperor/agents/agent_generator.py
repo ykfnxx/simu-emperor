@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class AgentConfig:
+class AgentProfile:
     """Agent 配置输入参数
 
     Attributes:
@@ -69,7 +69,7 @@ class AgentGenerator:
         self.llm_provider = llm_provider
         self.data_dir = data_dir
 
-    async def generate_config(self, config: AgentConfig) -> GeneratedConfig:
+    async def generate_config(self, config: AgentProfile) -> GeneratedConfig:
         """生成完整的 agent 配置
 
         Args:
@@ -165,7 +165,7 @@ role_map_entry: |
 6. 为人描述保持用户提供的原文或稍作润色
 """
 
-    def _build_generation_prompt(self, config: AgentConfig) -> str:
+    def _build_generation_prompt(self, config: AgentProfile) -> str:
         """构建用户提示词"""
         province_hint = f"，管辖{config.province}省" if config.province else "，管辖全国"
         return f"""请为以下官员生成完整的配置文件：
@@ -185,7 +185,7 @@ role_map_entry: |
 
 请严格按照输出格式返回。"""
 
-    def _parse_response(self, response: str, config: AgentConfig) -> GeneratedConfig:
+    def _parse_response(self, response: str, config: AgentProfile) -> GeneratedConfig:
         """解析 LLM 返回的 YAML 格式响应
 
         Args:
@@ -230,7 +230,7 @@ role_map_entry: |
             # 返回默认配置作为降级处理
             return self._generate_fallback_config(config)
 
-    def _generate_fallback_config(self, config: AgentConfig) -> GeneratedConfig:
+    def _generate_fallback_config(self, config: AgentProfile) -> GeneratedConfig:
         """生成降级配置（当 LLM 解析失败时使用）"""
         logger.warning(f"Using fallback config for agent {config.agent_id}")
 

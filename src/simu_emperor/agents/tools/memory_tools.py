@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
+from simu_emperor.agents.tools.registry import ToolProvider, tool
 
 if TYPE_CHECKING:
     from simu_emperor.llm.base import LLMProvider
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MemoryTools:
+class MemoryTools(ToolProvider):
     """Memory tool handlers - retrieve and store memories
 
     This class provides memory-related tools for agents to:
@@ -91,6 +92,19 @@ class MemoryTools:
             two_level_searcher=two_level_searcher,
         )
 
+    @tool(
+        name="retrieve_memory",
+        description="检索历史记忆",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "max_results": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+        category="memory",
+    )
     async def retrieve_memory(self, args: dict, event: Event) -> str:
         """
         Retrieve historical memories.

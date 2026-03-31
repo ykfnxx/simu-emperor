@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
 from simu_emperor.config import settings
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
@@ -48,13 +49,15 @@ async def test_task_created_event_written_to_tape(tmp_path: Path):
         # Create agent - will now use settings.memory.memory_dir
         agent_llm = MockProvider(response="Test response", tool_calls=None)
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=event_bus,
-            llm_provider=agent_llm,
-            data_dir=data_dir,
-            session_manager=session_manager,
-            tape_writer=tape_writer,
-            tape_metadata_mgr=tape_metadata_mgr,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=event_bus,
+                llm_provider=agent_llm,
+                data_dir=data_dir,
+                session_manager=session_manager,
+                tape_writer=tape_writer,
+                tape_metadata_mgr=tape_metadata_mgr,
+            )
         )
 
         # Create a main session

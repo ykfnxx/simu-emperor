@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from simu_emperor.agents.tools.action_tools import ActionTools
+from simu_emperor.agents.tools.registry import ToolResult
 from simu_emperor.event_bus.event import Event
 
 
@@ -52,9 +53,10 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return error message
-        assert "❌" in result
-        assert "不能向自己发送消息" in result
+        # Should return error ToolResult
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "不能向自己发送消息" in result.output
 
         # Verify no event was sent
         assert not mock_event_bus.send_event.called
@@ -64,17 +66,14 @@ class TestSendMessage:
         self, action_tools, sample_event, mock_event_bus
     ):
         """Test that send_message rejects messages to oneself with agent: prefix"""
-        # Try to send message to oneself with agent: prefix
         result = await action_tools.send_message(
             {"recipients": ["agent:test_agent"], "content": "这是一条消息"},
             sample_event,
         )
 
-        # Should return error message
-        assert "❌" in result
-        assert "不能向自己发送消息" in result
-
-        # Verify no event was sent
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "不能向自己发送消息" in result.output
         assert not mock_event_bus.send_event.called
 
     @pytest.mark.asyncio
@@ -82,23 +81,20 @@ class TestSendMessage:
         self, action_tools, sample_event, mock_event_bus
     ):
         """Test that send_message accepts messages to other agents"""
-        # Send message to different agent
         result = await action_tools.send_message(
             {"recipients": ["other_agent"], "content": "这是给其他官员的消息"},
             sample_event,
         )
 
-        # Should return success message
-        assert isinstance(result, tuple)
-        status_msg, message_event = result
-        assert "✅" in status_msg
-        assert "消息已发送" in status_msg
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "消息已发送" in result.output
+        assert result.side_effect is not None
+        assert result.side_effect.dst == ["agent:other_agent"]
+        assert result.side_effect.type == "agent_message"
+        assert result.side_effect.payload["content"] == "这是给其他官员的消息"
 
-        # Verify event was sent
         assert mock_event_bus.send_event.called
-        assert message_event.dst == ["agent:other_agent"]
-        assert message_event.type == "agent_message"
-        assert message_event.payload["content"] == "这是给其他官员的消息"
 
     @pytest.mark.asyncio
     async def test_send_message_rejects_empty_recipients(
@@ -110,11 +106,9 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return error message
-        assert "❌" in result
-        assert "接收者列表不能为空" in result
-
-        # Verify no event was sent
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "接收者列表不能为空" in result.output
         assert not mock_event_bus.send_event.called
 
     @pytest.mark.asyncio
@@ -127,11 +121,9 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return error message
-        assert "❌" in result
-        assert "消息内容不能为空" in result
-
-        # Verify no event was sent
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "消息内容不能为空" in result.output
         assert not mock_event_bus.send_event.called
 
     @pytest.mark.asyncio
@@ -142,12 +134,11 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return success message
-        assert isinstance(result, tuple)
-        status_msg, message_event = result
-        assert "✅" in status_msg
-        assert message_event.dst == ["player"]
-        assert message_event.payload["content"] == "回复给玩家"
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "消息已发送" in result.output
+        assert result.side_effect.dst == ["player"]
+        assert result.side_effect.payload["content"] == "回复给玩家"
 
     @pytest.mark.asyncio
     async def test_send_message_to_multiple_recipients(
@@ -159,11 +150,10 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return success message
-        assert isinstance(result, tuple)
-        status_msg, message_event = result
-        assert "✅" in status_msg
-        assert set(message_event.dst) == {"player", "agent:other_agent"}
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "消息已发送" in result.output
+        assert set(result.side_effect.dst) == {"player", "agent:other_agent"}
 
     @pytest.mark.asyncio
     async def test_send_message_normalizes_agent_ids(
@@ -175,11 +165,10 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return success message
-        assert isinstance(result, tuple)
-        status_msg, message_event = result
-        assert "✅" in status_msg
-        assert set(message_event.dst) == {"agent:other_agent", "agent:another_agent"}
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "消息已发送" in result.output
+        assert set(result.side_effect.dst) == {"agent:other_agent", "agent:another_agent"}
 
     @pytest.mark.asyncio
     async def test_send_message_rejects_await_reply_to_player(
@@ -191,9 +180,9 @@ class TestSendMessage:
             sample_event,
         )
 
-        # Should return error message
-        assert "❌" in result
-        assert "await_reply=true 只能用于 agent 间消息" in result
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "await_reply=true 只能用于 agent 间消息" in result.output
 
 
 class TestCreateIncident:

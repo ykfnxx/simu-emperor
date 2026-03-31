@@ -83,9 +83,7 @@ class AgentManager:
             soul_md = agent_path / "soul.md"
             data_scope = agent_path / "data_scope.yaml"
             if soul_md.exists() and data_scope.exists():
-                (agent_path / "memory").mkdir(parents=True, exist_ok=True)
-                (agent_path / "memory" / "recent").mkdir(exist_ok=True)
-                (agent_path / "workspace").mkdir(exist_ok=True)
+                self._ensure_agent_dirs(agent_path)
                 logger.info(f"Agent {agent_id} already exists in runtime directory, skipping copy")
                 return True
 
@@ -98,12 +96,17 @@ class AgentManager:
 
         shutil.copytree(template_path, agent_path)
 
-        (agent_path / "memory").mkdir(parents=True, exist_ok=True)
-        (agent_path / "memory" / "recent").mkdir(exist_ok=True)
-        (agent_path / "workspace").mkdir(exist_ok=True)
+        self._ensure_agent_dirs(agent_path)
 
         logger.info(f"Agent {agent_id} initialized from template")
         return True
+
+    @staticmethod
+    def _ensure_agent_dirs(agent_path: Path) -> None:
+        """Ensure required subdirectories exist for an agent."""
+        (agent_path / "memory").mkdir(parents=True, exist_ok=True)
+        (agent_path / "memory" / "recent").mkdir(exist_ok=True)
+        (agent_path / "workspace").mkdir(exist_ok=True)
 
     def add_agent(self, agent_id: str) -> bool:
         """
@@ -120,6 +123,7 @@ class AgentManager:
             return False
 
         from simu_emperor.agents.agent import Agent
+        from simu_emperor.agents.config import AgentConfig
 
         agent_path = self.agent_dir / agent_id
 
@@ -128,17 +132,19 @@ class AgentManager:
             return False
 
         agent = Agent(
-            agent_id=agent_id,
-            event_bus=self.event_bus,
-            llm_provider=self.llm_provider,
-            data_dir=agent_path,
-            repository=self.repository,
-            session_id=self.session_id,
-            session_manager=self.session_manager,
-            tape_writer=self.tape_writer,
-            tape_metadata_mgr=self.tape_metadata_mgr,
-            tape_repository=self.tape_repository,
-            engine=self.engine,
+            AgentConfig(
+                agent_id=agent_id,
+                event_bus=self.event_bus,
+                llm_provider=self.llm_provider,
+                data_dir=agent_path,
+                repository=self.repository,
+                session_id=self.session_id,
+                session_manager=self.session_manager,
+                tape_writer=self.tape_writer,
+                tape_metadata_mgr=self.tape_metadata_mgr,
+                tape_repository=self.tape_repository,
+                engine=self.engine,
+            )
         )
 
         agent.start()
@@ -150,17 +156,7 @@ class AgentManager:
         return True
 
     async def remove_agent(self, agent_id: str) -> bool:
-        if agent_id not in self._active_agents:
-            logger.warning(f"Agent {agent_id} not active")
-            return False
-
-        agent = self._active_agents[agent_id]
-        await agent.stop_queue_consumer()
-        agent.stop()
-        del self._active_agents[agent_id]
-
-        logger.info(f"Agent {agent_id} removed and stopped")
-        return True
+        return await self.stop_agent(agent_id)
 
     def get_all_agents(self) -> list[str]:
         if not self.agent_dir.exists():
@@ -177,10 +173,6 @@ class AgentManager:
         return list(self._active_agents.keys())
 
     def start_agent(self, agent_id: str) -> bool:
-        if agent_id in self._active_agents:
-            logger.warning(f"Agent {agent_id} already active")
-            return False
-
         return self.add_agent(agent_id)
 
     async def stop_agent(self, agent_id: str) -> bool:

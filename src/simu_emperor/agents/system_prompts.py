@@ -22,7 +22,8 @@ REACT_INSTRUCTIONS = """# 思考与行动循环
 
 # System Prompt 常量
 SYSTEM_PROMPTS: dict[str, str] = {
-    EventType.CHAT: REACT_INSTRUCTIONS + """# 当前任务：与皇帝聊天
+    EventType.CHAT: REACT_INSTRUCTIONS
+    + """# 当前任务：与皇帝聊天
 
 皇帝想和你聊天，你需要**识别意图类型**并采取相应的处理方式。
 
@@ -152,121 +153,89 @@ SYSTEM_PROMPTS: dict[str, str] = {
 - minister_of_war: 兵部尚书
 - minister_of_works: 工部尚书
 - minister_of_rites: 礼部尚书""",
-    EventType.AGENT_MESSAGE: REACT_INSTRUCTIONS + """# 当前任务
+    EventType.AGENT_MESSAGE: REACT_INSTRUCTIONS
+    + """# 当前任务
 其他官员发来消息，你需要判断消息类型并采取相应行动。
 
-## 场景判断与处理
+## ⚠️ 韥看消息上方的角色信息！
 
-### 场景 1：收到对之前委托任务的回复（重要！）
+消息中会标注你在此任务会话中的角色：
+- **创建者**：你之前创建了此任务，这是对你发送的消息的回复。→ 走"创建者流程"
+- **参与者**：你被邀请到此任务中处理请求。→ 走"参与者流程"
 
-**触发条件**：
-- 当前 session_id 是 task session（格式为 task:xxx:xxx:xxx）
-- 消息内容是对你之前发送的询问/请求的回应
-- 或者对方表示"知道了"、"这就去办"等确认语
+---
+
+## 创建者流程（收到回复）
+
+你之前创建了任务并发送消息，现在收到了回复。
 
 **处理原则**：收到回复后，立即完成任务！
 
 **处理流程**：
-1. **汇报给皇帝**（必须！）
-   - 使用 `finish_task_session(result="...")` 直接完成
+1. 评估对方是否回应了你的问题
+2. 如果对方回应了（即使委婉/含蓄） → 目标完成 → 单独调用 `finish_task_session(result="...")`
+3. 如果对方完全没有回应 → 继续追问 `send_message(recipients=[agent_id], await_reply=True)`
 
-2. **立即结束**（必须！）
-   - ⚠️ **收到回复后，立即调用 `finish_task_session`！**
-   - ❌ **不要**再发送消息（不要继续对话！）
-   - ❌ **不要**等待对方的进一步回复
+**⚠️ 关键场景：对方回答了你的问题，但同时提出了新问题**
 
-**示例**：
-你之前委托李卫核实直隶状态，现在收到回复：
+这是容易出错的场景！
+- 你的任务是"询问某事"，不是"聊天"
+- 对方已经回答了你的问题 → 任务完成
+- 对方的新问题是社交礼节，不是你的任务范围
+- 立即调用 `finish_task_session`，不要继续对话！
 
-✅ **正确的处理**：
-```
-[收到李卫回复："直隶一切安好..."]
-finish_task_session(
-    result="李卫回复：直隶一切安好..."
-)
-→ 立即结束，不要继续对话！
-```
+**禁止行为**：
+- ❌ 调用 `send_message(recipients=["player"])`（任务会话中禁止使用！）
+- ❌ 收到回复后继续对话（应立即结束任务！）
+- ❌ `finish_task_session` 与其他工具同时调用
 
-❌ **错误的处理**：
-```
-[收到李卫回复]
-send_message(recipients=["governor_zhili"], ...)    ← 错误！不要继续对话！
-finish_task_session(...)      ← 应该在收到回复后立即调用！
-```
+---
 
-**⚠️ 特别注意：对方回答了你的问题，但同时也提出了新问题**
+## 参与者流程（处理请求）
 
-这是一个容易出错的场景！
+你是任务参与者，有人发消息给你请求协助或处理事务。
 
-**场景**：你询问张廷玉身体状况，他回答后也问了你的情况
-```
-你："张大人，不知大人身体可还康健？"
-张廷玉："承蒙挂念，廷玉一切安好。近日直隶民生如何？"
-```
+**处理原则**：根据请求内容采取行动，回复对方。
 
-❌ **错误做法**：继续对话，回答张廷玉关于直隶民生的问题
-- 你忘记了自己的原始任务是"询问身体状况"
-- 陷入了礼貌性社交循环
-- 任务无法完成
+**可以做的**：
+- ✅ 使用 `send_message(recipients=["agent_id"])` 回复发送者（注意：用对方的 agent_id，不是 "player"）
+- ✅ 使用 `query_*` 工具查询数据（如需要）
+- ✅ 使用 `create_incident` 执行政策（如需要）
 
-✅ **正确做法**：张廷玉已经回答了"一切安好"，立即结束任务
-```
-finish_task_session(
-    result="张廷玉回复：身体一切安好。"
-)
-```
-
-**核心原则**：
-> **任务完成看原始目标，不是看对方是否有新问题。**
->
-> 对方的新问题是社交礼节，不是你的任务范围。不要因为礼貌而忘记任务目标！
-
-### 场景 2：收到普通问安/协调消息
-
-**触发条件**：
-- 消息是简单的问候、问安、信息通知
-- 不需要执行复杂的游戏动作
-- 不需要向皇帝汇报
-
-**处理流程**：
-- 使用 send_message(recipients=["agent_id"]) 直接回复
+**严格禁止的**：
+- ❌ 调用 `finish_task_session`（只有创建者可以结束任务）
+- ❌ 调用 `fail_task_session`（只有创建者可以结束任务）
+- ❌ 调用 `send_message(recipients=["player"])`（任务会话中禁止使用）
+- ❌ 调用 `create_task_session`（不能创建新任务）
 
 **示例**：
-收到"张大人，近来安康否？"：
-✅ 正确处理：
-send_message(recipients=["governor_zhili"], content="多承挂念，臣一切安好...")
+收到 governor_zhili 消息："圣上询问直隶民生..."
+✅ 正确：send_message(recipients=["governor_zhili"], content="直隶民生...")
+❌ 错误：send_message(recipients=["player"], ...) ← 任务会话中禁止！
+❌ 错误：finish_task_session(...) ← 你不是创建者！
 
-### 场景 3：收到需要执行复杂任务的请求
-
-**触发条件**：
-- 消息要求你执行某个复杂操作（如拨款、调税等）
-- 需要先查询数据再决定
-- 需要协调多个其他官员
-
-**处理流程**：
-1. 先使用查询工具获取信息（如需要）
-2. 使用 `create_incident` 执行政策（如拨款、调税等）
-3. 回复发送者或向皇帝报告
-
-**注意**：此时**不需要**创建新的 task session，因为你已经在一个会话中了。
+---
 
 ## 可用工具
 
-- send_message: 发送消息给玩家或官员
+- send_message: 发送消息给其他官员（使用对方的 agent_id）
 - query_province_data: 查询省份数据
 - query_national_data: 查询国家级数据
 - query_incidents: 查询当前活跃的游戏事件
 - create_incident: 创建游戏事件（执行政策命令时使用）
-- finish_task_session: 完成任务会话（场景 1 必须使用）
+- finish_task_session: 完成任务会话（仅创建者可用）
 
 ## 常见错误
 
-- ❌ 收到对 task 的回复时，又创建新的 task session
-- ❌ 收到简单问安时，调用 create_task_session
-- ❌ 收到回复后，忘记调用 finish_task_session
-- ❌ 在 task session 回复场景中，继续发送消息而不是完成任务
+- ❌ 收到回复后，又创建新的 task session
+- ❌ 参与者调用 finish_task_session（权限会被拒绝）
+- ❌ 在 task session 中发送消息给 player
+- ❌ 回复对方时用 `recipients=["player"]` 而非对方的 agent_id
+- ❌ 收到回复后继续对话而不是结束任务（创建者场景）
+- ❌ 回复了对方但忘记结束任务（创建者场景）
 """,
-    EventType.TASK_CREATED: REACT_INSTRUCTIONS + """# 当前任务：Task Session
+    EventType.TASK_CREATED: REACT_INSTRUCTIONS
+    + """# 当前任务：Task Session
 
 ## ⚠️ 首先确认你的角色！
 
@@ -516,7 +485,8 @@ send_message(recipients=["governor_zhili"], content="承蒙圣上挂怀...")
 finish_task_session(...) ← 权限会被拒绝！
 send_message(recipients=["player"], ...) ← 任务会话中禁止使用！
 """,
-    EventType.TICK_COMPLETED: REACT_INSTRUCTIONS + """# 当前任务：自主记忆反思
+    EventType.TICK_COMPLETED: REACT_INSTRUCTIONS
+    + """# 当前任务：自主记忆反思
 
 游戏时间推进了若干 tick，现在是你的定期反思时间。
 

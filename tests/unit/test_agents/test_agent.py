@@ -6,6 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
+from simu_emperor.agents.tools.registry import ToolResult
 from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
@@ -129,14 +131,16 @@ def agent(mock_event_bus, mock_llm, temp_data_dir, mock_repository, tmp_path, mo
     mock_tape_metadata_mgr = AsyncMock()
 
     agent = Agent(
-        agent_id="test_agent",
-        event_bus=mock_event_bus,
-        llm_provider=mock_llm,
-        data_dir=temp_data_dir,
-        repository=mock_repository,
-        session_manager=mock_session_manager,
-        tape_writer=mock_tape_writer,
-        tape_metadata_mgr=mock_tape_metadata_mgr,
+        AgentConfig(
+            agent_id="test_agent",
+            event_bus=mock_event_bus,
+            llm_provider=mock_llm,
+            data_dir=temp_data_dir,
+            repository=mock_repository,
+            session_manager=mock_session_manager,
+            tape_writer=mock_tape_writer,
+            tape_metadata_mgr=mock_tape_metadata_mgr,
+        )
     )
 
     yield agent
@@ -455,13 +459,15 @@ class TestAgent:
 
         # 创建 Agent 时传入 skill_loader
         agent = Agent(
-            agent_id="test_agent_with_loader",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            skill_loader=mock_skill_loader,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent_with_loader",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                skill_loader=mock_skill_loader,
+                session_manager=mock_session_manager,
+            )
         )
 
         # 验证 skill_loader 被正确保存
@@ -487,13 +493,15 @@ class TestAgent:
 
         # 创建 Agent 时不传入 skill_loader
         agent = Agent(
-            agent_id="test_agent_no_loader",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
-            # 不传 skill_loader 参数
+            AgentConfig(
+                agent_id="test_agent_no_loader",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                session_manager=mock_session_manager,
+                # 不传 skill_loader 参数
+            )
         )
 
         # 验证 _skill_loader 为 None（向后兼容）
@@ -523,12 +531,14 @@ class TestAgent:
         mock_session_manager.save_manifest = AsyncMock()
 
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         # 获取 system prompt
@@ -553,12 +563,14 @@ class TestAgent:
 
         # 创建 Agent 时不传入 SkillLoader
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         # 获取 system prompt
@@ -592,13 +604,15 @@ class TestAgent:
 
         # 创建 Agent 并注入 SkillLoader
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            skill_loader=mock_skill_loader,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                skill_loader=mock_skill_loader,
+                session_manager=mock_session_manager,
+            )
         )
 
         # 获取 system prompt
@@ -634,12 +648,14 @@ class TestAgent:
 
         # 创建 Agent with task session manager
         agent_with_task = Agent(
-            agent_id="test_agent_task",
-            event_bus=agent.event_bus,
-            llm_provider=agent.llm_provider,
-            data_dir=agent.data_dir,
-            repository=agent.repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent_task",
+                event_bus=agent.event_bus,
+                llm_provider=agent.llm_provider,
+                data_dir=agent.data_dir,
+                repository=agent.repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         task_session_id = "task:test_agent:parent_session:123"
@@ -657,11 +673,8 @@ class TestAgent:
             event,
         )
 
-        # send_message 返回元组 (status_msg, event)
-        status_msg = result[0] if isinstance(result, tuple) else result
-
-        # 应该返回等待消息
-        assert "等待回复" in status_msg
+        assert isinstance(result, ToolResult)
+        assert "等待回复" in result.output
 
         # 验证发送的事件使用的是 task session
         assert agent_with_task.event_bus.send_event.called
@@ -685,12 +698,9 @@ class TestAgent:
             event,
         )
 
-        # send_message 返回元组 (status_msg, event)
-        status_msg = result[0] if isinstance(result, tuple) else result
-
-        # 应该返回成功消息（包含 ✅）
-        assert "✅" in status_msg
-        assert "⏳" not in status_msg
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "消息已发送" in result.output
 
     @pytest.mark.asyncio
     async def test_send_message_shares_task_session(self, agent, tmp_path, monkeypatch):
@@ -717,12 +727,14 @@ class TestAgent:
 
         # 创建 Agent with session_manager
         agent_with_sm = Agent(
-            agent_id="test_agent_with_session",
-            event_bus=agent.event_bus,
-            llm_provider=agent.llm_provider,
-            data_dir=agent.data_dir,
-            repository=agent.repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent_with_session",
+                event_bus=agent.event_bus,
+                llm_provider=agent.llm_provider,
+                data_dir=agent.data_dir,
+                repository=agent.repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         task_session_id = "task:test_agent:parent_session:123"
@@ -761,13 +773,13 @@ class TestAgent:
 
         # 调用 send_message 尝试向自己发送消息
         result = await agent._action_tools.send_message(
-            {"recipients": ["test_agent"], "content": "这是一条消息"},
+            {"recipients": ["agent:test_agent"], "content": "测试"},
             event,
         )
 
-        # 应该返回错误消息
-        assert "❌" in result
-        assert "不能向自己发送消息" in result
+        assert isinstance(result, ToolResult)
+        assert not result.success
+        assert "不能向自己发送消息" in result.output
 
         # 验证没有发送任何事件
         assert not agent.event_bus.send_event.called
@@ -841,12 +853,14 @@ class TestTickCompletedEvent:
         mock_session_manager.get_session = AsyncMock(return_value=mock_session)
 
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=mock_llm,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         prompt = agent._get_system_prompt_for_event(EventType.TICK_COMPLETED)
@@ -888,12 +902,14 @@ class TestTickCompletedEvent:
         )
 
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=mock_event_bus,
-            llm_provider=fresh_mock,
-            data_dir=temp_data_dir,
-            repository=mock_repository,
-            session_manager=mock_session_manager,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=mock_event_bus,
+                llm_provider=mock_llm,
+                data_dir=temp_data_dir,
+                repository=mock_repository,
+                session_manager=mock_session_manager,
+            )
         )
 
         agent.start()

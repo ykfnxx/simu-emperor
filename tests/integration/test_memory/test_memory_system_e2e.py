@@ -8,6 +8,7 @@ from simu_emperor.event_bus.core import EventBus
 from simu_emperor.event_bus.event import Event
 from simu_emperor.event_bus.event_types import EventType
 from simu_emperor.agents.agent import Agent
+from simu_emperor.agents.config import AgentConfig
 from simu_emperor.llm.mock import MockProvider
 from simu_emperor.config import MemoryConfig
 from simu_emperor.memory.tape_writer import TapeWriter
@@ -54,14 +55,16 @@ class TestMemorySystemE2E:
 
         # Pass agent_dir as data_dir (Agent expects agent-specific directory)
         agent = Agent(
-            agent_id="test_agent",
-            event_bus=event_bus,
-            llm_provider=llm,
-            data_dir=agent_dir,  # Changed from data_dir to agent_dir
-            session_id="test_session",
-            session_manager=mock_session_manager,
-            tape_writer=tape_writer,
-            tape_metadata_mgr=tape_metadata_mgr,
+            AgentConfig(
+                agent_id="test_agent",
+                event_bus=event_bus,
+                llm_provider=llm,
+                data_dir=agent_dir,  # Changed from data_dir to agent_dir
+                session_id="test_session",
+                session_manager=mock_session_manager,
+                tape_writer=tape_writer,
+                tape_metadata_mgr=tape_metadata_mgr,
+            )
         )
         agent.start()
 
