@@ -41,6 +41,7 @@ class ActionTools(ToolProvider):
         session_manager=None,
         on_soul_updated=None,
         context_manager=None,
+        known_agent_ids: set[str] | None = None,
     ):
         self.agent_id = agent_id
         self.event_bus = event_bus
@@ -48,6 +49,7 @@ class ActionTools(ToolProvider):
         self.session_manager = session_manager
         self.on_soul_updated = on_soul_updated
         self._context_manager = context_manager
+        self._known_agent_ids = known_agent_ids or set()
 
     def set_context_manager(self, context_manager) -> None:
         """Set the context manager (called by Agent after lazy initialization)."""
@@ -83,18 +85,34 @@ class ActionTools(ToolProvider):
             return ToolResult(output="❌ 接收者列表不能为空", success=False)
         if not content:
             return ToolResult(output="❌ 消息内容不能为空", success=False)
-        if await_reply and "player" in recipients:
+        if await_reply and any(r.startswith("player") for r in recipients):
             return ToolResult(output="❌ await_reply=true 只能用于 agent 间消息", success=False)
 
         # 标准化 recipients
         normalized_recipients = []
         for r in recipients:
-            if r == "player":
-                normalized_recipients.append("player")
+            if r.startswith("player"):
+                # player, player:web, player:web:group 等都是合法的玩家目标
+                normalized_recipients.append(r)
             elif not r.startswith("agent:"):
                 normalized_recipients.append(f"agent:{r}")
             else:
                 normalized_recipients.append(r)
+
+        # 校验 recipient 是否为已知的 agent ID
+        if self._known_agent_ids:
+            for r in normalized_recipients:
+                if r.startswith("player"):
+                    continue
+                bare_id = r.replace("agent:", "")
+                if bare_id not in self._known_agent_ids:
+                    known_list = ", ".join(sorted(self._known_agent_ids))
+                    return ToolResult(
+                        output=f"❌ 未知的官员 ID「{bare_id}」，消息发送失败。"
+                        f"可用的官员 ID: {known_list}。"
+                        f"请使用 list_agents 工具查询正确的官员 ID。",
+                        success=False,
+                    )
 
         # 防止向自己发送消息
         self_agent = f"agent:{self.agent_id}"

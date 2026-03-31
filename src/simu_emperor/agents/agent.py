@@ -83,12 +83,21 @@ class Agent:
             data_dir=self.data_dir,
             engine=config.engine,
         )
+        # 从 role_map 获取已知 agent ID 列表，用于 send_message 校验
+        known_agent_ids = set()
+        if hasattr(self._query_tools, '_role_map_parser'):
+            for agent_info in self._query_tools._role_map_parser.parse():
+                aid = agent_info.get("agent_id")
+                if aid:
+                    known_agent_ids.add(aid)
+
         self._action_tools = ActionTools(
             agent_id=self.agent_id,
             event_bus=self.event_bus,
             data_dir=self.data_dir,
             session_manager=self.session_manager,
             on_soul_updated=self._load_soul,
+            known_agent_ids=known_agent_ids,
         )
 
         # ContextManager - 用于当前session的上下文管理
@@ -568,20 +577,43 @@ class Agent:
         Returns:
             单条 message，格式：{"role": "user" | "assistant" | "tool", "content": "..."}
         """
-        # OBSERVATION → user (观察结果，用于 ReAct 循环)
+        # OBSERVATION → assistant (工具执行结果)
         if event.type == EventType.OBSERVATION:
-            parts = ["# 观察结果 (Observation)"]
+            parts = []
             thought = event.payload.get("thought", "")
             if thought:
-                parts.append(f"\n## 思考\n{thought}")
+                parts.append(thought)
 
             actions = event.payload.get("actions", [])
             if actions:
-                parts.append("\n## 执行的操作")
+                executed_tools = []
+                parts.append("[工具结果]")
                 for action in actions:
                     tool = action.get("tool", "")
                     result = action.get("result", "")
-                    parts.append(f"- **{tool}**: {result[:200]}...")
+                    parts.append(f"- {tool}: {result[:200]}")
+                    executed_tools.append(tool)
+
+                # 执行摘要 — 区分操作工具（改变游戏状态）和通信工具
+                action_tools = {"create_incident", "write_memory",
+                                "write_long_term_memory", "update_soul"}
+                called_action = [t for t in executed_tools if t in action_tools]
+                called_comm = "send_message" in executed_tools
+                called_query = [t for t in executed_tools if t.startswith("query_") or t.startswith("list_") or t == "get_agent_info"]
+
+                summary = []
+                if called_action:
+                    summary.append(f"已执行操作: {', '.join(called_action)}")
+                if called_comm:
+                    summary.append("已发送消息")
+                if called_query:
+                    summary.append(f"已查询: {', '.join(called_query)}")
+                if not summary:
+                    summary.append("未调用任何工具")
+                parts.append(f"[{'; '.join(summary)}]")
+                # 提醒：只发了消息但没执行操作
+                if called_comm and not called_action:
+                    parts.append("[注意：本轮仅发送了消息，未调用 create_incident 等操作工具]")
 
             return {"role": "assistant", "content": "\n".join(parts)}
 

@@ -81,6 +81,20 @@ class ReActLoop:
             )
 
             messages = await ctx.get_llm_messages()
+
+            # 高迭代轮次注入提醒，帮助 agent 收敛
+            if iteration >= 3:
+                reminder = (
+                    f"\n[系统提醒：你已进行了 {iteration} 轮思考。"
+                    "请检查：(1) 目标是否已完成？(2) 是否需要调整策略？"
+                    "(3) 回复内容是否与实际执行一致？]"
+                )
+                if messages and messages[-1].get("role") == "assistant":
+                    messages[-1] = {
+                        **messages[-1],
+                        "content": messages[-1].get("content", "") + reminder,
+                    }
+
             result = await self._call_llm(event, session_id, iteration, messages)
 
             tool_calls = result.get("tool_calls", [])

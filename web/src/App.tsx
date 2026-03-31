@@ -1319,6 +1319,8 @@ export default function App() {
         const result = await client.current.createSession(undefined, pendingSession.agentId);
         targetSessionId = result.session?.session_id || result.current_session_id || currentSessionId;
         setCurrentSessionId(targetSessionId);
+        // 同步更新 ref，避免 refreshData 读到旧值导致闪回
+        currentSessionRef.current = targetSessionId;
         setPendingSession(null); // 清除pending状态
         // 刷新session列表
         await refreshData();
