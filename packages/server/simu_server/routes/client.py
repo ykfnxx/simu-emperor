@@ -78,8 +78,8 @@ def set_dependencies(**kwargs: Any) -> None:
     _deps.update(kwargs)
 
 
-def _get(name: str) -> Any:
-    return _deps[name]
+def _get(name: str, default: Any = None) -> Any:
+    return _deps.get(name, default)
 
 
 # ---------------------------------------------------------------------------

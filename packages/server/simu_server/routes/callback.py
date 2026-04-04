@@ -58,15 +58,20 @@ def set_dependencies(**kwargs: Any) -> None:
     _deps.update(kwargs)
 
 
-def _get(name: str) -> Any:
-    return _deps[name]
+def _get(name: str, default: Any = None) -> Any:
+    return _deps.get(name, default)
 
 
-def _verify_agent(agent_id: str) -> None:
-    """Basic auth check — agent must be known."""
-    # Full token validation would check against process_manager.get_token()
-    # For now, just ensure the agent is registered
-    pass
+async def _verify_agent(agent_id: str, token: str) -> None:
+    """Verify that the agent is registered and the callback token is valid."""
+    process_manager = _get("process_manager")
+    if process_manager is None:
+        return
+    expected_token = process_manager.get_token(agent_id)
+    if expected_token is None:
+        raise HTTPException(status_code=401, detail=f"Unknown agent: {agent_id}")
+    if expected_token != token:
+        raise HTTPException(status_code=403, detail="Invalid callback token")
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +82,9 @@ def _verify_agent(agent_id: str) -> None:
 async def register_agent(
     req: RegisterRequest,
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, Any]:
+    await _verify_agent(x_agent_id, x_callback_token)
     registry = _get("agent_registry")
     await registry.update_status(req.agent_id, AgentStatus.RUNNING)
     await registry.update_capabilities(req.agent_id, req.capabilities)
@@ -87,7 +94,11 @@ async def register_agent(
 
 
 @router.post("/heartbeat")
-async def heartbeat(x_agent_id: str = Header(...)) -> dict[str, str]:
+async def heartbeat(
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, str]:
+    await _verify_agent(x_agent_id, x_callback_token)
     await _get("agent_registry").update_heartbeat(x_agent_id)
     return {"status": "ok"}
 
@@ -96,7 +107,9 @@ async def heartbeat(x_agent_id: str = Header(...)) -> dict[str, str]:
 async def report_status(
     req: StatusRequest,
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, str]:
+    await _verify_agent(x_agent_id, x_callback_token)
     status_map = {
         "stopping": AgentStatus.STOPPING,
         "stopped": AgentStatus.STOPPED,
@@ -116,7 +129,9 @@ async def report_status(
 async def post_message(
     req: MessageRequest,
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, Any]:
+    await _verify_agent(x_agent_id, x_callback_token)
     event_router = _get("event_router")
     msg_store = _get("message_store")
     queue = _get("queue_controller")
@@ -158,7 +173,9 @@ async def post_message(
 async def report_tool_result(
     request: Request,
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, str]:
+    await _verify_agent(x_agent_id, x_callback_token)
     body = await request.json()
     logger.debug("Tool result from %s: %s", x_agent_id, body.get("tool_name"))
     return {"status": "ok"}
@@ -172,12 +189,18 @@ async def report_tool_result(
 async def query_state(
     path: str = "",
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, Any]:
+    await _verify_agent(x_agent_id, x_callback_token)
     return _get("engine").query_state(path)
 
 
 @router.get("/agents")
-async def query_agents(x_agent_id: str = Header(...)) -> list[dict[str, Any]]:
+async def query_agents(
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> list[dict[str, Any]]:
+    await _verify_agent(x_agent_id, x_callback_token)
     agents = await _get("agent_registry").list_all()
     return [
         {"agent_id": a.agent_id, "display_name": a.display_name, "status": a.status.value}
@@ -193,7 +216,9 @@ async def query_agents(x_agent_id: str = Header(...)) -> list[dict[str, Any]]:
 async def complete_invocation(
     req: InvocationCompleteRequest,
     x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
 ) -> dict[str, str]:
+    await _verify_agent(x_agent_id, x_callback_token)
     inv_mgr = _get("invocation_manager")
     status = InvocationStatus(req.status)
     await inv_mgr.complete(req.invocation_id, status, req.error)
@@ -205,7 +230,11 @@ async def complete_invocation(
 # ---------------------------------------------------------------------------
 
 @router.get("/events")
-async def event_stream(x_agent_id: str = Header(...)) -> EventSourceResponse:
+async def event_stream(
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> EventSourceResponse:
+    await _verify_agent(x_agent_id, x_callback_token)
     event_router = _get("event_router")
     queue = event_router.connect(x_agent_id)
 

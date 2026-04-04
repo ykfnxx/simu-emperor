@@ -94,7 +94,11 @@ class ReActLoop:
 
             # Append assistant message + tool results for next iteration
             messages.append(self._assistant_message(response))
-            messages.append(self._tool_results_message(tool_results))
+            tool_msgs = self._tool_results_message(tool_results)
+            if isinstance(tool_msgs, list):
+                messages.extend(tool_msgs)  # OpenAI: one message per tool call
+            else:
+                messages.append(tool_msgs)  # Anthropic: single user message
 
         # Max iterations reached
         return ReActResult(
@@ -134,9 +138,20 @@ class ReActLoop:
 
         return messages
 
+    def _assistant_message(self, response: LLMResponse) -> dict[str, Any]:
+        if self._llm.message_format == "anthropic":
+            return self._assistant_message_anthropic(response)
+        return self._assistant_message_openai(response)
+
+    def _tool_results_message(self, results: list[dict[str, str]]) -> dict[str, Any]:
+        if self._llm.message_format == "anthropic":
+            return self._tool_results_anthropic(results)
+        return self._tool_results_openai(results)
+
+    # --- Anthropic format ---
+
     @staticmethod
-    def _assistant_message(response: LLMResponse) -> dict[str, Any]:
-        msg: dict[str, Any] = {"role": "assistant"}
+    def _assistant_message_anthropic(response: LLMResponse) -> dict[str, Any]:
         content_parts: list[Any] = []
         if response.content:
             content_parts.append({"type": "text", "text": response.content})
@@ -147,11 +162,10 @@ class ReActLoop:
                 "name": tc.name,
                 "input": tc.arguments,
             })
-        msg["content"] = content_parts
-        return msg
+        return {"role": "assistant", "content": content_parts}
 
     @staticmethod
-    def _tool_results_message(results: list[dict[str, str]]) -> dict[str, Any]:
+    def _tool_results_anthropic(results: list[dict[str, str]]) -> dict[str, Any]:
         content_parts = []
         for r in results:
             content_parts.append({
@@ -160,6 +174,37 @@ class ReActLoop:
                 "content": r["output"],
             })
         return {"role": "user", "content": content_parts}
+
+    # --- OpenAI format ---
+
+    @staticmethod
+    def _assistant_message_openai(response: LLMResponse) -> dict[str, Any]:
+        msg: dict[str, Any] = {"role": "assistant", "content": response.content or None}
+        if response.tool_calls:
+            msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": json.dumps(tc.arguments),
+                    },
+                }
+                for tc in response.tool_calls
+            ]
+        return msg
+
+    @staticmethod
+    def _tool_results_openai(results: list[dict[str, str]]) -> list[dict[str, str]]:
+        """OpenAI returns tool results as separate messages per tool call."""
+        return [
+            {
+                "role": "tool",
+                "tool_call_id": r["tool_call_id"],
+                "content": r["output"],
+            }
+            for r in results
+        ]
 
     # ------------------------------------------------------------------
     # Tool execution

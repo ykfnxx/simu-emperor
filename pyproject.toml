@@ -21,10 +21,10 @@ build-backend = "hatchling.build"
 packages = ["packages/shared/simu_shared", "packages/sdk/simu_sdk", "packages/server/simu_server", "packages/agents/simu_agents"]
 
 [tool.uv.sources]
-simu-shared = { path = "packages/shared", editable = true }
-simu-sdk = { path = "packages/sdk", editable = true }
-simu-server = { path = "packages/server", editable = true }
-simu-agents = { path = "packages/agents", editable = true }
+simu-shared = { workspace = true }
+simu-sdk = { workspace = true }
+simu-server = { workspace = true }
+simu-agents = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

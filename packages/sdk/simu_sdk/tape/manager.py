@@ -79,7 +79,7 @@ class TapeManager:
         limit: int = 100,
         after_event_id: str | None = None,
     ) -> list[TapeEvent]:
-        """Query events for a session, ordered by timestamp."""
+        """Query the most recent events for a session, in chronological order."""
         assert self._db is not None
         if after_event_id:
             cursor = await self._db.execute(
@@ -92,12 +92,14 @@ class TapeManager:
                 """,
                 (session_id, after_event_id, limit),
             )
+            rows = await cursor.fetchall()
         else:
+            # Fetch the N most recent events, then reverse to chronological order
             cursor = await self._db.execute(
-                "SELECT * FROM tape_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?",
+                "SELECT * FROM tape_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?",
                 (session_id, limit),
             )
-        rows = await cursor.fetchall()
+            rows = list(reversed(await cursor.fetchall()))
         return [self._row_to_event(row) for row in rows]
 
     async def count(self, session_id: str) -> int:

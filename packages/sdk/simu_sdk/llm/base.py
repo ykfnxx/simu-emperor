@@ -34,6 +34,9 @@ class LLMResponse:
 class LLMProvider(ABC):
     """Abstract interface for LLM backends."""
 
+    #: Message format style: "anthropic" or "openai"
+    message_format: str = "openai"
+
     @abstractmethod
     async def call(
         self,

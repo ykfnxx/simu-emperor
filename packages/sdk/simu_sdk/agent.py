@@ -66,8 +66,8 @@ class BaseAgent:
             max_tool_calls=config.react.max_tool_calls,
         )
 
-        # Tape (local)
-        tape_dir = Path(config.config_path).parent / "data" / "agents" / config.agent_id
+        # Tape (local) — stored under the agent's own config directory
+        tape_dir = Path(config.config_path) / "tape"
         self.tape = TapeManager(tape_dir)
         self.context_manager = ContextManager(self.tape, config.context)
 
@@ -241,3 +241,7 @@ def run_agent(agent_cls: type[BaseAgent] | None = None) -> None:
         loop.run_until_complete(agent.start())
     finally:
         loop.close()
+
+
+if __name__ == "__main__":
+    run_agent()

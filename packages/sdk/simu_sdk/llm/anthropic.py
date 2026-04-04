@@ -14,6 +14,8 @@ from simu_sdk.llm.base import LLMProvider, LLMResponse, ToolCall
 class AnthropicProvider(LLMProvider):
     """Calls Claude via the Anthropic Python SDK."""
 
+    message_format = "anthropic"
+
     def __init__(self, config: LLMConfig) -> None:
         self._config = config
         self._client = AsyncAnthropic(api_key=config.api_key)
