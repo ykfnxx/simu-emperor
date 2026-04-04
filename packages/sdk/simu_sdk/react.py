@@ -1,0 +1,197 @@
+"""ReActLoop — reason-act-observe cycle driven by an LLM.
+
+The loop repeats:
+  1. Call LLM with system prompt + context + current observations
+  2. If LLM returns tool calls → execute them, collect results
+  3. If LLM returns text only → treat as final response, break
+
+Iteration and tool-call limits prevent runaway loops.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+from simu_shared.constants import EventType
+from simu_shared.models import TapeEvent
+from simu_sdk.llm.base import LLMProvider, LLMResponse, ToolCall
+from simu_sdk.tape.context import ContextWindow
+from simu_sdk.tools.registry import ToolRegistry, ToolResult
+
+logger = logging.getLogger(__name__)
+
+
+class ReActLoop:
+    """Execute the ReAct (Reason → Act → Observe) loop."""
+
+    def __init__(
+        self,
+        llm: LLMProvider,
+        tools: ToolRegistry,
+        max_iterations: int = 10,
+        max_tool_calls: int = 20,
+    ) -> None:
+        self._llm = llm
+        self._tools = tools
+        self._max_iterations = max_iterations
+        self._max_tool_calls = max_tool_calls
+
+    async def run(
+        self,
+        system_prompt: str,
+        event: TapeEvent,
+        context: ContextWindow,
+    ) -> ReActResult:
+        """Run the loop and return the final result."""
+        messages = self._build_initial_messages(event, context)
+        tool_defs = self._tools.to_function_definitions() or None
+
+        total_tool_calls = 0
+        iterations = 0
+
+        while iterations < self._max_iterations:
+            iterations += 1
+
+            response = await self._llm.call(
+                messages=messages,
+                tools=tool_defs,
+                system=system_prompt,
+            )
+
+            if not response.has_tool_calls:
+                return ReActResult(
+                    content=response.content,
+                    iterations=iterations,
+                    tool_calls_count=total_tool_calls,
+                )
+
+            # Execute tool calls
+            tool_results: list[dict[str, str]] = []
+            for tc in response.tool_calls:
+                if total_tool_calls >= self._max_tool_calls:
+                    tool_results.append({
+                        "tool_call_id": tc.id,
+                        "output": "Error: tool call limit reached.",
+                    })
+                    continue
+
+                total_tool_calls += 1
+                result = await self._execute_tool(tc, event)
+                tool_results.append({
+                    "tool_call_id": tc.id,
+                    "output": result.output,
+                })
+
+                if result.ends_loop:
+                    return ReActResult(
+                        content=result.output,
+                        iterations=iterations,
+                        tool_calls_count=total_tool_calls,
+                        ended_by_tool=tc.name,
+                    )
+
+            # Append assistant message + tool results for next iteration
+            messages.append(self._assistant_message(response))
+            messages.append(self._tool_results_message(tool_results))
+
+        # Max iterations reached
+        return ReActResult(
+            content="[Max iterations reached]",
+            iterations=iterations,
+            tool_calls_count=total_tool_calls,
+        )
+
+    # ------------------------------------------------------------------
+    # Message construction
+    # ------------------------------------------------------------------
+
+    def _build_initial_messages(
+        self, event: TapeEvent, context: ContextWindow,
+    ) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+
+        # Inject context summary if present
+        if context.summary:
+            messages.append({
+                "role": "user",
+                "content": f"[Context summary]\n{context.summary}",
+            })
+
+        # Inject recent tape events as context
+        for tape_event in context.events:
+            role = "assistant" if tape_event.src.startswith("agent:") else "user"
+            content = tape_event.payload.get("content", "")
+            if content:
+                messages.append({"role": role, "content": content})
+
+        # The triggering event
+        messages.append({
+            "role": "user",
+            "content": event.payload.get("content", json.dumps(event.payload, ensure_ascii=False)),
+        })
+
+        return messages
+
+    @staticmethod
+    def _assistant_message(response: LLMResponse) -> dict[str, Any]:
+        msg: dict[str, Any] = {"role": "assistant"}
+        content_parts: list[Any] = []
+        if response.content:
+            content_parts.append({"type": "text", "text": response.content})
+        for tc in response.tool_calls:
+            content_parts.append({
+                "type": "tool_use",
+                "id": tc.id,
+                "name": tc.name,
+                "input": tc.arguments,
+            })
+        msg["content"] = content_parts
+        return msg
+
+    @staticmethod
+    def _tool_results_message(results: list[dict[str, str]]) -> dict[str, Any]:
+        content_parts = []
+        for r in results:
+            content_parts.append({
+                "type": "tool_result",
+                "tool_use_id": r["tool_call_id"],
+                "content": r["output"],
+            })
+        return {"role": "user", "content": content_parts}
+
+    # ------------------------------------------------------------------
+    # Tool execution
+    # ------------------------------------------------------------------
+
+    async def _execute_tool(self, tc: ToolCall, event: TapeEvent) -> ToolResult:
+        handler = self._tools.get_handler(tc.name)
+        if handler is None:
+            return ToolResult(output=f"Unknown tool: {tc.name}", success=False)
+        try:
+            output = await handler(tc.arguments, event)
+            if isinstance(output, ToolResult):
+                return output
+            return ToolResult(output=str(output))
+        except Exception as exc:
+            logger.exception("Tool %s failed", tc.name)
+            return ToolResult(output=f"Tool error: {exc}", success=False)
+
+
+class ReActResult:
+    """Outcome of a complete ReAct loop execution."""
+
+    __slots__ = ("content", "iterations", "tool_calls_count", "ended_by_tool")
+
+    def __init__(
+        self,
+        content: str,
+        iterations: int,
+        tool_calls_count: int,
+        ended_by_tool: str | None = None,
+    ) -> None:
+        self.content = content
+        self.iterations = iterations
+        self.tool_calls_count = tool_calls_count
+        self.ended_by_tool = ended_by_tool
