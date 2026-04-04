@@ -85,11 +85,16 @@ async def register_agent(
     x_callback_token: str = Header(...),
 ) -> dict[str, Any]:
     await _verify_agent(x_agent_id, x_callback_token)
+    if req.agent_id != x_agent_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Header agent '{x_agent_id}' cannot register as '{req.agent_id}'",
+        )
     registry = _get("agent_registry")
-    await registry.update_status(req.agent_id, AgentStatus.RUNNING)
-    await registry.update_capabilities(req.agent_id, req.capabilities)
-    await registry.update_heartbeat(req.agent_id)
-    logger.info("Agent %s registered with capabilities: %s", req.agent_id, req.capabilities)
+    await registry.update_status(x_agent_id, AgentStatus.RUNNING)
+    await registry.update_capabilities(x_agent_id, req.capabilities)
+    await registry.update_heartbeat(x_agent_id)
+    logger.info("Agent %s registered with capabilities: %s", x_agent_id, req.capabilities)
     return {"status": "ok"}
 
 
