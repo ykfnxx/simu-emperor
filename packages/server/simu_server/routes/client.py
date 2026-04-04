@@ -235,32 +235,77 @@ async def list_incidents() -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Groups (stub — preserves V4 API surface)
+# Groups — preserves V4 API surface
 # ---------------------------------------------------------------------------
 
 @router.get("/groups")
 async def list_groups() -> list[dict[str, Any]]:
-    return _get("group_store", [])
+    store = _get("group_store")
+    if store is None:
+        return []
+    return store.list_all()
 
 
 @router.post("/groups")
 async def create_group(req: CreateGroupRequest) -> dict[str, Any]:
-    return {"group_id": "stub", "name": req.name}
+    store = _get("group_store")
+    if store is None:
+        return {"error": "group_store not available"}
+    group = store.create(name=req.name, agent_ids=req.agent_ids)
+    return group.to_dict()
 
 
 @router.post("/groups/message")
 async def send_group_message(req: GroupMessageRequest) -> dict[str, Any]:
-    return {"status": "sent"}
+    store = _get("group_store")
+    if store is None:
+        return {"error": "group_store not available"}
+    agent_ids = store.record_message(req.group_id)
+    if not agent_ids:
+        return {"error": "Group not found"}
+
+    # Broadcast message to each agent in the group
+    queue = _get("queue_controller")
+    session_id = req.session_id
+    if not session_id:
+        sm = _get("session_manager")
+        sessions = await sm.list_all()
+        session_id = sessions[0].session_id if sessions else None
+
+    if session_id and queue:
+        event = TapeEvent(
+            src="player",
+            dst=[f"agent:{aid}" for aid in agent_ids],
+            event_type=EventType.CHAT,
+            payload={"content": req.message},
+            session_id=session_id,
+        )
+        for aid in agent_ids:
+            await queue.enqueue(aid, event)
+
+    return {"status": "sent", "agent_ids": agent_ids}
 
 
 @router.post("/groups/add-agent")
 async def add_agent_to_group(req: GroupAgentRequest) -> dict[str, Any]:
-    return {"status": "added"}
+    store = _get("group_store")
+    if store is None:
+        return {"error": "group_store not available"}
+    group = store.add_agent(req.group_id, req.agent_id)
+    if group is None:
+        return {"error": "Group not found"}
+    return group.to_dict()
 
 
 @router.post("/groups/remove-agent")
 async def remove_agent_from_group(req: GroupAgentRequest) -> dict[str, Any]:
-    return {"status": "removed"}
+    store = _get("group_store")
+    if store is None:
+        return {"error": "group_store not available"}
+    group = store.remove_agent(req.group_id, req.agent_id)
+    if group is None:
+        return {"error": "Group not found"}
+    return group.to_dict()
 
 
 # ---------------------------------------------------------------------------

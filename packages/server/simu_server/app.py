@@ -16,6 +16,7 @@ from simu_server.engine.game_engine import GameEngine
 from simu_server.routes import callback, client
 from simu_server.routes.client import WSManager, ws_manager
 from simu_server.services.event_router import EventRouter
+from simu_server.services.group_store import GroupStore
 from simu_server.services.invocation_manager import InvocationManager
 from simu_server.services.message_store import MessageStore
 from simu_server.services.process_manager import ProcessManager
@@ -57,6 +58,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         },
     )
 
+    # Group store
+    group_persist = settings.db_path.parent / "group_chats.json"
+    group_store = GroupStore(persist_path=group_persist)
+
     # Game engine
     engine = GameEngine(db)
     initial_state = settings.initial_state_path if settings.initial_state_path.exists() else None
@@ -83,6 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "agent_registry": agent_registry,
         "agent_generator": agent_generator,
         "engine": engine,
+        "group_store": group_store,
         "ws_manager": ws_manager,
     }
     client.set_dependencies(**deps)
