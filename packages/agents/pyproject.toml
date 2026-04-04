@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "simu-agents"
+version = "0.1.0"
+description = "Built-in Agent implementations for simu-emperor"
+requires-python = ">=3.12"
+dependencies = [
+    "simu-sdk",
+    "simu-shared",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["simu_agents"]
