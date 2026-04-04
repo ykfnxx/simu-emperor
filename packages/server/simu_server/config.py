@@ -9,9 +9,12 @@ from pydantic_settings import BaseSettings
 
 
 class ServerConfig(BaseSettings):
-    """Server settings loaded from env vars / config file."""
+    """Server settings loaded from .env file and/or env vars.
 
-    model_config = {"env_prefix": "SIMU_"}
+    Precedence: env vars > .env file > defaults.
+    """
+
+    model_config = {"env_prefix": "SIMU_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
     host: str = "0.0.0.0"
     port: int = 8000
