@@ -38,9 +38,11 @@ class StandardTools:
         self,
         server: ServerClient,
         session_state: SessionStateManager | None = None,
+        agent_id: str = "",
     ) -> None:
         self._server = server
         self._session_state = session_state
+        self._agent_id = agent_id
 
     @tool(
         name="send_message",
@@ -73,6 +75,14 @@ class StandardTools:
         category="communication",
     )
     async def send_message(self, args: dict, event: TapeEvent) -> str | ToolResult:
+        # Block sending to self
+        recipients = args["recipients"]
+        if self._agent_id and self._agent_id in recipients:
+            return ToolResult(
+                output=f"Error: cannot send a message to yourself ({self._agent_id}).",
+                success=False,
+            )
+
         event_id = await self._server.post_message(
             recipients=args["recipients"],
             message=args["message"],
