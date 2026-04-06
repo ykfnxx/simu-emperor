@@ -119,9 +119,7 @@ class ContextManager:
         # Identify compressible events (non-anchor events)
         compressible = self._identify_compressible(events)
         if not compressible:
-            # All events are anchors — just advance offset
-            if self._metadata:
-                await self._metadata.advance_window(session_id, end)
+            # All events are anchors — do NOT advance window
             return None
 
         # Generate summary via LLM
