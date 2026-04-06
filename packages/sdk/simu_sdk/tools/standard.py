@@ -289,7 +289,10 @@ class StandardTools:
 
         parent_id = self._session_state.get_parent(event.session_id)
         if parent_id is None:
-            return "Error: not in a task session, or parent session unknown."
+            return (
+                "Error: only the task creator can finish a task session. "
+                "You are a participant, not the creator of this task."
+            )
 
         await self._server.finish_task_session(
             task_session_id=event.session_id,
@@ -330,7 +333,10 @@ class StandardTools:
 
         parent_id = self._session_state.get_parent(event.session_id)
         if parent_id is None:
-            return "Error: not in a task session, or parent session unknown."
+            return (
+                "Error: only the task creator can fail a task session. "
+                "You are a participant, not the creator of this task."
+            )
 
         await self._server.finish_task_session(
             task_session_id=event.session_id,

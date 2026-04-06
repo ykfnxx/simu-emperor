@@ -194,13 +194,28 @@ class BaseAgent:
     def _try_clear_pending_reply(self, event: TapeEvent) -> bool:
         """Check if this event clears a pending reply. Returns True if it did."""
         session_id = event.session_id
-        # Check if the origin_event_id matches a pending reply
+        replies = self.session_state._pending_replies.get(session_id, set())
+        if not replies:
+            return False
+
+        # Try exact match first (parent_event_id matches a pending reply)
         origin = event.parent_event_id
-        if origin:
-            replies = self.session_state._pending_replies.get(session_id, set())
-            if origin in replies:
-                self.session_state.remove_pending_reply(session_id, origin)
-                return True
+        if origin and origin in replies:
+            self.session_state.remove_pending_reply(session_id, origin)
+            return True
+
+        # Fallback: any incoming AGENT_MESSAGE on a session with pending
+        # replies is treated as "the reply" — the replying agent's
+        # send_message creates a fresh event without parent_event_id.
+        if event.event_type == EventType.AGENT_MESSAGE:
+            first = next(iter(replies))
+            self.session_state.remove_pending_reply(session_id, first)
+            logger.info(
+                "Cleared pending reply %s on session %s (fallback match from %s)",
+                first, session_id, event.src,
+            )
+            return True
+
         return False
 
     async def _process_queued_messages(self, session_id: str) -> None:
@@ -382,7 +397,14 @@ class BaseAgent:
 
 调用 `send_message(recipients=["governor_jiangnan"], message="承蒙挂念，老夫身体尚好…")`
 
-**错误方式**：直接输出文字而不调用 `send_message` — 这样对方无法收到回复。"""
+**错误方式**：直接输出文字而不调用 `send_message` — 这样对方无法收到回复。
+
+### 任务会话中的角色
+
+如果你在一个 task session 中收到消息，但你**不是**这个 task 的创建者（即消息是别人发来的询问），那么：
+- 你是任务**参与者**，不是创建者
+- **禁止调用 `finish_task_session` 或 `fail_task_session`** — 只有创建者有权结束任务
+- 你只需要用 `send_message` 回复发送者即可"""
 
     # ------------------------------------------------------------------
     # Background tasks
