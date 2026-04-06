@@ -18,7 +18,10 @@ class AnthropicProvider(LLMProvider):
 
     def __init__(self, config: LLMConfig) -> None:
         self._config = config
-        self._client = AsyncAnthropic(api_key=config.api_key)
+        client_kwargs: dict[str, Any] = {"api_key": config.api_key}
+        if config.base_url:
+            client_kwargs["base_url"] = config.base_url
+        self._client = AsyncAnthropic(**client_kwargs)
 
     async def call(
         self,

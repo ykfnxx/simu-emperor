@@ -53,7 +53,8 @@ logs/
 
 # Environment
 .env
-.env.*
+.env.local
+.env.*.local
 claude_code_env.sh
 
 # uv

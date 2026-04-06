@@ -9,9 +9,12 @@ from pydantic_settings import BaseSettings
 
 
 class ServerConfig(BaseSettings):
-    """Server settings loaded from env vars / config file."""
+    """Server settings loaded from .env file and/or env vars.
 
-    model_config = {"env_prefix": "SIMU_"}
+    Precedence: env vars > .env file > defaults.
+    """
+
+    model_config = {"env_prefix": "SIMU_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
     host: str = "0.0.0.0"
     port: int = 8000
@@ -32,6 +35,7 @@ class ServerConfig(BaseSettings):
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key: str = ""
+    llm_base_url: str = ""  # Custom base URL for OpenAI-compatible APIs
 
 
 settings = ServerConfig()
