@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
 
 import aiofiles
 import aiosqlite
@@ -65,6 +65,9 @@ class TapeManager:
         self._db: aiosqlite.Connection | None = None
         self._agent_id = agent_id
         self._memory_dir = memory_dir
+        self._seen_sessions: set[str] = set()
+        # Callback fired once per session on first event
+        self.on_first_event: Callable[[TapeEvent], Awaitable[None]] | None = None
 
     async def initialize(self) -> None:
         """Open the SQLite database and ensure schema exists."""
@@ -84,6 +87,19 @@ class TapeManager:
         await self._append_jsonl(event)
         await self._append_sqlite(event)
         self._append_memory_mirror(event)
+
+        # Fire callback on first event per session
+        if event.session_id not in self._seen_sessions:
+            self._seen_sessions.add(event.session_id)
+            if self.on_first_event:
+                try:
+                    await self.on_first_event(event)
+                except Exception:
+                    logger.warning(
+                        "on_first_event callback failed for session %s",
+                        event.session_id,
+                        exc_info=True,
+                    )
 
     async def query(
         self,
@@ -112,6 +128,30 @@ class TapeManager:
                 (session_id, limit),
             )
             rows = list(reversed(await cursor.fetchall()))
+        return [self._row_to_event(row) for row in rows]
+
+    async def query_range(
+        self,
+        session_id: str,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> list[TapeEvent]:
+        """Query events by offset range (chronological order).
+
+        Unlike ``query()`` which returns the N most recent, this returns
+        events starting at a specific position in the chronological sequence.
+        """
+        assert self._db is not None
+        cursor = await self._db.execute(
+            """
+            SELECT * FROM tape_events
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ? OFFSET ?
+            """,
+            (session_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
         return [self._row_to_event(row) for row in rows]
 
     async def count(self, session_id: str) -> int:
@@ -165,8 +205,7 @@ class TapeManager:
             return
         try:
             mirror_dir = (
-                self._memory_dir / "agents" / self._agent_id
-                / "sessions" / event.session_id
+                self._memory_dir / "agents" / self._agent_id / "sessions" / event.session_id
             )
             mirror_dir.mkdir(parents=True, exist_ok=True)
             line = event.model_dump_json() + "\n"
