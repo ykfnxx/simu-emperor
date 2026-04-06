@@ -47,6 +47,11 @@ class InvocationCompleteRequest(BaseModel):
     error: str | None = None
 
 
+class UpdateTitleRequest(BaseModel):
+    session_id: str
+    title: str
+
+
 class CreateTaskSessionRequest(BaseModel):
     parent_session_id: str
     goal: str
@@ -225,6 +230,33 @@ async def report_tool_result(
     await _verify_agent(x_agent_id, x_callback_token)
     body = await request.json()
     logger.debug("Tool result from %s: %s", x_agent_id, body.get("tool_name"))
+    return {"status": "ok"}
+
+
+@router.post("/session/title")
+async def update_session_title(
+    req: UpdateTitleRequest,
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, str]:
+    """Update a session's title (called by agent after LLM title generation)."""
+    await _verify_agent(x_agent_id, x_callback_token)
+    sm = _get("session_manager")
+    ws_mgr = _get("ws_manager")
+
+    await sm.update_metadata(req.session_id, {"title": req.title})
+
+    # Broadcast to frontend so title updates live
+    await ws_mgr.broadcast({
+        "kind": "session_title",
+        "data": {
+            "session_id": req.session_id,
+            "title": req.title,
+            "agent_id": x_agent_id,
+        },
+    })
+
+    logger.info("Agent %s set title for session %s: %s", x_agent_id, req.session_id, req.title)
     return {"status": "ok"}
 
 

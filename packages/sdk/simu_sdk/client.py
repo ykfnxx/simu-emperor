@@ -98,6 +98,17 @@ class ServerClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def update_session_title(self, session_id: str, title: str) -> None:
+        """Push an LLM-generated session title to the Server."""
+        try:
+            resp = await self._http.post(
+                "/api/callback/session/title",
+                json={"session_id": session_id, "title": title},
+            )
+            resp.raise_for_status()
+        except Exception:
+            logger.warning("Failed to push session title to server", exc_info=True)
+
     async def push_tape_event(self, event: TapeEvent, route: bool = False) -> None:
         """Push an internal tape event to the Server's MessageStore for frontend display.
 
@@ -225,7 +236,9 @@ class ServerClient:
         logger.exception("Error processing event %s", event.event_id)
         if event.invocation_id:
             await self.complete_invocation(
-                event.invocation_id, status="failed", error=str(error),
+                event.invocation_id,
+                status="failed",
+                error=str(error),
             )
 
     # ------------------------------------------------------------------
