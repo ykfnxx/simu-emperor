@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Services
     session_manager = SessionManager(db)
-    message_store = MessageStore(db)
+    message_store = MessageStore(db, memory_dir=settings.memory_dir)
     event_router = EventRouter()
     invocation_manager = InvocationManager(db, timeout=settings.agent_invocation_timeout)
     queue_controller = QueueController(max_depth=settings.agent_queue_depth)

@@ -1,18 +1,26 @@
-"""MessageStore — persists routed messages for frontend display."""
+"""MessageStore — persists routed messages for frontend display.
+
+Dual-write: SQLite (primary) + data/memory/ JSONL (debug convenience).
+"""
 
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 
 from simu_shared.models import RoutedMessage
 from simu_server.stores.database import Database
+
+logger = logging.getLogger(__name__)
 
 
 class MessageStore:
     """SQLite-backed message persistence for the Client API."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, memory_dir: Path | None = None) -> None:
         self._db = db
+        self._memory_dir = memory_dir
 
     async def store(self, msg: RoutedMessage) -> None:
         await self._db.conn.execute(
@@ -32,6 +40,20 @@ class MessageStore:
             ),
         )
         await self._db.conn.commit()
+        self._write_to_memory(msg)
+
+    def _write_to_memory(self, msg: RoutedMessage) -> None:
+        """Append message as JSONL to data/memory/ for debugging."""
+        if self._memory_dir is None:
+            return
+        try:
+            session_dir = self._memory_dir / "sessions" / msg.session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            line = msg.model_dump_json() + "\n"
+            with open(session_dir / "messages.jsonl", "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception:
+            logger.warning("Failed to write message to memory dir", exc_info=True)
 
     async def query(
         self,
