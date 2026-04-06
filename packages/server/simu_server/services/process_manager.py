@@ -23,9 +23,15 @@ _GRACEFUL_SHUTDOWN_TIMEOUT = 30  # seconds
 class ProcessManager:
     """Spawn and manage Agent child processes."""
 
-    def __init__(self, server_url: str, llm_config: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        server_url: str,
+        llm_config: dict[str, str] | None = None,
+        memory_dir: str = "",
+    ) -> None:
         self._server_url = server_url
         self._llm_config = llm_config or {}
+        self._memory_dir = memory_dir
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._tokens: dict[str, str] = {}  # agent_id → callback_token
         self._log_tasks: dict[str, list[asyncio.Task]] = {}
@@ -51,6 +57,8 @@ class ProcessManager:
             env["SIMU_LLM_API_KEY"] = self._llm_config["api_key"]
         if self._llm_config.get("base_url"):
             env["SIMU_LLM_BASE_URL"] = self._llm_config["base_url"]
+        if self._memory_dir:
+            env["SIMU_MEMORY_DIR"] = self._memory_dir
 
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "simu_sdk",

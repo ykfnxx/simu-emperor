@@ -42,18 +42,29 @@ CREATE INDEX IF NOT EXISTS idx_tape_session ON tape_events (session_id, timestam
 class TapeManager:
     """Append-only event log with JSONL + SQLite dual-write.
 
-    Directory layout::
+    Directory layout (agent-local)::
 
         {base_dir}/
         ├── sessions/{session_id}/tape.jsonl
         └── tape.db
+
+    Optional debug mirror (shared, for debugging)::
+
+        {memory_dir}/agents/{agent_id}/sessions/{session_id}/tape.jsonl
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        agent_id: str = "",
+        memory_dir: Path | None = None,
+    ) -> None:
         self._base_dir = base_dir
         self._base_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = base_dir / "tape.db"
         self._db: aiosqlite.Connection | None = None
+        self._agent_id = agent_id
+        self._memory_dir = memory_dir
 
     async def initialize(self) -> None:
         """Open the SQLite database and ensure schema exists."""
@@ -69,9 +80,10 @@ class TapeManager:
             self._db = None
 
     async def append(self, event: TapeEvent) -> None:
-        """Append an event to both JSONL and SQLite."""
+        """Append an event to both JSONL and SQLite, plus debug mirror."""
         await self._append_jsonl(event)
         await self._append_sqlite(event)
+        self._append_memory_mirror(event)
 
     async def query(
         self,
@@ -146,6 +158,22 @@ class TapeManager:
             ),
         )
         await self._db.commit()
+
+    def _append_memory_mirror(self, event: TapeEvent) -> None:
+        """Write event to shared data/memory/ for debugging (synchronous)."""
+        if not self._memory_dir or not self._agent_id:
+            return
+        try:
+            mirror_dir = (
+                self._memory_dir / "agents" / self._agent_id
+                / "sessions" / event.session_id
+            )
+            mirror_dir.mkdir(parents=True, exist_ok=True)
+            line = event.model_dump_json() + "\n"
+            with open(mirror_dir / "tape.jsonl", "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception:
+            logger.warning("Failed to write memory mirror", exc_info=True)
 
     @staticmethod
     def _row_to_event(row: tuple) -> TapeEvent:
