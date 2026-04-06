@@ -108,6 +108,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Game engine
     engine = GameEngine(db)
     initial_state = settings.initial_state_path if settings.initial_state_path.exists() else None
+    logger.info(
+        "Initial state path: %s (exists=%s)",
+        settings.initial_state_path,
+        settings.initial_state_path.exists(),
+    )
     await engine.initialize(initial_state)
 
     # Wire queue dispatcher
