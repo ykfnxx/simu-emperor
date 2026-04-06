@@ -12,10 +12,8 @@ import os
 import signal
 import sys
 import uuid
-from pathlib import Path
-from typing import Any
 
-from simu_shared.models import AgentRegistration, AgentStatus
+from simu_shared.models import AgentRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ class ProcessManager:
             env["SIMU_LLM_BASE_URL"] = self._llm_config["base_url"]
 
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "simu_sdk.agent",
+            sys.executable, "-m", "simu_sdk",
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
