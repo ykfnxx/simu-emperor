@@ -47,11 +47,26 @@ class MessageStore:
         if self._memory_dir is None:
             return
         try:
+            self._memory_dir.mkdir(parents=True, exist_ok=True)
+
+            # Per-session message log
             session_dir = self._memory_dir / "sessions" / msg.session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             line = msg.model_dump_json() + "\n"
             with open(session_dir / "messages.jsonl", "a", encoding="utf-8") as f:
                 f.write(line)
+
+            # tape_meta.jsonl — session-level index for quick overview
+            meta_entry = json.dumps({
+                "session_id": msg.session_id,
+                "src": msg.src,
+                "dst": msg.dst,
+                "event_type": msg.event_type,
+                "timestamp": msg.timestamp.isoformat(),
+                "message_id": msg.message_id,
+            }) + "\n"
+            with open(self._memory_dir / "tape_meta.jsonl", "a", encoding="utf-8") as f:
+                f.write(meta_entry)
         except Exception:
             logger.warning("Failed to write message to memory dir", exc_info=True)
 
