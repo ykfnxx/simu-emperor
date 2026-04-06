@@ -167,8 +167,13 @@ class BaseAgent:
         if event.event_type in (EventType.AGENT_MESSAGE, EventType.RESPONSE):
             cleared = self._try_clear_pending_reply(event)
             if cleared:
-                # Reply received — process queued messages if session unblocked
-                await self._process_queued_messages(event.session_id)
+                if not self.session_state.is_blocked(event.session_id):
+                    # Fully unblocked — process the reply, then any queued messages
+                    await self.react(event)
+                    await self._process_queued_messages(event.session_id)
+                else:
+                    # Still waiting for more replies — queue the reply for later
+                    self.session_state.enqueue_message(event.session_id, event)
                 return
 
         # Session-level blocking: if the session has pending tasks/replies, queue the event

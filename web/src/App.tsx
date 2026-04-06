@@ -83,8 +83,8 @@ function formatTurn(turn: number): string {
 }
 
 function getSenderName(event: TapeEvent): string {
-  // 所有 player: 开头的消息都显示为"皇帝"
-  if (event.src.startsWith('player:')) return '皇帝';
+  // 所有 player 消息都显示为"皇帝"（API返回 "player"，前端生成 "player:web"）
+  if (isPlayerMessage(event.src)) return '皇帝';
   if (event.src.startsWith('agent:')) {
     const agentId = event.src.replace('agent:', '');
     if (agentId === 'governor_zhili') return '直隶巡抚';
@@ -344,7 +344,11 @@ function getEventTimeMs(event: TapeEvent): number {
 
 function isEquivalentEvent(left: TapeEvent, right: TapeEvent): boolean {
   if (left.session_id !== right.session_id) return false;
-  if (left.src !== right.src) return false;
+  // Normalize player sources: "player", "player:web", "player:web:group" are all equivalent
+  const leftIsPlayer = isPlayerMessage(left.src);
+  const rightIsPlayer = isPlayerMessage(right.src);
+  if (leftIsPlayer !== rightIsPlayer) return false;
+  if (!leftIsPlayer && left.src !== right.src) return false;
   if (!isEquivalentType(left.type, right.type)) return false;
 
   const leftText = extractEventText(left).trim();
