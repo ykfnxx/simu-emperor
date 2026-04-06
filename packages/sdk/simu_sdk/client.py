@@ -93,6 +93,53 @@ class ServerClient:
         return resp.json()
 
     # ------------------------------------------------------------------
+    # Task session management
+    # ------------------------------------------------------------------
+
+    async def create_task_session(
+        self,
+        parent_session_id: str,
+        goal: str,
+        description: str = "",
+        constraints: str = "",
+        timeout_seconds: int = 300,
+        depth: int = 1,
+    ) -> str:
+        """Create a task sub-session on the Server. Returns task_session_id."""
+        resp = await self._http.post(
+            "/api/callback/task-session/create",
+            json={
+                "parent_session_id": parent_session_id,
+                "goal": goal,
+                "description": description,
+                "constraints": constraints,
+                "timeout_seconds": timeout_seconds,
+                "depth": depth,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["task_session_id"]
+
+    async def finish_task_session(
+        self,
+        task_session_id: str,
+        parent_session_id: str,
+        result: str,
+        status: str = "completed",
+    ) -> None:
+        """Mark a task session as completed/failed and notify parent."""
+        resp = await self._http.post(
+            "/api/callback/task-session/finish",
+            json={
+                "task_session_id": task_session_id,
+                "parent_session_id": parent_session_id,
+                "result": result,
+                "status": status,
+            },
+        )
+        resp.raise_for_status()
+
+    # ------------------------------------------------------------------
     # Invocation management
     # ------------------------------------------------------------------
 

@@ -56,9 +56,11 @@ class InvocationStatus(StrEnum):
 
 class SessionStatus(StrEnum):
     ACTIVE = "active"
+    WAITING_TASK = "waiting_task"
     WAITING_REPLY = "waiting_reply"
     FINISHED = "finished"
     FAILED = "failed"
+    COMPLETED = "completed"
 
 
 # ---------------------------------------------------------------------------
