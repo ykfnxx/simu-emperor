@@ -144,8 +144,15 @@ class StandardTools:
             "Create a time-limited incident with economic effects on provinces or "
             "the nation. Effects can be additive (one-time) or multiplicative "
             "(per-tick). Your data_scope determines which provinces and fields you "
-            "can affect. The resulting value after applying add or factor must stay > 0. "
-            "For example, factor=-0.05 means a 5% reduction per tick."
+            "can affect.\n\n"
+            "IMPORTANT field types:\n"
+            "- Absolute fields (production_value, population, stockpile, "
+            "imperial_treasury, base_tax_rate, tribute_rate, fixed_expenditure): "
+            "use 'factor' for percentage changes. Result must stay > 0.\n"
+            "- Modifier fields (tax_modifier, base_production_growth, "
+            "base_population_growth): these are additive adjustments, use 'add' "
+            "to change them (e.g. add='-0.005' to reduce tax by 0.5%). "
+            "factor on a zero-valued modifier has no effect."
         ),
         parameters={
             "title": {
@@ -166,9 +173,10 @@ class StandardTools:
                             "description": (
                                 "Dot-notation path: 'provinces.{id}.{field}' for province "
                                 "fields, or 'nation.{field}' / '{field}' for nation fields. "
-                                "Province fields: production_value, population, "
-                                "fixed_expenditure, stockpile, base_production_growth, "
-                                "base_population_growth, tax_modifier. "
+                                "Province absolute fields: production_value, population, "
+                                "fixed_expenditure, stockpile. "
+                                "Province modifier fields (use add): tax_modifier, "
+                                "base_production_growth, base_population_growth. "
                                 "Nation fields: imperial_treasury, base_tax_rate, "
                                 "tribute_rate, fixed_expenditure."
                             ),

@@ -631,6 +631,16 @@ def _validate_effect(
     if effect.add is None and effect.factor is None:
         return "Effect 必须设置 add 或 factor 之一"
 
+    # Modifier / growth fields can be zero or negative — skip overflow checks.
+    # Only "positive-only" fields (absolute values like production, population,
+    # treasury, tax rates) need the <= 0 guard.
+    _MODIFIER_FIELDS = {
+        "tax_modifier",
+        "base_production_growth",
+        "base_population_growth",
+    }
+    requires_positive = field_name not in _MODIFIER_FIELDS
+
     # Normalize target_path for comparison with active incidents.
     # Request paths may omit "nation." prefix; active incidents always have it.
     nation_fields = {"imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure"}
@@ -654,27 +664,27 @@ def _validate_effect(
     try:
         if effect.add is not None:
             add_val = Decimal(effect.add)
-            # Simulate: current + all unapplied existing adds + new add
-            simulated = current + sum(existing_unapplied_adds) + add_val
-            if simulated <= 0:
-                return (
-                    f"数值溢出：add={effect.add} 会将 {effect.target_path} "
-                    f"（当前值 {current}，已有未生效 add 合计 "
-                    f"{sum(existing_unapplied_adds)}）减至 {simulated}（≤ 0）"
-                )
+            if requires_positive:
+                simulated = current + sum(existing_unapplied_adds) + add_val
+                if simulated <= 0:
+                    return (
+                        f"数值溢出：add={effect.add} 会将 {effect.target_path} "
+                        f"（当前值 {current}，已有未生效 add 合计 "
+                        f"{sum(existing_unapplied_adds)}）减至 {simulated}（≤ 0）"
+                    )
         if effect.factor is not None:
             factor_val = Decimal(effect.factor)
-            # Simulate one tick: current * product(1+existing_factor_i) * (1+new_factor)
-            simulated = current
-            for ef in existing_factors:
-                simulated *= Decimal("1") + ef
-            simulated *= Decimal("1") + factor_val
-            if simulated <= 0:
-                return (
-                    f"数值溢出：factor={effect.factor} 叠加已有修改后会将 "
-                    f"{effect.target_path}（当前值 {current}）变为 "
-                    f"{simulated}（≤ 0）"
-                )
+            if requires_positive:
+                simulated = current
+                for ef in existing_factors:
+                    simulated *= Decimal("1") + ef
+                simulated *= Decimal("1") + factor_val
+                if simulated <= 0:
+                    return (
+                        f"数值溢出：factor={effect.factor} 叠加已有修改后会将 "
+                        f"{effect.target_path}（当前值 {current}）变为 "
+                        f"{simulated}（≤ 0）"
+                    )
     except InvalidOperation:
         return f"数值格式错误：add={effect.add}, factor={effect.factor}"
 
