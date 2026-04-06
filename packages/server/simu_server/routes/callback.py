@@ -573,8 +573,14 @@ def _validate_effect(
     agent_id: str,
     scope: dict[str, Any],
     nation: Any,
+    active_incidents: list[Any] | None = None,
 ) -> str | None:
     """Validate a single effect against data_scope and limits.
+
+    Accounts for cumulative effects from already-active incidents on the
+    same target_path.  For factor effects the simulation is multiplicative
+    (matching the engine's ``field *= (1 + factor)`` semantics); for add
+    effects it sums all unapplied adds.
 
     Returns an error message string, or None if valid.
     """
@@ -625,21 +631,49 @@ def _validate_effect(
     if effect.add is None and effect.factor is None:
         return "Effect 必须设置 add 或 factor 之一"
 
+    # Normalize target_path for comparison with active incidents.
+    # Request paths may omit "nation." prefix; active incidents always have it.
+    nation_fields = {"imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure"}
+    canonical_path = effect.target_path
+    if len(parts) == 1 and parts[0] in nation_fields:
+        canonical_path = f"nation.{parts[0]}"
+
+    # Collect cumulative effects from active incidents on the same field
+    existing_factors: list[Decimal] = []
+    existing_unapplied_adds: list[Decimal] = []
+    if active_incidents:
+        for incident in active_incidents:
+            for eff in incident.effects:
+                if eff.target_path != canonical_path:
+                    continue
+                if eff.factor is not None:
+                    existing_factors.append(eff.factor)
+                if eff.add is not None and not incident.applied:
+                    existing_unapplied_adds.append(eff.add)
+
     try:
         if effect.add is not None:
             add_val = Decimal(effect.add)
-            if current + add_val <= 0:
+            # Simulate: current + all unapplied existing adds + new add
+            simulated = current + sum(existing_unapplied_adds) + add_val
+            if simulated <= 0:
                 return (
                     f"数值溢出：add={effect.add} 会将 {effect.target_path} "
-                    f"（当前值 {current}）减至 0 或以下"
+                    f"（当前值 {current}，已有未生效 add 合计 "
+                    f"{sum(existing_unapplied_adds)}）减至 {simulated}（≤ 0）"
                 )
         if effect.factor is not None:
             factor_val = Decimal(effect.factor)
-            result_val = current * (Decimal("1") + factor_val)
-            if result_val <= 0:
+            # Simulate one tick: current * product(1+existing_factor_i) * (1+new_factor)
+            simulated = current
+            for ef in existing_factors:
+                simulated *= Decimal("1") + ef
+            simulated *= Decimal("1") + factor_val
+            if simulated <= 0:
                 return (
-                    f"数值溢出：factor={effect.factor} 会将 {effect.target_path} "
-                    f"（当前值 {current}）变为 {result_val}（≤ 0）"
+                    f"数值溢出：factor={effect.factor} 叠加已有修改后会将 "
+                    f"{effect.target_path}（当前值 {current}）变为 "
+                    f"{simulated}（≤ 0）"
                 )
     except InvalidOperation:
         return f"数值格式错误：add={effect.add}, factor={effect.factor}"
@@ -684,10 +718,11 @@ async def create_incident(
             detail=f"Agent {x_agent_id} 没有 data_scope 配置",
         )
 
-    # Validate each effect
+    # Validate each effect (pass active incidents for cumulative checks)
+    active_incidents = engine.incidents.active
     errors: list[str] = []
     for eff in req.effects:
-        err = _validate_effect(eff, x_agent_id, scope, nation)
+        err = _validate_effect(eff, x_agent_id, scope, nation, active_incidents)
         if err:
             errors.append(err)
 
