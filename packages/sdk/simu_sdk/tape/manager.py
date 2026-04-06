@@ -7,6 +7,7 @@ the Server never touches Tape data.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -88,18 +89,23 @@ class TapeManager:
         await self._append_sqlite(event)
         self._append_memory_mirror(event)
 
-        # Fire callback on first event per session
+        # Fire callback on first event per session (non-blocking — title
+        # generation calls LLM and should not delay the react loop).
         if event.session_id not in self._seen_sessions:
             self._seen_sessions.add(event.session_id)
             if self.on_first_event:
-                try:
-                    await self.on_first_event(event)
-                except Exception:
-                    logger.warning(
-                        "on_first_event callback failed for session %s",
-                        event.session_id,
-                        exc_info=True,
-                    )
+                asyncio.create_task(self._safe_first_event_callback(event))
+
+    async def _safe_first_event_callback(self, event: TapeEvent) -> None:
+        """Run on_first_event in background with error handling."""
+        try:
+            await self.on_first_event(event)
+        except Exception:
+            logger.warning(
+                "on_first_event callback failed for session %s",
+                event.session_id,
+                exc_info=True,
+            )
 
     async def query(
         self,

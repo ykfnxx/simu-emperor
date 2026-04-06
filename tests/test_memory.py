@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -139,6 +140,8 @@ class TestTapeManagerExtensions:
         evt2 = _make_event(content="second", event_id="evt_2")
         await tape.append(evt1)
         await tape.append(evt2)
+        # Yield to event loop so background callbacks complete
+        await asyncio.sleep(0)
 
         # Callback should fire only once per session
         assert len(called_with) == 1
@@ -155,6 +158,8 @@ class TestTapeManagerExtensions:
         await tape.append(_make_event(session_id="s1", event_id="e1"))
         await tape.append(_make_event(session_id="s2", event_id="e2"))
         await tape.append(_make_event(session_id="s1", event_id="e3"))
+        # Yield to event loop so background callbacks complete
+        await asyncio.sleep(0)
 
         assert called_sessions == ["s1", "s2"]
 
