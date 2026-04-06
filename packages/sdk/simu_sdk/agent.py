@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 from pathlib import Path
 from typing import Any
@@ -70,8 +71,13 @@ class BaseAgent:
         )
 
         # Tape (local) — stored under the agent's own config directory
+        # Also mirrors to data/memory/ if SIMU_MEMORY_DIR is set
         tape_dir = Path(config.config_path) / "tape"
-        self.tape = TapeManager(tape_dir)
+        memory_dir_env = os.environ.get("SIMU_MEMORY_DIR")
+        memory_dir = Path(memory_dir_env) if memory_dir_env else None
+        self.tape = TapeManager(
+            tape_dir, agent_id=config.agent_id, memory_dir=memory_dir,
+        )
         self.context_manager = ContextManager(self.tape, config.context)
 
         # Personality files
@@ -218,8 +224,8 @@ class BaseAgent:
         # Build context window — uses the current session's tape
         context = await self.context_manager.get_context(session_id)
 
-        # Build system prompt
-        system_prompt = self._build_system_prompt()
+        # Build system prompt (context-aware for task sessions)
+        system_prompt = self._build_system_prompt(session_id)
 
         # Execute ReAct loop
         result = await self.react_loop.run(
@@ -287,7 +293,7 @@ class BaseAgent:
         )
         await self.react(task_event)
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, session_id: str = "") -> str:
         parts = []
         if self.soul:
             parts.append(self.soul)
@@ -295,8 +301,12 @@ class BaseAgent:
             scope_text = yaml.dump(self.data_scope, allow_unicode=True, default_flow_style=False)
             parts.append(f"\n## Data Access Scope\n\n```yaml\n{scope_text}```")
 
-        # Task dispatch instructions
-        parts.append(self._task_dispatch_instructions())
+        # Context-aware instructions
+        if session_id.startswith("task:"):
+            goal = self.session_state.get_goal(session_id)
+            parts.append(self._task_execution_instructions(goal))
+        else:
+            parts.append(self._task_dispatch_instructions())
 
         return "\n\n".join(parts)
 
@@ -321,6 +331,30 @@ class BaseAgent:
 - 与其他官员沟通时始终使用 `await_reply=true`。
 - `create_task_session`、`finish_task_session`、`fail_task_session` 调用后会话会自动切换，无需额外操作。
 - `send_message(await_reply=true)` 发送后当前会话自动暂停，等待回复后继续。"""
+
+    @staticmethod
+    def _task_execution_instructions(goal: str) -> str:
+        return f"""## 当前处于任务会话中
+
+你现在正在执行一个任务，目标是：**{goal}**
+
+在任务会话中，你应该：
+1. 直接执行任务 — 查询所需信息、向目标 agent 发送消息等
+2. 完成后调用 `finish_task_session`，将结果汇报
+3. 如果无法完成，调用 `fail_task_session` 说明原因
+
+**禁止在任务会话中再次创建 task session**，除非你发现必须委派给其他 agent 才能完成任务。绝大多数情况下，你应该直接执行。
+
+### 示例流程
+
+假设任务是 "向户部尚书张廷玉询问其身体状况，获取回复后向主会话汇报"：
+
+1. 调用 `query_role_map` 查到张廷玉的 agent_id 是 `minister_of_revenue`
+2. 调用 `send_message(recipients=["minister_of_revenue"], message="张廷玉大人，皇上关心您的身体状况，请据实禀报。", await_reply=true)`
+3. 等待回复（会话自动暂停）
+4. 收到回复后，调用 `finish_task_session(result="张廷玉回复：...")`
+
+请立即开始执行任务。"""
 
     # ------------------------------------------------------------------
     # Background tasks

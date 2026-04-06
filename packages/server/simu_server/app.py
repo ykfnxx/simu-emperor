@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "api_key": settings.llm_api_key,
             "base_url": settings.llm_base_url or "",
         },
+        memory_dir=str(settings.memory_dir),
     )
 
     # Agent registry
