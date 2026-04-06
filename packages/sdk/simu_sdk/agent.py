@@ -262,7 +262,30 @@ class BaseAgent:
         if self.data_scope:
             scope_text = yaml.dump(self.data_scope, allow_unicode=True, default_flow_style=False)
             parts.append(f"\n## Data Access Scope\n\n```yaml\n{scope_text}```")
+
+        # Task dispatch instructions
+        parts.append(self._task_dispatch_instructions())
+
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _task_dispatch_instructions() -> str:
+        return """## 任务派发与跨官员沟通
+
+当玩家的指令涉及其他官员时（例如"问问张廷玉…"、"让各省加税"），按以下流程处理：
+
+1. **查询角色表**：调用 `query_role_map` 获取官员姓名与 agent_id 的对应关系。
+2. **创建任务会话**：调用 `create_task_session`，明确 goal（例如"向张廷玉询问身体状况"）。
+3. **发送消息并等待回复**：在任务会话中调用 `send_message`，设置 `await_reply=true`，向目标 agent 发送询问。
+4. **结束任务**：收到回复后，调用 `finish_task_session`，将结果汇总。
+5. **回复玩家**：回到主会话后，用 `send_message` 向 player 汇报结果。
+
+如果需要同时联系多位官员，可以为每位官员分别创建任务会话。
+
+注意：
+- 必须先用 `query_role_map` 查到 agent_id，不要猜测。
+- 与其他官员沟通时始终使用 `await_reply=true`，确保等到回复后再继续。
+- 任务会话结束后才回复玩家，保证信息完整。"""
 
     # ------------------------------------------------------------------
     # Background tasks

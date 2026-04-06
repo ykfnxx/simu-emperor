@@ -3,9 +3,10 @@
 Tools:
   1. send_message — send a message to other agents or the player
   2. query_state — query game state from the Server
-  3. create_task_session — create a task sub-session for focused work
-  4. finish_task_session — complete the current task session with a result
-  5. fail_task_session — mark the current task session as failed
+  3. query_role_map — look up court officials' names and agent IDs
+  4. create_task_session — create a task sub-session for focused work
+  5. finish_task_session — complete the current task session with a result
+  6. fail_task_session — mark the current task session as failed
 """
 
 from __future__ import annotations
@@ -97,6 +98,23 @@ class StandardTools:
 
         result = await self._server.query_state(path=args.get("path", ""))
         return json.dumps(result, ensure_ascii=False, default=str)
+
+    @tool(
+        name="query_role_map",
+        description=(
+            "Query the role map to find agent IDs for court officials. "
+            "Returns a list of all officials with their title (官职), name (姓名), "
+            "agent_id, and duty (职责). Use this to resolve a person's name "
+            "to an agent_id before sending messages to them."
+        ),
+        parameters={},
+        category="communication",
+    )
+    async def query_role_map(self, args: dict, event: TapeEvent) -> str:
+        import json
+
+        result = await self._server.query_role_map()
+        return json.dumps(result, ensure_ascii=False)
 
     @tool(
         name="create_task_session",

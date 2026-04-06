@@ -184,8 +184,20 @@ async def post_message(
         if r != "player":
             await queue.enqueue(r, event)
 
-    # Push to frontend WebSocket
-    await ws_mgr.broadcast({"kind": "agent_message", "data": event.model_dump(mode="json")})
+    # Push to frontend WebSocket — use "chat" kind with ChatData format
+    # so the frontend's existing 'chat' handler can process it.
+    agent_reg = await _get("agent_registry").get(x_agent_id)
+    display_name = agent_reg.display_name if agent_reg else x_agent_id
+    await ws_mgr.broadcast({
+        "kind": "chat",
+        "data": {
+            "agent": x_agent_id,
+            "agentDisplayName": display_name,
+            "text": req.message,
+            "timestamp": event.timestamp.isoformat(),
+            "session_id": req.session_id,
+        },
+    })
 
     return {"event_id": event.event_id}
 
@@ -227,6 +239,49 @@ async def query_agents(
         {"agent_id": a.agent_id, "display_name": a.display_name, "status": a.status.value}
         for a in agents
     ]
+
+
+@router.get("/role-map")
+async def query_role_map(
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, Any]:
+    """Return role_map.md content parsed into structured data."""
+    await _verify_agent(x_agent_id, x_callback_token)
+
+    from simu_server.config import settings
+
+    role_map_path = settings.data_dir / "role_map.md"
+    if not role_map_path.exists():
+        return {"roles": []}
+
+    text = role_map_path.read_text(encoding="utf-8")
+    roles: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("## "):
+            if current:
+                roles.append(current)
+            # Parse "## 户部尚书 (minister_of_revenue)"
+            title_part = line[3:].strip()
+            agent_id = ""
+            title = title_part
+            if "(" in title_part and ")" in title_part:
+                idx = title_part.index("(")
+                title = title_part[:idx].strip()
+                agent_id = title_part[idx + 1 : title_part.index(")")].strip()
+            current = {"title": title, "agent_id": agent_id, "name": "", "duty": ""}
+        elif line.startswith("- 姓名：") and current:
+            current["name"] = line[len("- 姓名：") :].strip()
+        elif line.startswith("- 职责：") and current:
+            current["duty"] = line[len("- 职责：") :].strip()
+
+    if current:
+        roles.append(current)
+
+    return {"roles": roles}
 
 
 # ---------------------------------------------------------------------------

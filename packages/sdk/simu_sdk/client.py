@@ -92,6 +92,12 @@ class ServerClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def query_role_map(self) -> dict[str, Any]:
+        """Query role_map data from the Server."""
+        resp = await self._http.get("/api/callback/role-map")
+        resp.raise_for_status()
+        return resp.json()
+
     # ------------------------------------------------------------------
     # Task session management
     # ------------------------------------------------------------------
