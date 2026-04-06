@@ -21,6 +21,10 @@ from simu_shared.models import (
 
 router = APIRouter(prefix="/api")
 
+# Separate router for WebSocket — no prefix so it mounts at /ws (not /api/ws).
+# The frontend connects to ws://host:port/ws directly.
+ws_router = APIRouter()
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -569,7 +573,7 @@ class WSManager:
 ws_manager = WSManager()
 
 
-@router.websocket("/ws")
+@ws_router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await ws_manager.connect(ws)
     try:

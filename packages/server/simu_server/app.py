@@ -14,7 +14,7 @@ from simu_server.agents.registry import AgentRegistry
 from simu_server.config import settings
 from simu_server.engine.game_engine import GameEngine
 from simu_server.routes import callback, client
-from simu_server.routes.client import WSManager, ws_manager
+from simu_server.routes.client import WSManager, ws_manager, ws_router
 from simu_server.services.event_router import EventRouter
 from simu_server.services.group_store import GroupStore
 from simu_server.services.invocation_manager import InvocationManager
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Services
     session_manager = SessionManager(db)
-    message_store = MessageStore(db)
+    message_store = MessageStore(db, memory_dir=settings.memory_dir)
     event_router = EventRouter()
     invocation_manager = InvocationManager(db, timeout=settings.agent_invocation_timeout)
     queue_controller = QueueController(max_depth=settings.agent_queue_depth)
@@ -151,6 +151,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(client.router)
+    app.include_router(ws_router)
     app.include_router(callback.router)
 
     return app

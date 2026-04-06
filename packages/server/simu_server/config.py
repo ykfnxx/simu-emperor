@@ -22,6 +22,7 @@ class ServerConfig(BaseSettings):
     # Paths
     data_dir: Path = Path("data")
     db_path: Path = Path("data/db/server.db")
+    memory_dir: Path = Path("data/memory")
     agent_templates_dir: Path = Path("data/agent_templates")
     agents_dir: Path = Path("data/agents")
     default_agents_dir: Path = Path("data/default_agents")
