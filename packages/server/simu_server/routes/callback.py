@@ -631,6 +631,14 @@ def _validate_effect(
     if effect.add is None and effect.factor is None:
         return "Effect 必须设置 add 或 factor 之一"
 
+    # Fields that are offsets/rates and can legitimately be zero or negative.
+    # Skip the "result <= 0" overflow check for these.
+    _allow_non_positive = {
+        "tax_modifier",
+        "base_production_growth",
+        "base_population_growth",
+    }
+
     # Normalize target_path for comparison with active incidents.
     # Request paths may omit "nation." prefix; active incidents always have it.
     nation_fields = {"imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure"}
@@ -656,7 +664,7 @@ def _validate_effect(
             add_val = Decimal(effect.add)
             # Simulate: current + all unapplied existing adds + new add
             simulated = current + sum(existing_unapplied_adds) + add_val
-            if simulated <= 0:
+            if field_name not in _allow_non_positive and simulated <= 0:
                 return (
                     f"数值溢出：add={effect.add} 会将 {effect.target_path} "
                     f"（当前值 {current}，已有未生效 add 合计 "
@@ -669,7 +677,7 @@ def _validate_effect(
             for ef in existing_factors:
                 simulated *= Decimal("1") + ef
             simulated *= Decimal("1") + factor_val
-            if simulated <= 0:
+            if field_name not in _allow_non_positive and simulated <= 0:
                 return (
                     f"数值溢出：factor={effect.factor} 叠加已有修改后会将 "
                     f"{effect.target_path}（当前值 {current}）变为 "

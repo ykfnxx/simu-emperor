@@ -436,10 +436,15 @@ class BaseAgent:
 当皇帝下达涉及经济、税收、生产等方面的具体指令时，你**必须调用 `create_incident` 工具**来执行，仅口头回复不会产生实际效果。
 
 ### 需要调用 `create_incident` 的场景
-- 调整税率（如"给直隶加税5%"）→ 使用 `tax_modifier` 字段
+- 调整税率（如"给直隶加税5%"）→ 对 `tax_modifier` 使用 `add`（注意：`tax_modifier` 是加性修正值，初始为 0，用 `add` 而非 `factor`）
 - 增减库存/拨款（如"拨银十万两赈灾"）→ 使用 `stockpile` 或 `imperial_treasury` 的 `add`
-- 影响生产/人口增长 → 使用 `base_production_growth` 或 `base_population_growth` 的 `factor`
+- 按比例调整生产/人口 → 对 `production_value` 或 `population` 使用 `factor`
 - 任何需要改变省份或国家数值的指令
+
+### add 与 factor 的区别
+- **add**：一次性加减固定值。适用于调整修正量（如 `tax_modifier`）、拨款（`stockpile`）等
+- **factor**：每 tick 按比例变化，`field *= (1 + factor)`。适用于持续性增减（如产值提升 10% → factor="0.10"）
+- **注意**：对当前值为 0 的字段使用 factor 无效（0 乘任何数仍为 0），此时应使用 add
 
 ### 关键规则
 - **先执行，再汇报**：收到指令后先调用 `create_incident` 创建 incident，再向皇帝回复执行结果
@@ -450,8 +455,8 @@ class BaseAgent:
 ### 示例
 
 皇帝指令："给直隶加税5%"
-正确做法：调用 `create_incident(title="直隶增税", effects=[{"target_path": "provinces.zhili.tax_modifier", "factor": "0.05"}], remaining_ticks=12, description="奉旨增加直隶税率5%")`
-错误做法：仅回复"遵旨，臣即刻办理"而不调用工具"""
+正确做法：调用 `create_incident(title="直隶增税", effects=[{"target_path": "provinces.zhili.tax_modifier", "add": "0.05"}], remaining_ticks=12, description="奉旨增加直隶税率5%")`
+错误做法：使用 factor 修改 tax_modifier（tax_modifier 初始值为 0，factor 无效）"""
 
     @staticmethod
     def _task_dispatch_instructions() -> str:
