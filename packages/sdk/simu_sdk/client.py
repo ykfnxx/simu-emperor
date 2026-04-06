@@ -146,6 +146,34 @@ class ServerClient:
         resp.raise_for_status()
 
     # ------------------------------------------------------------------
+    # Incident creation
+    # ------------------------------------------------------------------
+
+    async def create_incident(
+        self,
+        title: str,
+        effects: list[dict[str, str]],
+        remaining_ticks: int,
+        description: str = "",
+        source: str = "",
+    ) -> dict[str, Any]:
+        """Create a new incident via the Server. Returns incident_id."""
+        resp = await self._http.post(
+            "/api/callback/incident",
+            json={
+                "title": title,
+                "description": description,
+                "effects": effects,
+                "remaining_ticks": remaining_ticks,
+                "source": source,
+            },
+        )
+        if resp.status_code != 200:
+            detail = resp.json().get("detail", resp.text)
+            return {"error": detail}
+        return resp.json()
+
+    # ------------------------------------------------------------------
     # Invocation management
     # ------------------------------------------------------------------
 

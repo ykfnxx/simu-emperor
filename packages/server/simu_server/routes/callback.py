@@ -63,6 +63,20 @@ class FinishTaskSessionRequest(BaseModel):
     status: str = "completed"  # "completed" or "failed"
 
 
+class EffectRequest(BaseModel):
+    target_path: str  # e.g. "provinces.zhili.production_value"
+    add: str | None = None  # Decimal as string
+    factor: str | None = None  # Decimal as string
+
+
+class CreateIncidentRequest(BaseModel):
+    title: str
+    description: str = ""
+    effects: list[EffectRequest]
+    remaining_ticks: int
+    source: str = ""  # auto-filled with agent id if empty
+
+
 # ---------------------------------------------------------------------------
 # Dependency injection (same pattern as client.py)
 # ---------------------------------------------------------------------------
@@ -396,6 +410,201 @@ async def finish_task_session(
         x_agent_id, req.task_session_id, req.status,
     )
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Incident creation
+# ---------------------------------------------------------------------------
+
+_MAX_REMAINING_TICKS = 48  # 1 year
+
+
+def _load_data_scope(agent_id: str) -> dict[str, Any]:
+    """Load and return the data_scope.yaml for an agent.
+
+    Handles both the new flat format (provinces/fields/nation_fields at
+    top level) and the legacy V4 format (nested under skills.query_data).
+    Prefers default_agents_dir over agents_dir to ensure updates propagate.
+    """
+    import yaml
+    from simu_server.config import settings
+
+    # Prefer default_agents (always up-to-date) over runtime agents (may be stale)
+    for base in (settings.default_agents_dir, settings.agents_dir):
+        scope_path = base / agent_id / "data_scope.yaml"
+        if scope_path.exists():
+            raw = yaml.safe_load(scope_path.read_text(encoding="utf-8")) or {}
+            # If it has top-level provinces/fields, it's the new format
+            if "provinces" in raw or "fields" in raw or "nation_fields" in raw:
+                return raw
+            # Legacy format: extract from skills.query_data
+            query_data = raw.get("skills", {}).get("query_data", {})
+            if query_data:
+                return {
+                    "display_name": raw.get("display_name", ""),
+                    "provinces": query_data.get("provinces", []),
+                    "fields": [
+                        f.split(".")[0] for f in query_data.get("fields", [])
+                    ],
+                    "nation_fields": query_data.get("national", []),
+                }
+            return raw
+    return {}
+
+
+def _validate_effect(
+    effect: EffectRequest,
+    agent_id: str,
+    scope: dict[str, Any],
+    nation: Any,
+) -> str | None:
+    """Validate a single effect against data_scope and limits.
+
+    Returns an error message string, or None if valid.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    parts = effect.target_path.split(".")
+
+    # --- Parse target path ---
+    if parts[0] == "provinces" and len(parts) == 3:
+        province_id, field_name = parts[1], parts[2]
+
+        # Province permission check
+        allowed_provinces = scope.get("provinces", [])
+        if allowed_provinces != "all" and province_id not in allowed_provinces:
+            return f"权限不足：agent {agent_id} 无权修改省份 {province_id} 的数据"
+
+        # Field permission check
+        allowed_fields = scope.get("fields", [])
+        if field_name not in allowed_fields:
+            return f"字段不允许：{agent_id} 的 data_scope 不包含省份字段 {field_name}"
+
+        # Get current value for validation
+        province = nation.provinces.get(province_id)
+        if province is None:
+            return f"省份不存在：{province_id}"
+        current = getattr(province, field_name, None)
+        if current is None or not isinstance(current, Decimal):
+            return f"字段无效：{field_name} 不是有效的数值字段"
+
+    elif (len(parts) == 1) or (len(parts) == 2 and parts[0] == "nation"):
+        field_name = parts[-1]  # handles both "{field}" and "nation.{field}"
+
+        # Nation field permission check
+        allowed_nation_fields = scope.get("nation_fields", [])
+        if field_name not in allowed_nation_fields:
+            return f"字段不允许：{agent_id} 的 data_scope 不包含国家级别字段 {field_name}"
+
+        current = getattr(nation, field_name, None)
+        if current is None or not isinstance(current, Decimal):
+            return f"字段无效：{field_name} 不是有效的国家级数值字段"
+
+    else:
+        return f"target_path 格式错误：{effect.target_path}（应为 'provinces.{{id}}.{{field}}' 或 'nation.{{field}}'）"
+
+    # --- Value validation ---
+    if effect.add is not None and effect.factor is not None:
+        return "Effect 必须只有 add 或 factor 之一，不能同时设置"
+    if effect.add is None and effect.factor is None:
+        return "Effect 必须设置 add 或 factor 之一"
+
+    try:
+        if effect.add is not None:
+            add_val = Decimal(effect.add)
+            # Negative add cannot reduce field to 0 or below
+            if add_val < 0 and current + add_val <= 0:
+                return (
+                    f"数值溢出：add={effect.add} 会将 {effect.target_path} "
+                    f"（当前值 {current}）减至 0 或以下"
+                )
+        if effect.factor is not None:
+            factor_val = Decimal(effect.factor)
+            if factor_val < 0:
+                return f"factor 不能为负数：{effect.factor}"
+    except InvalidOperation:
+        return f"数值格式错误：add={effect.add}, factor={effect.factor}"
+
+    return None
+
+
+@router.post("/incident")
+async def create_incident(
+    req: CreateIncidentRequest,
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, Any]:
+    """Create a new incident with data_scope permission checks."""
+    from decimal import Decimal
+
+    from simu_shared.models import Effect, Incident
+
+    await _verify_agent(x_agent_id, x_callback_token)
+
+    engine = _get("engine")
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+
+    nation = engine.state.nation
+
+    # Validate remaining_ticks
+    if req.remaining_ticks < 1 or req.remaining_ticks > _MAX_REMAINING_TICKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"remaining_ticks 必须在 1-{_MAX_REMAINING_TICKS} 之间",
+        )
+
+    if not req.effects:
+        raise HTTPException(status_code=400, detail="至少需要一个 effect")
+
+    # Load data scope
+    scope = _load_data_scope(x_agent_id)
+    if not scope:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Agent {x_agent_id} 没有 data_scope 配置",
+        )
+
+    # Validate each effect
+    errors: list[str] = []
+    for eff in req.effects:
+        err = _validate_effect(eff, x_agent_id, scope, nation)
+        if err:
+            errors.append(err)
+
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    # Build and add incident
+    # Nation-level fields need "nation." prefix for the engine's path parser
+    nation_fields = {"imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure"}
+    effects = []
+    for eff in req.effects:
+        path = eff.target_path
+        parts = path.split(".")
+        if len(parts) == 1 and parts[0] in nation_fields:
+            path = f"nation.{parts[0]}"
+        kwargs: dict[str, Any] = {"target_path": path}
+        if eff.add is not None:
+            kwargs["add"] = Decimal(eff.add)
+        if eff.factor is not None:
+            kwargs["factor"] = Decimal(eff.factor)
+        effects.append(Effect(**kwargs))
+
+    incident = Incident(
+        title=req.title,
+        description=req.description,
+        effects=effects,
+        remaining_ticks=req.remaining_ticks,
+        source=req.source or f"agent:{x_agent_id}",
+    )
+    engine.add_incident(incident)
+
+    logger.info(
+        "Agent %s created incident '%s' (%d effects, %d ticks)",
+        x_agent_id, req.title, len(effects), req.remaining_ticks,
+    )
+    return {"incident_id": incident.incident_id, "status": "created"}
 
 
 # ---------------------------------------------------------------------------

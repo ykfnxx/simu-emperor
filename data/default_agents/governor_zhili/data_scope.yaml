@@ -1,17 +1,11 @@
 display_name: 直隶巡抚
 
-skills:
-  query_data:
-    provinces: [zhili]
-    fields:
-      - population.*
-      - agriculture.*
-      - commerce.*
-      - trade.*
-      - military.garrison_size
-      - military.morale
-      - granary_stock
-      - local_treasury
-
-  write_report:
-    inherits: query_data
+provinces: [zhili]
+fields:
+  - production_value
+  - population
+  - fixed_expenditure
+  - stockpile
+  - base_production_growth
+  - base_population_growth
+  - tax_modifier
