@@ -43,7 +43,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     queue_controller = QueueController(max_depth=settings.agent_queue_depth)
 
     server_url = f"http://localhost:{settings.port}"
-    process_manager = ProcessManager(server_url)
+    process_manager = ProcessManager(
+        server_url,
+        llm_config={
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "api_key": settings.llm_api_key,
+            "base_url": settings.llm_base_url or "",
+        },
+    )
 
     # Agent registry
     agent_registry = AgentRegistry(db)

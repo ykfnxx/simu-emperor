@@ -30,9 +30,20 @@ class AgentConfig(BaseModel):
     @classmethod
     def from_env(cls) -> AgentConfig:
         """Build config from environment variables set by Server."""
+        llm_kwargs: dict[str, str] = {}
+        if os.environ.get("SIMU_LLM_PROVIDER"):
+            llm_kwargs["provider"] = os.environ["SIMU_LLM_PROVIDER"]
+        if os.environ.get("SIMU_LLM_MODEL"):
+            llm_kwargs["model"] = os.environ["SIMU_LLM_MODEL"]
+        if os.environ.get("SIMU_LLM_API_KEY"):
+            llm_kwargs["api_key"] = os.environ["SIMU_LLM_API_KEY"]
+        if os.environ.get("SIMU_LLM_BASE_URL"):
+            llm_kwargs["base_url"] = os.environ["SIMU_LLM_BASE_URL"]
+
         return cls(
             agent_id=os.environ["SIMU_AGENT_ID"],
             server_url=os.environ.get("SIMU_SERVER_URL", "http://localhost:8000"),
             agent_token=os.environ.get("SIMU_AGENT_TOKEN", ""),
             config_path=Path(os.environ.get("SIMU_CONFIG_PATH", ".")),
+            llm=LLMConfig(**llm_kwargs) if llm_kwargs else LLMConfig(),
         )
