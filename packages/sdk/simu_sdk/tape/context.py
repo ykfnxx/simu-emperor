@@ -7,8 +7,10 @@ into ViewSegments and stored in ChromaDB for later retrieval.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from simu_shared.constants import EventType
@@ -61,6 +63,8 @@ class ContextManager:
         metadata_manager: TapeMetadataManager | None = None,
         memory_store: MemoryStore | None = None,
         llm: LLMProvider | None = None,
+        memory_dir: Path | None = None,
+        agent_id: str = "",
     ) -> None:
         self._tape = tape
         self._config = config
@@ -68,6 +72,8 @@ class ContextManager:
         self._metadata = metadata_manager
         self._store = memory_store
         self._llm = llm
+        self._memory_dir = memory_dir
+        self._agent_id = agent_id
 
     async def get_context(self, session_id: str) -> ContextWindow:
         """Return the most recent events, plus a summary of older ones."""
@@ -143,6 +149,9 @@ class ContextManager:
 
         if self._store:
             await self._store.upsert_view(view)
+
+        # Mirror to debug file
+        self._mirror_view(view)
 
         logger.info(
             "Compressed %d events [%d:%d] for session %s",
@@ -262,6 +271,9 @@ class ContextManager:
                 title=meta.title,
             )
 
+        # Mirror to debug file (overwrite)
+        self._mirror_summary(session_id, new_summary, title=meta.title if meta else "")
+
         logger.debug("Updated session summary for %s", session_id)
         return new_summary
 
@@ -295,3 +307,72 @@ class ContextManager:
                 "Title generation failed for session %s", event.session_id, exc_info=True
             )
             return event.session_id
+
+    # ------------------------------------------------------------------
+    # Debug mirrors — write views/summaries to data/memory/ for debugging
+    # ------------------------------------------------------------------
+
+    def _get_mirror_dir(self) -> Path | None:
+        """Return the agent's mirror directory, or None if mirroring is disabled."""
+        if not self._memory_dir or not self._agent_id:
+            return None
+        d = self._memory_dir / "agents" / self._agent_id
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _mirror_view(self, view: ViewSegment) -> None:
+        """Append a ViewSegment to views.jsonl for debugging."""
+        mirror_dir = self._get_mirror_dir()
+        if not mirror_dir:
+            return
+        try:
+            line = json.dumps(
+                {
+                    "view_id": view.view_id,
+                    "session_id": view.session_id,
+                    "start_index": view.start_index,
+                    "end_index": view.end_index,
+                    "summary": view.summary,
+                    "event_count": view.event_count,
+                },
+                ensure_ascii=False,
+            )
+            with open(mirror_dir / "views.jsonl", "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception:
+            logger.warning("Failed to mirror view", exc_info=True)
+
+    def _mirror_summary(self, session_id: str, summary: str, *, title: str = "") -> None:
+        """Overwrite summaries.jsonl with current session summaries.
+
+        Unlike views.jsonl (append), this file is rewritten each time
+        so it always reflects the latest replacement summary per session.
+        """
+        mirror_dir = self._get_mirror_dir()
+        if not mirror_dir:
+            return
+        try:
+            path = mirror_dir / "summaries.jsonl"
+
+            # Read existing entries (one JSON object per line)
+            existing: dict[str, dict] = {}
+            if path.exists():
+                for raw_line in path.read_text(encoding="utf-8").splitlines():
+                    raw_line = raw_line.strip()
+                    if raw_line:
+                        obj = json.loads(raw_line)
+                        existing[obj["session_id"]] = obj
+
+            # Upsert current session
+            existing[session_id] = {
+                "session_id": session_id,
+                "title": title,
+                "summary": summary,
+            }
+
+            # Rewrite file
+            with open(path, "w", encoding="utf-8") as f:
+                for obj in existing.values():
+                    f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.warning("Failed to mirror summary", exc_info=True)

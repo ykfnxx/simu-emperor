@@ -90,6 +90,8 @@ class BaseAgent:
             metadata_manager=self.metadata_manager,
             memory_store=self.memory_store,
             llm=self._summary_llm,
+            memory_dir=mirror_dir,
+            agent_id=config.agent_id,
         )
 
         # Tools
@@ -386,6 +388,7 @@ class BaseAgent:
             return
         title = await self.context_manager.generate_title(event)
         await self.metadata_manager.create_metadata(event.session_id, title)
+        await self.server.update_session_title(event.session_id, title)
         logger.info("Generated title for session %s: %s", event.session_id, title)
 
     async def _update_session_summary(self, session_id: str) -> None:
