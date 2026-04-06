@@ -9,13 +9,31 @@ from pydantic_settings import BaseSettings
 
 
 def _find_project_root() -> Path:
-    """Walk up from this file to find the project root (contains data/ dir)."""
-    current = Path(__file__).resolve().parent
-    for _ in range(10):
-        if (current / "data").is_dir():
-            return current
-        current = current.parent
-    # Fallback to CWD if project root not found
+    """Find the project root (the directory containing ``data/``).
+
+    Tries multiple strategies so it works regardless of install mode
+    (editable vs site-packages) and working directory.
+    """
+    candidates: list[Path] = []
+
+    # Strategy 1: walk up from this source file (works for editable installs)
+    candidates.append(Path(__file__).resolve().parent)
+
+    # Strategy 2: walk up from CWD (works when run from project tree)
+    candidates.append(Path.cwd().resolve())
+
+    # Strategy 3: walk up from sys.prefix / venv root → likely near project
+    import sys
+    candidates.append(Path(sys.prefix).resolve())
+
+    for start in candidates:
+        current = start
+        for _ in range(10):
+            if (current / "data" / "initial_state_v4.json").is_file():
+                return current
+            current = current.parent
+
+    # Last resort
     return Path.cwd()
 
 
