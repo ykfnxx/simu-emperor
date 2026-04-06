@@ -18,8 +18,15 @@ class SessionManager:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def create(self, created_by: str = "player", parent_id: str | None = None) -> Session:
+    async def create(
+        self,
+        created_by: str = "player",
+        parent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> Session:
         session = Session(created_by=created_by, parent_id=parent_id)
+        if session_id:
+            session.session_id = session_id
         await self._db.conn.execute(
             """
             INSERT INTO sessions (session_id, parent_id, status, created_by, agent_ids, metadata, created_at, updated_at)

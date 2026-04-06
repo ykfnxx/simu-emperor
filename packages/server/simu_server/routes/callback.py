@@ -266,13 +266,8 @@ async def create_task_session(
     session = await sm.create(
         created_by=f"agent:{x_agent_id}",
         parent_id=req.parent_session_id,
+        session_id=task_session_id,
     )
-    # Override the auto-generated session_id with task: prefix
-    await sm._db.conn.execute(
-        "UPDATE sessions SET session_id = ? WHERE session_id = ?",
-        (task_session_id, session.session_id),
-    )
-    await sm._db.conn.commit()
 
     # Store task metadata
     await sm.update_metadata(task_session_id, {
