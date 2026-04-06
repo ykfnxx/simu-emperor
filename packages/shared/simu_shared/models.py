@@ -109,7 +109,7 @@ class RoutedMessage(BaseModel):
 class Session(BaseModel):
     """A collaboration session scoping Agent interactions."""
 
-    session_id: str = Field(default_factory=lambda: _make_id("ses"))
+    session_id: str = Field(default_factory=lambda: f"session:web:{uuid.uuid4().hex[:12]}")
     parent_id: str | None = None
     child_ids: list[str] = Field(default_factory=list)
     status: SessionStatus = SessionStatus.ACTIVE

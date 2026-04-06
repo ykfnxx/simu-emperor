@@ -27,13 +27,20 @@ mkdir -p data/db data/agents data/agent_templates
 echo "Syncing dependencies..."
 uv sync --quiet
 
+# Ensure data/memory directory exists for dual-write
+mkdir -p data/memory
+
 # Start backend
 echo "Starting backend server..."
 if [ "$1" = "--with-web" ]; then
-    # Start backend in background, frontend in foreground
-    uv run simu-emperor &
+    # Start backend in background with logs piped to a file AND terminal
+    LOGFILE="data/server.log"
+    uv run simu-emperor 2>&1 | tee "$LOGFILE" &
     BACKEND_PID=$!
-    echo "Backend PID: $BACKEND_PID"
+    echo "Backend PID: $BACKEND_PID (logs: $LOGFILE)"
+
+    # Wait briefly for backend to start
+    sleep 2
 
     # Start frontend
     echo "Starting frontend dev server..."

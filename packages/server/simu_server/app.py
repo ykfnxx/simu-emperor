@@ -43,7 +43,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     queue_controller = QueueController(max_depth=settings.agent_queue_depth)
 
     server_url = f"http://localhost:{settings.port}"
-    process_manager = ProcessManager(server_url)
+    process_manager = ProcessManager(
+        server_url,
+        llm_config={
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "api_key": settings.llm_api_key,
+            "base_url": settings.llm_base_url or "",
+        },
+    )
 
     # Agent registry
     agent_registry = AgentRegistry(db)
@@ -128,6 +136,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     }
     client.set_dependencies(**deps)
     callback.set_dependencies(**deps)
+
+    # Spawn agent processes for all registered agents
+    for agent in await agent_registry.list_all():
+        if agent.config_path:
+            try:
+                pid = await process_manager.spawn(agent)
+                logger.info("Spawned agent %s (PID %d)", agent.agent_id, pid)
+            except Exception:
+                logger.warning("Failed to spawn agent %s", agent.agent_id, exc_info=True)
 
     logger.info("Server started on %s:%d", settings.host, settings.port)
     yield

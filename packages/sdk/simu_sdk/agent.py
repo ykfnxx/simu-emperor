@@ -178,6 +178,14 @@ class BaseAgent:
         )
         await self.tape.append(response_event)
 
+        # Send response back to server so it appears in MessageStore / frontend
+        if result.content:
+            await self.server.post_message(
+                recipients=["player"],
+                message=result.content,
+                session_id=event.session_id,
+            )
+
         # Report invocation completion
         if event.invocation_id:
             await self.server.complete_invocation(event.invocation_id)

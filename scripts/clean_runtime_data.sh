@@ -31,29 +31,35 @@ cleanup() {
 echo -e "${RED}=== Cleaning V5 runtime data ===${NC}\n"
 
 echo "1. Server database:"
-cleanup "data/db" "Server SQLite database"
+cleanup "data/db" "Server SQLite database (server.db + group_chats.json)"
 
 echo -e "\n2. Agent runtime data:"
-cleanup "data/agents" "Agent config & tape data"
+cleanup "data/agents" "Agent config & tape data (copied from default_agents on startup)"
 
-echo -e "\n3. Group store:"
-cleanup "data/group_chats.json" "Group chat persistence"
+echo -e "\n3. Memory dual-write:"
+cleanup "data/memory" "JSONL message logs & tape_meta index"
 
 echo -e "\n4. Logs:"
+cleanup "data/server.log" "Server log (from start.sh)"
 cleanup "data/logs" "Data directory logs"
 cleanup "logs" "Root directory logs"
 
 echo -e "\n5. Python caches:"
-cleanup "__pycache__" "Python bytecode cache"
+find . -type d -name "__pycache__" -not -path "./web/*" -not -path "./.venv/*" | while read d; do
+    cleanup "$d" "Python bytecode cache"
+done
 cleanup ".pytest_cache" "Pytest cache"
 cleanup ".ruff_cache" "Ruff cache"
 
 echo -e "\n${GREEN}=== Clean complete ===${NC}"
 
 echo -e "\n${YELLOW}=== Preserved ===${NC}"
-echo "  data/agent_templates/  - Agent templates"
-echo "  data/initial_state.json - Initial game state"
-echo "  .env                   - Configuration"
-echo "  packages/              - Source code"
-echo "  tests/                 - Tests"
-echo "  web/                   - Frontend"
+echo "  data/default_agents/     - Default agent definitions"
+echo "  data/agent_templates/    - Agent templates"
+echo "  data/initial_state.json  - Initial game state"
+echo "  data/event_templates.json - Event templates"
+echo "  data/skills/             - Skill definitions"
+echo "  .env                     - Configuration"
+echo "  packages/                - Source code"
+echo "  tests/                   - Tests"
+echo "  web/                     - Frontend"
