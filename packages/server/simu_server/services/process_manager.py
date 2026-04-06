@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ class ProcessManager:
         }
 
         proc = await asyncio.create_subprocess_exec(
-            "python", "-m", "simu_sdk.agent",
+            sys.executable, "-m", "simu_sdk.agent",
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

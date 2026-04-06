@@ -129,6 +129,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     client.set_dependencies(**deps)
     callback.set_dependencies(**deps)
 
+    # Spawn agent processes for all registered agents
+    for agent in await agent_registry.list_all():
+        if agent.config_path:
+            try:
+                pid = await process_manager.spawn(agent)
+                logger.info("Spawned agent %s (PID %d)", agent.agent_id, pid)
+            except Exception:
+                logger.warning("Failed to spawn agent %s", agent.agent_id, exc_info=True)
+
     logger.info("Server started on %s:%d", settings.host, settings.port)
     yield
 
