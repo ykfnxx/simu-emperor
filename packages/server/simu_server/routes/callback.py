@@ -244,7 +244,11 @@ async def update_session_title(
     sm = _get("session_manager")
     ws_mgr = _get("ws_manager")
 
-    await sm.update_metadata(req.session_id, {"title": req.title})
+    # Merge title into existing metadata to avoid overwriting task fields
+    session = await sm.get(req.session_id)
+    existing = session.metadata if session else {}
+    existing["title"] = req.title
+    await sm.update_metadata(req.session_id, existing)
 
     # Broadcast to frontend so title updates live
     await ws_mgr.broadcast({
