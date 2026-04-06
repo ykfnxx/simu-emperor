@@ -379,18 +379,49 @@ async def remove_agent_from_group(req: GroupAgentRequest) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @router.get("/tape/current")
-async def get_current_tape() -> dict[str, Any]:
+async def get_current_tape(
+    session_id: str | None = None,
+    agent_id: str | None = None,
+    limit: int = 100,
+    include_sub_sessions: str | None = None,
+) -> dict[str, Any]:
     sm = _get("session_manager")
     if sm is None:
         return {"session_id": "", "events": [], "total": 0}
-    sessions = await sm.list_all()
-    if not sessions:
-        return {"session_id": "", "events": [], "total": 0}
-    session = sessions[0]
+
+    # Resolve session
+    if session_id:
+        session = await sm.get(session_id)
+    else:
+        sessions = await sm.list_all()
+        session = sessions[0] if sessions else None
+
+    if session is None:
+        return {"session_id": session_id or "", "events": [], "total": 0}
+
     msg_store = _get("message_store")
     if msg_store is None:
         return {"session_id": session.session_id, "events": [], "total": 0}
-    messages = await msg_store.query(session.session_id)
+
+    # Collect messages from main session
+    messages = await msg_store.query(session.session_id, limit=limit)
+
+    # Include sub-sessions if requested
+    if include_sub_sessions:
+        sub_ids = [s.strip() for s in include_sub_sessions.split(",") if s.strip()]
+        for sub_id in sub_ids:
+            sub_messages = await msg_store.query(sub_id, limit=limit)
+            messages.extend(sub_messages)
+        messages.sort(key=lambda m: m.timestamp)
+        messages = messages[-limit:]
+
+    # Filter by agent if specified
+    if agent_id:
+        messages = [
+            m for m in messages
+            if m.src == f"agent:{agent_id}" or f"agent:{agent_id}" in m.dst
+        ]
+
     events = [
         {
             "event_id": m.message_id,
@@ -400,20 +431,38 @@ async def get_current_tape() -> dict[str, Any]:
             "payload": {"content": m.content},
             "timestamp": m.timestamp.isoformat() if m.timestamp else "",
             "session_id": m.session_id,
+            "agent_id": agent_id,
         }
         for m in messages
     ]
-    return {"session_id": session.session_id, "events": events, "total": len(events)}
+    return {
+        "agent_id": agent_id,
+        "session_id": session.session_id,
+        "events": events,
+        "total": len(events),
+    }
 
 
 @router.get("/tape/subsessions")
-async def get_subsessions() -> list[dict[str, Any]]:
+async def get_subsessions(
+    session_id: str | None = None,
+    agent_id: str | None = None,
+) -> list[dict[str, Any]]:
     sm = _get("session_manager")
     if sm is None:
         return []
     sessions = await sm.list_all()
-    return [
-        {
+    result = []
+    for s in sessions:
+        if not s.is_task:
+            continue
+        # Filter by parent session if specified
+        if session_id and s.parent_id != session_id:
+            continue
+        # Filter by agent if specified
+        if agent_id and agent_id not in s.agent_ids:
+            continue
+        result.append({
             "session_id": s.session_id,
             "parent_id": s.parent_id or "",
             "created_at": s.created_at.isoformat() if s.created_at else "",
@@ -421,9 +470,8 @@ async def get_subsessions() -> list[dict[str, Any]]:
             "event_count": 0,
             "depth": 1,
             "status": s.status.value if hasattr(s.status, "value") else str(s.status),
-        }
-        for s in sessions if s.is_task
-    ]
+        })
+    return result
 
 
 # ---------------------------------------------------------------------------
