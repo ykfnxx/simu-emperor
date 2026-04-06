@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_event_id() -> str:
     ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     short_uuid = uuid.uuid4().hex[:8]
@@ -36,6 +37,7 @@ def _utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class AgentStatus(StrEnum):
     REGISTERED = "registered"
@@ -67,6 +69,7 @@ class SessionStatus(StrEnum):
 # TapeEvent — the universal event envelope
 # ---------------------------------------------------------------------------
 
+
 class TapeEvent(BaseModel):
     """Append-only event that flows through the system.
 
@@ -91,6 +94,7 @@ class TapeEvent(BaseModel):
 # RoutedMessage — Server-side persisted message for frontend display
 # ---------------------------------------------------------------------------
 
+
 class RoutedMessage(BaseModel):
     """A message stored by Server for frontend history display."""
 
@@ -107,6 +111,7 @@ class RoutedMessage(BaseModel):
 # ---------------------------------------------------------------------------
 # Session
 # ---------------------------------------------------------------------------
+
 
 class Session(BaseModel):
     """A collaboration session scoping Agent interactions."""
@@ -130,6 +135,7 @@ class Session(BaseModel):
 # Agent Registration
 # ---------------------------------------------------------------------------
 
+
 class AgentRegistration(BaseModel):
     """An Agent's registration record managed by Server."""
 
@@ -147,6 +153,7 @@ class AgentRegistration(BaseModel):
 # ---------------------------------------------------------------------------
 # Invocation — tracks a single Agent call lifecycle
 # ---------------------------------------------------------------------------
+
 
 class Invocation(BaseModel):
     """Tracks one Agent invocation from queue to completion."""
@@ -166,6 +173,7 @@ class Invocation(BaseModel):
 # ---------------------------------------------------------------------------
 # LLM / Agent Configuration
 # ---------------------------------------------------------------------------
+
 
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
@@ -193,9 +201,36 @@ class ReActConfig(BaseModel):
     max_tool_calls: int = 20
 
 
+class MemoryConfig(BaseModel):
+    """Memory system configuration."""
+
+    # Sliding window
+    keep_recent_events: int = 20
+    max_context_tokens: int = 8000
+    compression_threshold: float = 0.95
+    anchor_buffer: int = 2  # events to preserve around anchors
+
+    # View generation
+    view_summary_max_tokens: int = 200
+
+    # Session summary
+    session_summary_max_tokens: int = 300  # fixed-length replacement summary
+
+    # Retrieval
+    l1_max_sessions: int = 5
+    l2_max_views: int = 5
+
+    # ChromaDB
+    embedding_model: str = "default"  # "default" = all-MiniLM-L6-v2
+
+    # Summary LLM (optional, defaults to agent's main LLM)
+    summary_llm: LLMConfig | None = None
+
+
 # ---------------------------------------------------------------------------
 # Game Engine Models
 # ---------------------------------------------------------------------------
+
 
 class ProvinceData(BaseModel):
     """Economic and demographic data for a single province."""

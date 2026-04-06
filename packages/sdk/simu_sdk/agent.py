@@ -27,9 +27,13 @@ from simu_sdk.client import ServerClient
 from simu_sdk.config import AgentConfig
 from simu_sdk.hot_reload import watch_config
 from simu_sdk.llm.base import LLMProvider, create_llm_provider
-from simu_sdk.react import ReActLoop, ReActResult
+from simu_sdk.memory.metadata import TapeMetadataManager
+from simu_sdk.memory.retriever import MemoryRetriever
+from simu_sdk.memory.store import MemoryStore
+from simu_sdk.react import ReActLoop
 from simu_sdk.tape.context import ContextManager
 from simu_sdk.tape.manager import TapeManager
+from simu_sdk.tools.memory import MemoryTools
 from simu_sdk.tools.registry import ToolRegistry
 from simu_sdk.tools.standard import SessionStateManager, StandardTools
 
@@ -56,12 +60,48 @@ class BaseAgent:
         # LLM
         self.llm: LLMProvider = create_llm_provider(config.llm)
 
+        # Summary LLM — separate provider if configured, else share main LLM
+        if config.memory.summary_llm:
+            self._summary_llm: LLMProvider = create_llm_provider(config.memory.summary_llm)
+        else:
+            self._summary_llm = self.llm
+
+        # Tape (local) — stored under the agent's own config directory
+        # Also mirrors to data/memory/ if SIMU_MEMORY_DIR is set
+        tape_dir = Path(config.config_path) / "tape"
+        memory_dir_env = os.environ.get("SIMU_MEMORY_DIR")
+        mirror_dir = Path(memory_dir_env) if memory_dir_env else None
+        self.tape = TapeManager(
+            tape_dir,
+            agent_id=config.agent_id,
+            memory_dir=mirror_dir,
+        )
+
+        # Memory system
+        memory_dir = Path(config.config_path) / "memory"
+        self.metadata_manager = TapeMetadataManager(memory_dir / "metadata.db")
+        self.memory_store = MemoryStore(config.agent_id, memory_dir / "chromadb")
+        self.memory_retriever = MemoryRetriever(self.metadata_manager, self.memory_store)
+
+        self.context_manager = ContextManager(
+            self.tape,
+            config.context,
+            memory_config=config.memory,
+            metadata_manager=self.metadata_manager,
+            memory_store=self.memory_store,
+            llm=self._summary_llm,
+        )
+
         # Tools
         self.tools = ToolRegistry()
         self._standard_tools = StandardTools(
-            self.server, session_state=self.session_state, agent_id=config.agent_id,
+            self.server,
+            session_state=self.session_state,
+            agent_id=config.agent_id,
         )
         self.tools.register_provider(self._standard_tools)
+        self._memory_tools = MemoryTools(self.memory_retriever)
+        self.tools.register_provider(self._memory_tools)
         self.tools.register_provider(self)  # auto-register @tool methods on subclass
 
         # ReAct
@@ -71,16 +111,6 @@ class BaseAgent:
             max_iterations=config.react.max_iterations,
             max_tool_calls=config.react.max_tool_calls,
         )
-
-        # Tape (local) — stored under the agent's own config directory
-        # Also mirrors to data/memory/ if SIMU_MEMORY_DIR is set
-        tape_dir = Path(config.config_path) / "tape"
-        memory_dir_env = os.environ.get("SIMU_MEMORY_DIR")
-        memory_dir = Path(memory_dir_env) if memory_dir_env else None
-        self.tape = TapeManager(
-            tape_dir, agent_id=config.agent_id, memory_dir=memory_dir,
-        )
-        self.context_manager = ContextManager(self.tape, config.context)
 
         # Personality files
         self.soul: str = ""
@@ -115,8 +145,13 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the Agent: register, init tape, enter event loop."""
+        """Start the Agent: register, init tape + memory, enter event loop."""
         await self.tape.initialize()
+        await self.metadata_manager.initialize()
+        await self.memory_store.initialize()
+
+        # Register first-event callback for title generation
+        self.tape.on_first_event = self._handle_first_event
 
         await self.server.register(capabilities=self.tools.list_names())
         logger.info("Agent %s registered with Server", self.agent_id)
@@ -137,7 +172,11 @@ class BaseAgent:
         if self._watch_task:
             self._watch_task.cancel()
         await self.server.deregister()
+        await self.memory_store.close()
+        await self.metadata_manager.close()
         await self.tape.close()
+        if self._summary_llm is not self.llm:
+            await self._summary_llm.close()
         await self.llm.close()
         await self.server.close()
         logger.info("Agent %s stopped", self.agent_id)
@@ -173,7 +212,8 @@ class BaseAgent:
         if self.session_state.is_blocked(event.session_id):
             logger.info(
                 "Session %s is blocked, queuing event %s",
-                event.session_id, event.event_id,
+                event.session_id,
+                event.event_id,
             )
             self.session_state.enqueue_message(event.session_id, event)
             return
@@ -208,7 +248,8 @@ class BaseAgent:
         if self.session_state.clear_reply_from(session_id, event.src):
             logger.info(
                 "Cleared pending reply from %s on session %s",
-                event.src, session_id,
+                event.src,
+                session_id,
             )
             return True
 
@@ -223,7 +264,8 @@ class BaseAgent:
         for queued_event in queued:
             logger.info(
                 "Processing queued event %s for unblocked session %s",
-                queued_event.event_id, session_id,
+                queued_event.event_id,
+                session_id,
             )
             await self.react(queued_event)
 
@@ -264,6 +306,9 @@ class BaseAgent:
         await self.tape.append(response_event)
         await self.server.push_tape_event(response_event)
 
+        # Update session summary after each response
+        await self._update_session_summary(session_id)
+
         # Handle session transitions triggered by tools
         if result.ended_by_tool == "create_task_session":
             await self._enter_task_session(event)
@@ -294,7 +339,9 @@ class BaseAgent:
 
         goal = self.session_state.get_goal(task_session_id)
         logger.info(
-            "Entering task session %s (goal=%s)", task_session_id, goal,
+            "Entering task session %s (goal=%s)",
+            task_session_id,
+            goal,
         )
 
         # Create a synthetic event to kick off the task session
@@ -307,6 +354,26 @@ class BaseAgent:
             parent_event_id=parent_event.event_id,
         )
         await self.react(task_event)
+
+    async def _handle_first_event(self, event: TapeEvent) -> None:
+        """Generate and store a title when a session's first event arrives."""
+        if await self.metadata_manager.has_metadata(event.session_id):
+            return
+        title = await self.context_manager.generate_title(event)
+        await self.metadata_manager.create_metadata(event.session_id, title)
+        logger.info("Generated title for session %s: %s", event.session_id, title)
+
+    async def _update_session_summary(self, session_id: str) -> None:
+        """Update session summary after each agent response."""
+        try:
+            recent = await self.tape.query(session_id, limit=10)
+            await self.context_manager.update_session_summary(session_id, recent)
+        except Exception:
+            logger.warning(
+                "Failed to update session summary for %s",
+                session_id,
+                exc_info=True,
+            )
 
     def _build_system_prompt(self, session_id: str = "") -> str:
         parts = []
@@ -430,6 +497,7 @@ class BaseAgent:
 # ---------------------------------------------------------------------------
 # Convenience entry point for launching an Agent from CLI
 # ---------------------------------------------------------------------------
+
 
 def _setup_logging(config: AgentConfig) -> None:
     """Configure logging to write to both stderr and a per-agent log file."""
