@@ -7,6 +7,7 @@ Tools:
   4. create_task_session — create a task sub-session for focused work
   5. finish_task_session — complete the current task session with a result
   6. fail_task_session — mark the current task session as failed
+  7. create_incident — create a time-limited event with economic effects
 """
 
 from __future__ import annotations
@@ -118,6 +119,74 @@ class StandardTools:
         import json
 
         result = await self._server.query_role_map()
+        return json.dumps(result, ensure_ascii=False)
+
+    @tool(
+        name="create_incident",
+        description=(
+            "Create a time-limited incident with economic effects on provinces or "
+            "the nation. Effects can be additive (one-time) or multiplicative "
+            "(per-tick). Your data_scope determines which provinces and fields you "
+            "can affect. Negative add values cannot reduce a field to zero or below. "
+            "Factor values must be >= 0."
+        ),
+        parameters={
+            "title": {
+                "type": "string",
+                "description": "Incident title, e.g. '直隶洪灾'.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Detailed description of the incident.",
+            },
+            "effects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "target_path": {
+                            "type": "string",
+                            "description": (
+                                "Dot-notation path: 'provinces.{id}.{field}' for province "
+                                "fields, or '{field}' for nation fields. "
+                                "Province fields: production_value, population, "
+                                "fixed_expenditure, stockpile, base_production_growth, "
+                                "base_population_growth, tax_modifier. "
+                                "Nation fields: imperial_treasury, base_tax_rate, "
+                                "tribute_rate, fixed_expenditure."
+                            ),
+                        },
+                        "add": {
+                            "type": "string",
+                            "description": "One-time additive change (Decimal string). Cannot reduce field to 0.",
+                        },
+                        "factor": {
+                            "type": "string",
+                            "description": "Per-tick multiplicative factor (Decimal string, >= 0). Applied as field *= (1 + factor).",
+                        },
+                    },
+                    "required": ["target_path"],
+                },
+                "description": "List of effects. Each must have exactly one of 'add' or 'factor'.",
+            },
+            "remaining_ticks": {
+                "type": "integer",
+                "description": "Duration in ticks (1-48, where 4 ticks = 1 month).",
+            },
+        },
+        category="action",
+    )
+    async def create_incident(self, args: dict, event: TapeEvent) -> str:
+        import json
+
+        result = await self._server.create_incident(
+            title=args["title"],
+            effects=args["effects"],
+            remaining_ticks=args["remaining_ticks"],
+            description=args.get("description", ""),
+        )
+        if "error" in result:
+            return f"创建 incident 失败：{result['error']}"
         return json.dumps(result, ensure_ascii=False)
 
     @tool(
