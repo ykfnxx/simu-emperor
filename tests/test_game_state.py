@@ -126,3 +126,78 @@ class TestGameStateLoad:
         assert gs.nation.base_tax_rate == Decimal("0.10")
         assert "zhili" in gs.nation.provinces
         assert gs.nation.provinces["zhili"].production_value == Decimal("100000")
+
+    @pytest.mark.asyncio
+    async def test_load_reinit_when_db_has_empty_provinces(self, tmp_path):
+        """DB has a nation record with no provinces — should fall back to file init."""
+        state_file = tmp_path / "initial_state.json"
+        state_file.write_text(json.dumps({
+            "nation": {
+                "turn": 0,
+                "base_tax_rate": "0.10",
+                "imperial_treasury": "100000",
+            },
+            "provinces": {
+                "zhili": {
+                    "province_id": "zhili",
+                    "name": "直隶",
+                    "production_value": "100000",
+                    "population": "2600000",
+                },
+            },
+        }))
+
+        # Simulate DB returning a nation with empty provinces
+        from simu_shared.models import NationData
+        empty_nation = NationData(turn=3)  # turn=3, no provinces
+        db_row = (empty_nation.model_dump_json(),)
+
+        db = AsyncMock()
+        db.conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=AsyncMock(return_value=db_row)),
+        )
+        db.conn.commit = AsyncMock()
+
+        gs = GameState(db)
+        await gs.load(state_file)
+
+        # Should have re-initialized from file, not kept the empty DB state
+        assert len(gs.nation.provinces) == 1
+        assert "zhili" in gs.nation.provinces
+        assert gs.nation.imperial_treasury == Decimal("100000")
+
+    @pytest.mark.asyncio
+    async def test_load_keeps_db_state_when_provinces_exist(self, tmp_path):
+        """DB has a nation with provinces — should use DB state, not file."""
+        state_file = tmp_path / "initial_state.json"
+        state_file.write_text(json.dumps({
+            "nation": {"turn": 0, "imperial_treasury": "100000"},
+            "provinces": {
+                "zhili": {"province_id": "zhili", "name": "直隶"},
+            },
+        }))
+
+        from simu_shared.models import NationData, ProvinceData
+        db_nation = NationData(
+            turn=5,
+            imperial_treasury=Decimal("999999"),
+            provinces={
+                "shandong": ProvinceData(province_id="shandong", name="山东"),
+            },
+        )
+        db_row = (db_nation.model_dump_json(),)
+
+        db = AsyncMock()
+        db.conn.execute = AsyncMock(
+            return_value=AsyncMock(fetchone=AsyncMock(return_value=db_row)),
+        )
+        db.conn.commit = AsyncMock()
+
+        gs = GameState(db)
+        await gs.load(state_file)
+
+        # Should use DB state, not file
+        assert gs.nation.turn == 5
+        assert gs.nation.imperial_treasury == Decimal("999999")
+        assert "shandong" in gs.nation.provinces
+        assert "zhili" not in gs.nation.provinces
