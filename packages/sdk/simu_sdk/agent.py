@@ -333,8 +333,9 @@ class BaseAgent:
         )
         await self.server.push_tape_event(response_event, route=should_route)
 
-        # Update session summary after each response
-        await self._update_session_summary(session_id)
+        # Update session summary in background — avoid blocking the react
+        # loop on LLM summarization (which can take minutes).
+        asyncio.create_task(self._update_session_summary(session_id))
 
         # Handle session transitions triggered by tools
         if result.ended_by_tool == "create_task_session":
