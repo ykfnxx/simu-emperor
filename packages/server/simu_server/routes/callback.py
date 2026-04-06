@@ -442,6 +442,7 @@ async def finish_task_session(
     sm = _get("session_manager")
     msg_store = _get("message_store")
     ws_mgr = _get("ws_manager")
+    queue = _get("queue_controller")
 
     # Mark task session as completed/failed
     new_status = SessionStatus.COMPLETED if req.status == "completed" else SessionStatus.FAILED
@@ -457,6 +458,21 @@ async def finish_task_session(
         event_type=event_type,
     )
     await msg_store.store(finish_msg)
+
+    # Route the event to the parent agent so it can unblock the session
+    if queue:
+        finish_event = TapeEvent(
+            src=f"agent:{x_agent_id}",
+            dst=[f"agent:{x_agent_id}"],
+            event_type=event_type,
+            payload={
+                "content": req.result,
+                "task_session_id": req.task_session_id,
+                "status": req.status,
+            },
+            session_id=req.parent_session_id,
+        )
+        await queue.enqueue(x_agent_id, finish_event)
 
     # Push to frontend WebSocket
     await ws_mgr.broadcast({
