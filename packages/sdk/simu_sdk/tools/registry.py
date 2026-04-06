@@ -49,12 +49,16 @@ def tool(
     """
 
     def decorator(func: Callable) -> Callable:
-        setattr(func, _TOOL_ATTR, ToolMeta(
-            name=name,
-            description=description,
-            parameters=parameters or {},
-            category=category,
-        ))
+        setattr(
+            func,
+            _TOOL_ATTR,
+            ToolMeta(
+                name=name,
+                description=description,
+                parameters=parameters or {},
+                category=category,
+            ),
+        )
         return func
 
     return decorator
@@ -91,15 +95,17 @@ class ToolRegistry:
         """Convert registered tools to OpenAI-compatible function definitions."""
         definitions: list[dict[str, Any]] = []
         for meta in self._tools.values():
-            definitions.append({
-                "type": "function",
-                "function": {
-                    "name": meta.name,
-                    "description": meta.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": meta.parameters,
+            definitions.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": meta.name,
+                        "description": meta.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": meta.parameters,
+                        },
                     },
-                },
-            })
+                }
+            )
         return definitions

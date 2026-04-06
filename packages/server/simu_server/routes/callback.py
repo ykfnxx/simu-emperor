@@ -628,16 +628,19 @@ def _validate_effect(
     try:
         if effect.add is not None:
             add_val = Decimal(effect.add)
-            # Negative add cannot reduce field to 0 or below
-            if add_val < 0 and current + add_val <= 0:
+            if current + add_val <= 0:
                 return (
                     f"数值溢出：add={effect.add} 会将 {effect.target_path} "
                     f"（当前值 {current}）减至 0 或以下"
                 )
         if effect.factor is not None:
             factor_val = Decimal(effect.factor)
-            if factor_val < 0:
-                return f"factor 不能为负数：{effect.factor}"
+            result_val = current * (Decimal("1") + factor_val)
+            if result_val <= 0:
+                return (
+                    f"数值溢出：factor={effect.factor} 会将 {effect.target_path} "
+                    f"（当前值 {current}）变为 {result_val}（≤ 0）"
+                )
     except InvalidOperation:
         return f"数值格式错误：add={effect.add}, factor={effect.factor}"
 

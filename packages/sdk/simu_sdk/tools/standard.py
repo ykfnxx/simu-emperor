@@ -94,7 +94,9 @@ class StandardTools:
             for r in recipients:
                 awaiting = f"agent:{r}" if not r.startswith("agent:") else r
                 self._session_state.add_pending_reply(
-                    event.session_id, event_id, awaiting_from=awaiting,
+                    event.session_id,
+                    event_id,
+                    awaiting_from=awaiting,
                 )
             return ToolResult(
                 output="Message sent. Waiting for reply — session paused.",
@@ -142,8 +144,8 @@ class StandardTools:
             "Create a time-limited incident with economic effects on provinces or "
             "the nation. Effects can be additive (one-time) or multiplicative "
             "(per-tick). Your data_scope determines which provinces and fields you "
-            "can affect. Negative add values cannot reduce a field to zero or below. "
-            "Factor values must be >= 0."
+            "can affect. The resulting value after applying add or factor must stay > 0. "
+            "For example, factor=-0.05 means a 5% reduction per tick."
         ),
         parameters={
             "title": {
@@ -177,7 +179,7 @@ class StandardTools:
                         },
                         "factor": {
                             "type": "string",
-                            "description": "Per-tick multiplicative factor (Decimal string, >= 0). Applied as field *= (1 + factor).",
+                            "description": "Per-tick multiplicative factor (Decimal string). Applied as field *= (1 + factor). E.g. -0.05 = reduce 5% per tick.",
                         },
                     },
                     "required": ["target_path"],
@@ -267,7 +269,10 @@ class StandardTools:
 
         logger.info(
             "Created task session %s (parent=%s, depth=%d, goal=%s)",
-            task_session_id, event.session_id, current_depth + 1, args["goal"],
+            task_session_id,
+            event.session_id,
+            current_depth + 1,
+            args["goal"],
         )
         return ToolResult(
             output=f"Task session created: {task_session_id}. Processing task now.",
@@ -367,6 +372,7 @@ class StandardTools:
 # Session state manager — tracks pending tasks, replies, and context
 # ---------------------------------------------------------------------------
 
+
 class SessionStateManager:
     """Tracks per-session state for task dispatch and message blocking.
 
@@ -380,7 +386,9 @@ class SessionStateManager:
 
     def __init__(self) -> None:
         self._pending_tasks: dict[str, set[str]] = {}  # session_id → {task_session_ids}
-        self._pending_replies: dict[str, dict[str, str]] = {}  # session_id → {msg_id: awaiting_from}
+        self._pending_replies: dict[
+            str, dict[str, str]
+        ] = {}  # session_id → {msg_id: awaiting_from}
         self._message_queue: dict[str, list[Any]] = {}  # session_id → [events]
         self._parents: dict[str, str] = {}  # task_session_id → parent_session_id
         self._depths: dict[str, int] = {}  # session_id → depth (0 for root)
@@ -406,7 +414,10 @@ class SessionStateManager:
     # -- Pending replies --
 
     def add_pending_reply(
-        self, session_id: str, message_id: str, awaiting_from: str = "",
+        self,
+        session_id: str,
+        message_id: str,
+        awaiting_from: str = "",
     ) -> None:
         self._pending_replies.setdefault(session_id, {})[message_id] = awaiting_from
 
@@ -437,7 +448,10 @@ class SessionStateManager:
     # -- Session hierarchy --
 
     def register_task_session(
-        self, task_session_id: str, parent_session_id: str, depth: int,
+        self,
+        task_session_id: str,
+        parent_session_id: str,
+        depth: int,
         goal: str = "",
     ) -> None:
         self._parents[task_session_id] = parent_session_id

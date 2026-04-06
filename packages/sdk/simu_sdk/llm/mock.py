@@ -26,11 +26,13 @@ class MockProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         system: str | None = None,
     ) -> LLMResponse:
-        self.call_history.append({
-            "messages": messages,
-            "tools": tools,
-            "system": system,
-        })
+        self.call_history.append(
+            {
+                "messages": messages,
+                "tools": tools,
+                "system": system,
+            }
+        )
         if self.next_responses:
             return self.next_responses.pop(0)
         return LLMResponse(content="[Mock response]")
