@@ -87,23 +87,66 @@ def _get(name: str, default: Any = None) -> Any:
 # ---------------------------------------------------------------------------
 
 @router.get("/sessions")
-async def list_sessions() -> list[dict[str, Any]]:
-    sessions = await _get("session_manager").list_all()
-    return [s.model_dump(mode="json") for s in sessions]
+async def list_sessions() -> dict[str, Any]:
+    sm = _get("session_manager")
+    if sm is None:
+        return {"current_session_id": "", "sessions": []}
+    sessions = await sm.list_all()
+    current = sessions[0] if sessions else None
+    return {
+        "current_session_id": current.session_id if current else "",
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                "title": s.metadata.get("title", s.session_id),
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                "event_count": 0,
+                "agents": s.agent_ids,
+                "is_current": s.session_id == (current.session_id if current else ""),
+            }
+            for s in sessions
+        ],
+    }
 
 
 @router.post("/sessions")
 async def create_session() -> dict[str, Any]:
-    session = await _get("session_manager").create()
-    return session.model_dump(mode="json")
+    sm = _get("session_manager")
+    if sm is None:
+        return {"success": False, "error": "session_manager not available"}
+    session = await sm.create()
+    return {
+        "success": True,
+        "current_session_id": session.session_id,
+        "session": {
+            "session_id": session.session_id,
+            "title": session.session_id,
+            "created_at": session.created_at.isoformat() if session.created_at else None,
+            "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+            "event_count": 0,
+            "agents": session.agent_ids,
+            "is_current": True,
+        },
+    }
 
 
 @router.post("/sessions/select")
 async def select_session(req: SelectSessionRequest) -> dict[str, Any]:
-    session = await _get("session_manager").get(req.session_id)
+    sm = _get("session_manager")
+    if sm is None:
+        return {"success": False, "error": "session_manager not available"}
+    session = await sm.get(req.session_id)
     if session is None:
-        return {"error": "Session not found"}
-    return session.model_dump(mode="json")
+        return {"success": False, "error": "Session not found"}
+    return {
+        "success": True,
+        "current_session_id": session.session_id,
+        "session": {
+            "session_id": session.session_id,
+            "is_current": True,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +211,8 @@ async def send_command(req: SendCommandRequest) -> dict[str, Any]:
 @router.get("/state")
 async def get_state() -> dict[str, Any]:
     engine = _get("engine")
+    if engine is None:
+        return {"turn": 0, "state": {}, "incidents": []}
     state = engine.query_state()
     overview = engine.get_overview()
     incidents = engine.list_incidents()
@@ -176,7 +221,16 @@ async def get_state() -> dict[str, Any]:
 
 @router.get("/overview")
 async def get_overview() -> dict[str, Any]:
-    return _get("engine").get_overview()
+    engine = _get("engine")
+    if engine is None:
+        return {"turn": 0, "treasury": 0, "population": 0, "province_count": 0}
+    raw = engine.get_overview()
+    return {
+        "turn": raw.get("turn", 0),
+        "treasury": int(float(raw.get("imperial_treasury", 0))),
+        "population": int(float(raw.get("total_population", 0))),
+        "province_count": raw.get("province_count", 0),
+    }
 
 
 @router.post("/state/tick")
@@ -197,8 +251,17 @@ async def manual_tick() -> dict[str, Any]:
 
 @router.get("/agents")
 async def list_agents() -> list[dict[str, Any]]:
-    agents = await _get("agent_registry").list_all()
-    return [a.model_dump(mode="json") for a in agents]
+    registry = _get("agent_registry")
+    if registry is None:
+        return []
+    agents = await registry.list_all()
+    return [
+        {
+            "agent_id": a.agent_id,
+            "agent_name": a.display_name or a.agent_id,
+        }
+        for a in agents
+    ]
 
 
 @router.post("/agents/generate")
@@ -231,7 +294,10 @@ async def add_generated_agent(req: AddGeneratedAgentRequest) -> dict[str, Any]:
 
 @router.get("/incidents")
 async def list_incidents() -> list[dict[str, Any]]:
-    return _get("engine").list_incidents()
+    engine = _get("engine")
+    if engine is None:
+        return []
+    return engine.list_incidents()
 
 
 # ---------------------------------------------------------------------------
@@ -313,19 +379,99 @@ async def remove_agent_from_group(req: GroupAgentRequest) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @router.get("/tape/current")
-async def get_current_tape() -> list[dict[str, Any]]:
+async def get_current_tape(
+    session_id: str | None = None,
+    agent_id: str | None = None,
+    limit: int = 100,
+    include_sub_sessions: str | None = None,
+) -> dict[str, Any]:
     sm = _get("session_manager")
-    sessions = await sm.list_all()
-    if not sessions:
-        return []
-    messages = await _get("message_store").query(sessions[0].session_id)
-    return [m.model_dump(mode="json") for m in messages]
+    if sm is None:
+        return {"session_id": "", "events": [], "total": 0}
+
+    # Resolve session
+    if session_id:
+        session = await sm.get(session_id)
+    else:
+        sessions = await sm.list_all()
+        session = sessions[0] if sessions else None
+
+    if session is None:
+        return {"session_id": session_id or "", "events": [], "total": 0}
+
+    msg_store = _get("message_store")
+    if msg_store is None:
+        return {"session_id": session.session_id, "events": [], "total": 0}
+
+    # Collect messages from main session
+    messages = await msg_store.query(session.session_id, limit=limit)
+
+    # Include sub-sessions if requested
+    if include_sub_sessions:
+        sub_ids = [s.strip() for s in include_sub_sessions.split(",") if s.strip()]
+        for sub_id in sub_ids:
+            sub_messages = await msg_store.query(sub_id, limit=limit)
+            messages.extend(sub_messages)
+        messages.sort(key=lambda m: m.timestamp)
+        messages = messages[-limit:]
+
+    # Filter by agent if specified
+    if agent_id:
+        messages = [
+            m for m in messages
+            if m.src == f"agent:{agent_id}" or f"agent:{agent_id}" in m.dst
+        ]
+
+    events = [
+        {
+            "event_id": m.message_id,
+            "src": m.src,
+            "dst": m.dst,
+            "type": m.event_type,
+            "payload": {"content": m.content},
+            "timestamp": m.timestamp.isoformat() if m.timestamp else "",
+            "session_id": m.session_id,
+            "agent_id": agent_id,
+        }
+        for m in messages
+    ]
+    return {
+        "agent_id": agent_id,
+        "session_id": session.session_id,
+        "events": events,
+        "total": len(events),
+    }
 
 
 @router.get("/tape/subsessions")
-async def get_subsessions() -> list[dict[str, Any]]:
-    sessions = await _get("session_manager").list_all()
-    return [s.model_dump(mode="json") for s in sessions if s.is_task]
+async def get_subsessions(
+    session_id: str | None = None,
+    agent_id: str | None = None,
+) -> list[dict[str, Any]]:
+    sm = _get("session_manager")
+    if sm is None:
+        return []
+    sessions = await sm.list_all()
+    result = []
+    for s in sessions:
+        if not s.is_task:
+            continue
+        # Filter by parent session if specified
+        if session_id and s.parent_id != session_id:
+            continue
+        # Filter by agent if specified
+        if agent_id and agent_id not in s.agent_ids:
+            continue
+        result.append({
+            "session_id": s.session_id,
+            "parent_id": s.parent_id or "",
+            "created_at": s.created_at.isoformat() if s.created_at else "",
+            "updated_at": s.updated_at.isoformat() if s.updated_at else "",
+            "event_count": 0,
+            "depth": 1,
+            "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+        })
+    return result
 
 
 # ---------------------------------------------------------------------------
