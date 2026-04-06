@@ -98,6 +98,26 @@ class ServerClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def push_tape_event(self, event: TapeEvent) -> None:
+        """Push an internal tape event to the Server's MessageStore for frontend display."""
+        try:
+            resp = await self._http.post(
+                "/api/callback/tape-event",
+                json={
+                    "event_id": event.event_id,
+                    "session_id": event.session_id,
+                    "src": event.src,
+                    "dst": event.dst,
+                    "event_type": event.event_type,
+                    "payload": event.payload,
+                    "timestamp": event.timestamp.isoformat(),
+                    "parent_event_id": event.parent_event_id,
+                },
+            )
+            resp.raise_for_status()
+        except Exception:
+            logger.warning("Failed to push tape event to server", exc_info=True)
+
     # ------------------------------------------------------------------
     # Task session management
     # ------------------------------------------------------------------

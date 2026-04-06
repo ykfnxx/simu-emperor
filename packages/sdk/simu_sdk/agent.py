@@ -58,7 +58,9 @@ class BaseAgent:
 
         # Tools
         self.tools = ToolRegistry()
-        self._standard_tools = StandardTools(self.server, session_state=self.session_state)
+        self._standard_tools = StandardTools(
+            self.server, session_state=self.session_state, agent_id=config.agent_id,
+        )
         self.tools.register_provider(self._standard_tools)
         self.tools.register_provider(self)  # auto-register @tool methods on subclass
 
@@ -234,12 +236,13 @@ class BaseAgent:
             context=context,
             tape=self.tape,
             agent_id=self.agent_id,
+            server=self.server,
         )
 
-        # Record the agent response in local tape
+        # Record the agent response in local tape and push to server
         response_event = TapeEvent(
             src=f"agent:{self.agent_id}",
-            dst=event.dst,
+            dst=[event.src],
             event_type=EventType.RESPONSE,
             payload={"content": result.content},
             session_id=session_id,
@@ -248,6 +251,7 @@ class BaseAgent:
             invocation_id=event.invocation_id,
         )
         await self.tape.append(response_event)
+        await self.server.push_tape_event(response_event)
 
         # Handle session transitions triggered by tools
         if result.ended_by_tool == "create_task_session":
@@ -308,6 +312,9 @@ class BaseAgent:
         else:
             parts.append(self._task_dispatch_instructions())
 
+        # Always include reply instructions
+        parts.append(self._agent_reply_instructions())
+
         return "\n\n".join(parts)
 
     @staticmethod
@@ -356,6 +363,26 @@ class BaseAgent:
 4. 收到回复后，调用 `finish_task_session(result="张廷玉回复：...")`
 
 请立即开始执行任务。"""
+
+    @staticmethod
+    def _agent_reply_instructions() -> str:
+        """Instructions for replying to messages from other agents."""
+        return """## 回复其他官员的消息
+
+当你收到来自其他官员（agent）的消息时，你必须使用 `send_message` 工具回复对方，**不能只在内心生成回复**。
+
+重要规则：
+- **必须使用 `send_message`** 回复发送者，否则对方收不到你的回复。
+- **禁止给自己发消息** — `send_message` 的 `recipients` 中不能包含你自己的 agent_id。
+- 根据消息来源（`src`）确定回复对象。例如收到 `agent:governor_jiangnan` 的消息，就用 `send_message(recipients=["governor_jiangnan"], ...)` 回复。
+
+### 示例
+
+收到 `agent:governor_jiangnan` 发来的问候消息，正确的回复方式：
+
+调用 `send_message(recipients=["governor_jiangnan"], message="承蒙挂念，老夫身体尚好…")`
+
+**错误方式**：直接输出文字而不调用 `send_message` — 这样对方无法收到回复。"""
 
     # ------------------------------------------------------------------
     # Background tasks

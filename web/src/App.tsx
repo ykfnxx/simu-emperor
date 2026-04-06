@@ -303,8 +303,7 @@ function toChatMessages(events: TapeEvent[]): TapeEvent[] {
 }
 
 function toTapeContextEvents(events: TapeEvent[]): TapeEvent[] {
-  return events
-    .filter((event) => !isRespondToPlayerToolResult(event));
+  return events;
 }
 
 function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {

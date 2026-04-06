@@ -228,6 +228,44 @@ async def report_tool_result(
     return {"status": "ok"}
 
 
+class TapeEventRequest(BaseModel):
+    event_id: str
+    session_id: str
+    src: str
+    dst: list[str]
+    event_type: str
+    payload: dict
+    timestamp: str
+    parent_event_id: str | None = None
+
+
+@router.post("/tape-event")
+async def push_tape_event(
+    req: TapeEventRequest,
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, str]:
+    """Receive internal tape events (TOOL_CALL, TOOL_RESULT, RESPONSE) from agents."""
+    await _verify_agent(x_agent_id, x_callback_token)
+    msg_store = _get("message_store")
+
+    content = req.payload.get("content", "")
+    if not content:
+        content = json.dumps(req.payload, ensure_ascii=False, default=str)
+
+    msg = RoutedMessage(
+        message_id=req.event_id,
+        session_id=req.session_id,
+        src=req.src,
+        dst=req.dst,
+        content=content,
+        event_type=req.event_type,
+        origin_event_id=req.parent_event_id,
+    )
+    await msg_store.store(msg)
+    return {"status": "ok"}
+
+
 # ---------------------------------------------------------------------------
 # Data queries
 # ---------------------------------------------------------------------------

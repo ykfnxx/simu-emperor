@@ -21,6 +21,7 @@ from simu_sdk.tape.context import ContextWindow
 from simu_sdk.tools.registry import ToolRegistry, ToolResult
 
 if TYPE_CHECKING:
+    from simu_sdk.client import ServerClient
     from simu_sdk.tape.manager import TapeManager
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class ReActLoop:
         context: ContextWindow,
         tape: TapeManager | None = None,
         agent_id: str = "",
+        server: ServerClient | None = None,
     ) -> ReActResult:
         """Run the loop and return the final result."""
         messages = self._build_initial_messages(event, context)
@@ -74,9 +76,11 @@ class ReActLoop:
 
             # Record assistant reasoning + tool calls to tape
             if tape:
-                await self._record_tool_calls(
+                tape_evt = await self._record_tool_calls(
                     tape, event, response, agent_id,
                 )
+                if server and tape_evt:
+                    await server.push_tape_event(tape_evt)
 
             # Execute tool calls
             tool_results: list[dict[str, str]] = []
@@ -97,9 +101,11 @@ class ReActLoop:
 
                 # Record tool result to tape
                 if tape:
-                    await self._record_tool_result(
+                    tape_evt = await self._record_tool_result(
                         tape, event, tc, result, agent_id,
                     )
+                    if server and tape_evt:
+                        await server.push_tape_event(tape_evt)
 
                 if result.ends_loop:
                     return ReActResult(
@@ -134,7 +140,7 @@ class ReActLoop:
         event: TapeEvent,
         response: LLMResponse,
         agent_id: str,
-    ) -> None:
+    ) -> TapeEvent:
         """Record the assistant's reasoning and tool calls to tape."""
         calls_summary = [
             {"name": tc.name, "arguments": tc.arguments}
@@ -152,6 +158,7 @@ class ReActLoop:
             parent_event_id=event.event_id,
         )
         await tape.append(tape_event)
+        return tape_event
 
     @staticmethod
     async def _record_tool_result(
@@ -160,7 +167,7 @@ class ReActLoop:
         tc: ToolCall,
         result: ToolResult,
         agent_id: str,
-    ) -> None:
+    ) -> TapeEvent:
         """Record a single tool result (observation) to tape."""
         tape_event = TapeEvent(
             src=f"agent:{agent_id}",
@@ -175,6 +182,7 @@ class ReActLoop:
             parent_event_id=event.event_id,
         )
         await tape.append(tape_event)
+        return tape_event
 
     # ------------------------------------------------------------------
     # Message construction
