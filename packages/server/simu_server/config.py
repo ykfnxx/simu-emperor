@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -26,7 +25,7 @@ class ServerConfig(BaseSettings):
     agent_templates_dir: Path = Path("data/agent_templates")
     agents_dir: Path = Path("data/agents")
     default_agents_dir: Path = Path("data/default_agents")
-    initial_state_path: Path = Path("data/initial_state.json")
+    initial_state_path: Path = Path("data/initial_state_v4.json")
 
     # Agent process management
     agent_heartbeat_timeout: int = 90  # seconds
