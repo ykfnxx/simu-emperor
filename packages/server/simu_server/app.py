@@ -48,6 +48,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Agent registry
     agent_registry = AgentRegistry(db)
 
+    # Auto-register agents from default_agents directory
+    default_agents_dir = settings.default_agents_dir
+    if default_agents_dir.exists():
+        for agent_dir in sorted(default_agents_dir.iterdir()):
+            if agent_dir.is_dir() and (agent_dir / "soul.md").exists():
+                agent_id = agent_dir.name
+                # Extract display name from first line of soul.md
+                display_name = agent_id
+                soul_path = agent_dir / "soul.md"
+                first_line = soul_path.read_text(encoding="utf-8").split("\n")[0]
+                if first_line.startswith("# "):
+                    display_name = first_line[2:].strip().split(" - ")[0].strip()
+
+                from simu_shared.models import AgentRegistration, AgentStatus
+                reg = AgentRegistration(
+                    agent_id=agent_id,
+                    display_name=display_name,
+                    status=AgentStatus.REGISTERED,
+                    config_path=str(agent_dir),
+                )
+                await agent_registry.register(reg)
+                logger.info("Auto-registered agent: %s (%s)", agent_id, display_name)
+
     # Agent generator
     agent_generator = AgentGenerator(
         agents_dir=settings.agents_dir,

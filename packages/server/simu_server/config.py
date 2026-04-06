@@ -24,6 +24,7 @@ class ServerConfig(BaseSettings):
     db_path: Path = Path("data/db/server.db")
     agent_templates_dir: Path = Path("data/agent_templates")
     agents_dir: Path = Path("data/agents")
+    default_agents_dir: Path = Path("data/default_agents")
     initial_state_path: Path = Path("data/initial_state.json")
 
     # Agent process management
