@@ -90,7 +90,12 @@ class StandardTools:
             session_id=event.session_id,
         )
         if args.get("await_reply") and self._session_state:
-            self._session_state.add_pending_reply(event.session_id, event_id)
+            # Track who we're waiting for — each recipient becomes a pending reply
+            for r in recipients:
+                awaiting = f"agent:{r}" if not r.startswith("agent:") else r
+                self._session_state.add_pending_reply(
+                    event.session_id, event_id, awaiting_from=awaiting,
+                )
             return ToolResult(
                 output="Message sent. Waiting for reply — session paused.",
                 ends_loop=True,
@@ -375,7 +380,7 @@ class SessionStateManager:
 
     def __init__(self) -> None:
         self._pending_tasks: dict[str, set[str]] = {}  # session_id → {task_session_ids}
-        self._pending_replies: dict[str, set[str]] = {}  # session_id → {message_ids}
+        self._pending_replies: dict[str, dict[str, str]] = {}  # session_id → {msg_id: awaiting_from}
         self._message_queue: dict[str, list[Any]] = {}  # session_id → [events]
         self._parents: dict[str, str] = {}  # task_session_id → parent_session_id
         self._depths: dict[str, int] = {}  # session_id → depth (0 for root)
@@ -400,13 +405,26 @@ class SessionStateManager:
 
     # -- Pending replies --
 
-    def add_pending_reply(self, session_id: str, message_id: str) -> None:
-        self._pending_replies.setdefault(session_id, set()).add(message_id)
+    def add_pending_reply(
+        self, session_id: str, message_id: str, awaiting_from: str = "",
+    ) -> None:
+        self._pending_replies.setdefault(session_id, {})[message_id] = awaiting_from
 
     def remove_pending_reply(self, session_id: str, message_id: str) -> None:
         replies = self._pending_replies.get(session_id)
         if replies:
-            replies.discard(message_id)
+            replies.pop(message_id, None)
+
+    def clear_reply_from(self, session_id: str, sender: str) -> bool:
+        """Clear a pending reply matched by sender. Returns True if cleared."""
+        replies = self._pending_replies.get(session_id)
+        if not replies:
+            return False
+        for msg_id, awaiting in list(replies.items()):
+            if awaiting == sender:
+                replies.pop(msg_id)
+                return True
+        return False
 
     # -- Message queue --
 

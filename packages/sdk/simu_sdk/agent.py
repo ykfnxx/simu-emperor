@@ -192,27 +192,23 @@ class BaseAgent:
         await self._process_queued_messages(session_id)
 
     def _try_clear_pending_reply(self, event: TapeEvent) -> bool:
-        """Check if this event clears a pending reply. Returns True if it did."""
+        """Clear pending reply matched by sender. Returns True if cleared."""
         session_id = event.session_id
-        replies = self.session_state._pending_replies.get(session_id, set())
-        if not replies:
-            return False
 
         # Try exact match first (parent_event_id matches a pending reply)
         origin = event.parent_event_id
-        if origin and origin in replies:
-            self.session_state.remove_pending_reply(session_id, origin)
-            return True
+        if origin:
+            replies = self.session_state._pending_replies.get(session_id, {})
+            if origin in replies:
+                self.session_state.remove_pending_reply(session_id, origin)
+                return True
 
-        # Fallback: any incoming AGENT_MESSAGE on a session with pending
-        # replies is treated as "the reply" — the replying agent's
-        # send_message creates a fresh event without parent_event_id.
-        if event.event_type == EventType.AGENT_MESSAGE:
-            first = next(iter(replies))
-            self.session_state.remove_pending_reply(session_id, first)
+        # Match by sender — the replying agent's send_message creates a
+        # fresh event without parent_event_id, so match by event.src.
+        if self.session_state.clear_reply_from(session_id, event.src):
             logger.info(
-                "Cleared pending reply %s on session %s (fallback match from %s)",
-                first, session_id, event.src,
+                "Cleared pending reply from %s on session %s",
+                event.src, session_id,
             )
             return True
 
