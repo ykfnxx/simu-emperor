@@ -2,7 +2,7 @@
 
 The loop repeats:
   1. Call LLM with system prompt + context + current observations
-  2. If LLM returns tool calls → execute them, collect results
+  2. If LLM returns tool calls → execute them, collect results, record to tape
   3. If LLM returns text only → treat as final response, break
 
 Iteration and tool-call limits prevent runaway loops.
@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from simu_shared.constants import EventType
 from simu_shared.models import TapeEvent
 from simu_sdk.llm.base import LLMProvider, LLMResponse, ToolCall
 from simu_sdk.tape.context import ContextWindow
 from simu_sdk.tools.registry import ToolRegistry, ToolResult
+
+if TYPE_CHECKING:
+    from simu_sdk.tape.manager import TapeManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,8 @@ class ReActLoop:
         system_prompt: str,
         event: TapeEvent,
         context: ContextWindow,
+        tape: TapeManager | None = None,
+        agent_id: str = "",
     ) -> ReActResult:
         """Run the loop and return the final result."""
         messages = self._build_initial_messages(event, context)
@@ -67,6 +72,12 @@ class ReActLoop:
                     tool_calls_count=total_tool_calls,
                 )
 
+            # Record assistant reasoning + tool calls to tape
+            if tape:
+                await self._record_tool_calls(
+                    tape, event, response, agent_id,
+                )
+
             # Execute tool calls
             tool_results: list[dict[str, str]] = []
             for tc in response.tool_calls:
@@ -83,6 +94,12 @@ class ReActLoop:
                     "tool_call_id": tc.id,
                     "output": result.output,
                 })
+
+                # Record tool result to tape
+                if tape:
+                    await self._record_tool_result(
+                        tape, event, tc, result, agent_id,
+                    )
 
                 if result.ends_loop:
                     return ReActResult(
@@ -106,6 +123,58 @@ class ReActLoop:
             iterations=iterations,
             tool_calls_count=total_tool_calls,
         )
+
+    # ------------------------------------------------------------------
+    # Tape recording helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _record_tool_calls(
+        tape: TapeManager,
+        event: TapeEvent,
+        response: LLMResponse,
+        agent_id: str,
+    ) -> None:
+        """Record the assistant's reasoning and tool calls to tape."""
+        calls_summary = [
+            {"name": tc.name, "arguments": tc.arguments}
+            for tc in response.tool_calls
+        ]
+        tape_event = TapeEvent(
+            src=f"agent:{agent_id}",
+            dst=[f"agent:{agent_id}"],
+            event_type=EventType.TOOL_CALL,
+            payload={
+                "reasoning": response.content or "",
+                "tool_calls": calls_summary,
+            },
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+        )
+        await tape.append(tape_event)
+
+    @staticmethod
+    async def _record_tool_result(
+        tape: TapeManager,
+        event: TapeEvent,
+        tc: ToolCall,
+        result: ToolResult,
+        agent_id: str,
+    ) -> None:
+        """Record a single tool result (observation) to tape."""
+        tape_event = TapeEvent(
+            src=f"agent:{agent_id}",
+            dst=[f"agent:{agent_id}"],
+            event_type=EventType.TOOL_RESULT,
+            payload={
+                "tool_name": tc.name,
+                "output": result.output,
+                "success": result.success,
+            },
+            session_id=event.session_id,
+            parent_event_id=event.event_id,
+        )
+        await tape.append(tape_event)
 
     # ------------------------------------------------------------------
     # Message construction

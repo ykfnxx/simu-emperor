@@ -582,8 +582,9 @@ async def get_subsessions(
             "created_at": s.created_at.isoformat() if s.created_at else "",
             "updated_at": s.updated_at.isoformat() if s.updated_at else "",
             "event_count": 0,
-            "depth": 1,
+            "depth": s.metadata.get("depth", 1),
             "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+            "goal": s.metadata.get("goal", ""),
         })
     return result
 

@@ -210,7 +210,6 @@ class BaseAgent:
 
     async def react(self, event: TapeEvent) -> None:
         """Run the ReAct loop for an event."""
-        # Determine which session to use (may be redirected to active task session)
         session_id = event.session_id
 
         # Record the incoming event in local tape
@@ -227,6 +226,8 @@ class BaseAgent:
             system_prompt=system_prompt,
             event=event,
             context=context,
+            tape=self.tape,
+            agent_id=self.agent_id,
         )
 
         # Record the agent response in local tape
@@ -242,6 +243,14 @@ class BaseAgent:
         )
         await self.tape.append(response_event)
 
+        # Handle session transitions triggered by tools
+        if result.ended_by_tool == "create_task_session":
+            await self._enter_task_session(event)
+            return
+
+        # For finish/fail task session, the server sends TASK_FINISHED/FAILED
+        # event to the parent session, which is handled by _handle_task_completion.
+
         # Send response back to server so it appears in MessageStore / frontend
         # Only send for non-task sessions (task results go via finish_task)
         if result.content and not session_id.startswith("task:"):
@@ -254,6 +263,29 @@ class BaseAgent:
         # Report invocation completion
         if event.invocation_id:
             await self.server.complete_invocation(event.invocation_id)
+
+    async def _enter_task_session(self, parent_event: TapeEvent) -> None:
+        """Dispatch a synthetic event into a newly created task session."""
+        task_session_id = self.session_state.get_active_session()
+        if not task_session_id:
+            logger.warning("_enter_task_session called but no active session")
+            return
+
+        goal = self.session_state.get_goal(task_session_id)
+        logger.info(
+            "Entering task session %s (goal=%s)", task_session_id, goal,
+        )
+
+        # Create a synthetic event to kick off the task session
+        task_event = TapeEvent(
+            src=f"agent:{self.agent_id}",
+            dst=[f"agent:{self.agent_id}"],
+            event_type=EventType.TASK_CREATED,
+            payload={"content": f"Task: {goal}", "goal": goal},
+            session_id=task_session_id,
+            parent_event_id=parent_event.event_id,
+        )
+        await self.react(task_event)
 
     def _build_system_prompt(self) -> str:
         parts = []
@@ -274,18 +306,21 @@ class BaseAgent:
 
 当玩家的指令涉及其他官员时（例如"问问张廷玉…"、"让各省加税"），按以下流程处理：
 
-1. **查询角色表**：调用 `query_role_map` 获取官员姓名与 agent_id 的对应关系。
+1. **查询角色表**：先调用 `query_role_map` 获取官员姓名与 agent_id 的对应关系。
 2. **创建任务会话**：调用 `create_task_session`，明确 goal（例如"向张廷玉询问身体状况"）。
-3. **发送消息并等待回复**：在任务会话中调用 `send_message`，设置 `await_reply=true`，向目标 agent 发送询问。
-4. **结束任务**：收到回复后，调用 `finish_task_session`，将结果汇总。
-5. **回复玩家**：回到主会话后，用 `send_message` 向 player 汇报结果。
+   创建后你会自动进入任务会话上下文。
+3. **在任务会话中执行**：在任务会话中调用 `send_message`，设置 `await_reply=true`，向目标 agent 发送询问。
+   发送后会话自动暂停等待回复。
+4. **收到回复后结束任务**：回复到达后你会被唤醒，调用 `finish_task_session` 并附上汇总结果。
+5. **回到主会话**：结束任务后自动回到主会话，你会收到任务完成的通知，此时向 player 汇报结果。
 
-如果需要同时联系多位官员，可以为每位官员分别创建任务会话。
+如果需要同时联系多位官员，可以在主会话中依次创建多个任务。
 
-注意：
+重要规则：
 - 必须先用 `query_role_map` 查到 agent_id，不要猜测。
-- 与其他官员沟通时始终使用 `await_reply=true`，确保等到回复后再继续。
-- 任务会话结束后才回复玩家，保证信息完整。"""
+- 与其他官员沟通时始终使用 `await_reply=true`。
+- `create_task_session`、`finish_task_session`、`fail_task_session` 调用后会话会自动切换，无需额外操作。
+- `send_message(await_reply=true)` 发送后当前会话自动暂停，等待回复后继续。"""
 
     # ------------------------------------------------------------------
     # Background tasks

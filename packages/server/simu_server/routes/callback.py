@@ -324,6 +324,9 @@ async def create_task_session(
         session_id=task_session_id,
     )
 
+    # Add the creating agent to the task session's agent list
+    await sm.add_agent(task_session_id, x_agent_id)
+
     # Store task metadata
     await sm.update_metadata(task_session_id, {
         "goal": req.goal,
