@@ -30,7 +30,7 @@ from simu_sdk.react import ReActLoop, ReActResult
 from simu_sdk.tape.context import ContextManager
 from simu_sdk.tape.manager import TapeManager
 from simu_sdk.tools.registry import ToolRegistry
-from simu_sdk.tools.standard import StandardTools
+from simu_sdk.tools.standard import SessionStateManager, StandardTools
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +49,15 @@ class BaseAgent:
         # Communication
         self.server = ServerClient(config.server_url, config.agent_id, config.agent_token)
 
+        # Session state management
+        self.session_state = SessionStateManager()
+
         # LLM
         self.llm: LLMProvider = create_llm_provider(config.llm)
 
         # Tools
         self.tools = ToolRegistry()
-        self._standard_tools = StandardTools(self.server)
+        self._standard_tools = StandardTools(self.server, session_state=self.session_state)
         self.tools.register_provider(self._standard_tools)
         self.tools.register_provider(self)  # auto-register @tool methods on subclass
 
@@ -145,15 +148,76 @@ class BaseAgent:
             self._load_personality()
             return
 
+        # Handle task completion events — unblock parent session
+        if event.event_type in (EventType.TASK_FINISHED, EventType.TASK_FAILED):
+            await self._handle_task_completion(event)
+            return
+
+        # Handle reply events — unblock session waiting for reply
+        if event.event_type == EventType.AGENT_MESSAGE:
+            cleared = self._try_clear_pending_reply(event)
+            if cleared:
+                # Reply received — process queued messages if session unblocked
+                await self._process_queued_messages(event.session_id)
+                return
+
+        # Session-level blocking: if the session has pending tasks/replies, queue the event
+        if self.session_state.is_blocked(event.session_id):
+            logger.info(
+                "Session %s is blocked, queuing event %s",
+                event.session_id, event.event_id,
+            )
+            self.session_state.enqueue_message(event.session_id, event)
+            return
+
         await self.react(event)
+
+    async def _handle_task_completion(self, event: TapeEvent) -> None:
+        """Process a TASK_FINISHED or TASK_FAILED event."""
+        # Record in tape
+        await self.tape.append(event)
+
+        # The event arrives in the parent session — check if it unblocks
+        session_id = event.session_id
+        # The task_session_id is in the event payload or can be inferred
+        # For now, try to unblock by checking if all pending tasks are done
+        await self._process_queued_messages(session_id)
+
+    def _try_clear_pending_reply(self, event: TapeEvent) -> bool:
+        """Check if this event clears a pending reply. Returns True if it did."""
+        session_id = event.session_id
+        # Check if the origin_event_id matches a pending reply
+        origin = event.parent_event_id
+        if origin:
+            replies = self.session_state._pending_replies.get(session_id, set())
+            if origin in replies:
+                self.session_state.remove_pending_reply(session_id, origin)
+                return True
+        return False
+
+    async def _process_queued_messages(self, session_id: str) -> None:
+        """If session is no longer blocked, process queued messages."""
+        if self.session_state.is_blocked(session_id):
+            return
+
+        queued = self.session_state.drain_queue(session_id)
+        for queued_event in queued:
+            logger.info(
+                "Processing queued event %s for unblocked session %s",
+                queued_event.event_id, session_id,
+            )
+            await self.react(queued_event)
 
     async def react(self, event: TapeEvent) -> None:
         """Run the ReAct loop for an event."""
+        # Determine which session to use (may be redirected to active task session)
+        session_id = event.session_id
+
         # Record the incoming event in local tape
         await self.tape.append(event)
 
-        # Build context window
-        context = await self.context_manager.get_context(event.session_id)
+        # Build context window — uses the current session's tape
+        context = await self.context_manager.get_context(session_id)
 
         # Build system prompt
         system_prompt = self._build_system_prompt()
@@ -171,7 +235,7 @@ class BaseAgent:
             dst=event.dst,
             event_type=EventType.RESPONSE,
             payload={"content": result.content},
-            session_id=event.session_id,
+            session_id=session_id,
             parent_event_id=event.event_id,
             root_event_id=event.root_event_id or event.event_id,
             invocation_id=event.invocation_id,
@@ -179,11 +243,12 @@ class BaseAgent:
         await self.tape.append(response_event)
 
         # Send response back to server so it appears in MessageStore / frontend
-        if result.content:
+        # Only send for non-task sessions (task results go via finish_task)
+        if result.content and not session_id.startswith("task:"):
             await self.server.post_message(
                 recipients=["player"],
                 message=result.content,
-                session_id=event.session_id,
+                session_id=session_id,
             )
 
         # Report invocation completion

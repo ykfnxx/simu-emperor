@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from simu_shared.constants import EventType
-from simu_shared.models import AgentStatus, InvocationStatus, RoutedMessage, TapeEvent
+from simu_shared.models import AgentStatus, InvocationStatus, RoutedMessage, SessionStatus, TapeEvent
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,22 @@ class InvocationCompleteRequest(BaseModel):
     invocation_id: str
     status: str = "succeeded"
     error: str | None = None
+
+
+class CreateTaskSessionRequest(BaseModel):
+    parent_session_id: str
+    goal: str
+    description: str = ""
+    constraints: str = ""
+    timeout_seconds: int = 300
+    depth: int = 1
+
+
+class FinishTaskSessionRequest(BaseModel):
+    task_session_id: str
+    parent_session_id: str
+    result: str
+    status: str = "completed"  # "completed" or "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +243,105 @@ async def complete_invocation(
     inv_mgr = _get("invocation_manager")
     status = InvocationStatus(req.status)
     await inv_mgr.complete(req.invocation_id, status, req.error)
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Task session management
+# ---------------------------------------------------------------------------
+
+@router.post("/task-session/create")
+async def create_task_session(
+    req: CreateTaskSessionRequest,
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, Any]:
+    await _verify_agent(x_agent_id, x_callback_token)
+    sm = _get("session_manager")
+    msg_store = _get("message_store")
+
+    # Create child session with task: prefix
+    import uuid as _uuid
+    task_session_id = f"task:{_uuid.uuid4().hex[:12]}"
+    session = await sm.create(
+        created_by=f"agent:{x_agent_id}",
+        parent_id=req.parent_session_id,
+    )
+    # Override the auto-generated session_id with task: prefix
+    await sm._db.conn.execute(
+        "UPDATE sessions SET session_id = ? WHERE session_id = ?",
+        (task_session_id, session.session_id),
+    )
+    await sm._db.conn.commit()
+
+    # Store task metadata
+    await sm.update_metadata(task_session_id, {
+        "goal": req.goal,
+        "description": req.description,
+        "constraints": req.constraints,
+        "timeout_seconds": req.timeout_seconds,
+        "depth": req.depth,
+        "created_by_agent": x_agent_id,
+    })
+
+    # Write TASK_CREATED event as first message in the task session
+    task_event = RoutedMessage(
+        session_id=task_session_id,
+        src=f"agent:{x_agent_id}",
+        dst=[f"agent:{x_agent_id}"],
+        content=f"Task created: {req.goal}",
+        event_type=EventType.TASK_CREATED,
+    )
+    await msg_store.store(task_event)
+
+    logger.info(
+        "Agent %s created task session %s (parent=%s, goal=%s)",
+        x_agent_id, task_session_id, req.parent_session_id, req.goal,
+    )
+    return {"task_session_id": task_session_id}
+
+
+@router.post("/task-session/finish")
+async def finish_task_session(
+    req: FinishTaskSessionRequest,
+    x_agent_id: str = Header(...),
+    x_callback_token: str = Header(...),
+) -> dict[str, str]:
+    await _verify_agent(x_agent_id, x_callback_token)
+    sm = _get("session_manager")
+    msg_store = _get("message_store")
+    ws_mgr = _get("ws_manager")
+
+    # Mark task session as completed/failed
+    new_status = SessionStatus.COMPLETED if req.status == "completed" else SessionStatus.FAILED
+    await sm.update_status(req.task_session_id, new_status)
+
+    # Write finish event to the PARENT session so the creator sees it
+    event_type = EventType.TASK_FINISHED if req.status == "completed" else EventType.TASK_FAILED
+    finish_msg = RoutedMessage(
+        session_id=req.parent_session_id,
+        src=f"agent:{x_agent_id}",
+        dst=[f"agent:{x_agent_id}"],
+        content=req.result,
+        event_type=event_type,
+    )
+    await msg_store.store(finish_msg)
+
+    # Push to frontend WebSocket
+    await ws_mgr.broadcast({
+        "kind": "task_finished",
+        "data": {
+            "task_session_id": req.task_session_id,
+            "parent_session_id": req.parent_session_id,
+            "status": req.status,
+            "result": req.result,
+        },
+    })
+
+    logger.info(
+        "Agent %s finished task session %s (status=%s)",
+        x_agent_id, req.task_session_id, req.status,
+    )
     return {"status": "ok"}
 
 
