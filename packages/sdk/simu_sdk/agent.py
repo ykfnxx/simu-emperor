@@ -334,6 +334,7 @@ class BaseAgent:
 
     @staticmethod
     def _task_execution_instructions(goal: str) -> str:
+        """Generate execution instructions for task sessions."""
         return f"""## 当前处于任务会话中
 
 你现在正在执行一个任务，目标是：**{goal}**

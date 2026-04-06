@@ -173,7 +173,7 @@ class TapeManager:
             with open(mirror_dir / "tape.jsonl", "a", encoding="utf-8") as f:
                 f.write(line)
         except Exception:
-            logger.debug("Failed to write memory mirror", exc_info=True)
+            logger.warning("Failed to write memory mirror", exc_info=True)
 
     @staticmethod
     def _row_to_event(row: tuple) -> TapeEvent:
