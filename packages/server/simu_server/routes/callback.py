@@ -420,14 +420,35 @@ _MAX_REMAINING_TICKS = 48  # 1 year
 
 
 def _load_data_scope(agent_id: str) -> dict[str, Any]:
-    """Load and return the data_scope.yaml for an agent."""
+    """Load and return the data_scope.yaml for an agent.
+
+    Handles both the new flat format (provinces/fields/nation_fields at
+    top level) and the legacy V4 format (nested under skills.query_data).
+    Prefers default_agents_dir over agents_dir to ensure updates propagate.
+    """
     import yaml
     from simu_server.config import settings
 
-    for base in (settings.agents_dir, settings.default_agents_dir):
+    # Prefer default_agents (always up-to-date) over runtime agents (may be stale)
+    for base in (settings.default_agents_dir, settings.agents_dir):
         scope_path = base / agent_id / "data_scope.yaml"
         if scope_path.exists():
-            return yaml.safe_load(scope_path.read_text(encoding="utf-8")) or {}
+            raw = yaml.safe_load(scope_path.read_text(encoding="utf-8")) or {}
+            # If it has top-level provinces/fields, it's the new format
+            if "provinces" in raw or "fields" in raw or "nation_fields" in raw:
+                return raw
+            # Legacy format: extract from skills.query_data
+            query_data = raw.get("skills", {}).get("query_data", {})
+            if query_data:
+                return {
+                    "display_name": raw.get("display_name", ""),
+                    "provinces": query_data.get("provinces", []),
+                    "fields": [
+                        f.split(".")[0] for f in query_data.get("fields", [])
+                    ],
+                    "nation_fields": query_data.get("national", []),
+                }
+            return raw
     return {}
 
 
@@ -467,8 +488,8 @@ def _validate_effect(
         if current is None or not isinstance(current, Decimal):
             return f"字段无效：{field_name} 不是有效的数值字段"
 
-    elif len(parts) == 1:
-        field_name = parts[0]
+    elif (len(parts) == 1) or (len(parts) == 2 and parts[0] == "nation"):
+        field_name = parts[-1]  # handles both "{field}" and "nation.{field}"
 
         # Nation field permission check
         allowed_nation_fields = scope.get("nation_fields", [])
@@ -480,7 +501,7 @@ def _validate_effect(
             return f"字段无效：{field_name} 不是有效的国家级数值字段"
 
     else:
-        return f"target_path 格式错误：{effect.target_path}（应为 'provinces.{{id}}.{{field}}' 或 '{{field}}'）"
+        return f"target_path 格式错误：{effect.target_path}（应为 'provinces.{{id}}.{{field}}' 或 'nation.{{field}}'）"
 
     # --- Value validation ---
     if effect.add is not None and effect.factor is not None:
@@ -555,9 +576,15 @@ async def create_incident(
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
     # Build and add incident
+    # Nation-level fields need "nation." prefix for the engine's path parser
+    nation_fields = {"imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure"}
     effects = []
     for eff in req.effects:
-        kwargs: dict[str, Any] = {"target_path": eff.target_path}
+        path = eff.target_path
+        parts = path.split(".")
+        if len(parts) == 1 and parts[0] in nation_fields:
+            path = f"nation.{parts[0]}"
+        kwargs: dict[str, Any] = {"target_path": path}
         if eff.add is not None:
             kwargs["add"] = Decimal(eff.add)
         if eff.factor is not None:

@@ -148,7 +148,7 @@ class StandardTools:
                             "type": "string",
                             "description": (
                                 "Dot-notation path: 'provinces.{id}.{field}' for province "
-                                "fields, or '{field}' for nation fields. "
+                                "fields, or 'nation.{field}' / '{field}' for nation fields. "
                                 "Province fields: production_value, population, "
                                 "fixed_expenditure, stockpile, base_production_growth, "
                                 "base_population_growth, tax_modifier. "
