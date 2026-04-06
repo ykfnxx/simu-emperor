@@ -33,11 +33,13 @@ class SendCommandRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    pass
+    name: str | None = None
+    agent_id: str | None = None
 
 
 class SelectSessionRequest(BaseModel):
     session_id: str
+    agent_id: str | None = None
 
 
 class GenerateAgentRequest(BaseModel):
@@ -48,7 +50,12 @@ class GenerateAgentRequest(BaseModel):
 
 class AddGeneratedAgentRequest(BaseModel):
     agent_id: str
-    config_path: str
+    config_path: str = ""
+    title: str = ""
+    name: str = ""
+    duty: str = ""
+    personality: str = ""
+    province: str = ""
 
 
 class GroupMessageRequest(BaseModel):
@@ -111,17 +118,27 @@ async def list_sessions() -> dict[str, Any]:
 
 
 @router.post("/sessions")
-async def create_session() -> dict[str, Any]:
+async def create_session(req: CreateSessionRequest = CreateSessionRequest()) -> dict[str, Any]:
     sm = _get("session_manager")
     if sm is None:
         return {"success": False, "error": "session_manager not available"}
     session = await sm.create()
+    # Store name in metadata if provided
+    if req.name:
+        session.metadata["title"] = req.name
+        await sm.update_metadata(session.session_id, session.metadata)
+    # Associate agent if provided
+    if req.agent_id:
+        await sm.add_agent(session.session_id, req.agent_id)
+        session.agent_ids.append(req.agent_id)
+    title = req.name or session.session_id
     return {
         "success": True,
         "current_session_id": session.session_id,
+        "current_agent_id": req.agent_id,
         "session": {
             "session_id": session.session_id,
-            "title": session.session_id,
+            "title": title,
             "created_at": session.created_at.isoformat() if session.created_at else None,
             "updated_at": session.updated_at.isoformat() if session.updated_at else None,
             "event_count": 0,
@@ -142,9 +159,11 @@ async def select_session(req: SelectSessionRequest) -> dict[str, Any]:
     return {
         "success": True,
         "current_session_id": session.session_id,
+        "current_agent_id": req.agent_id,
         "session": {
             "session_id": session.session_id,
             "is_current": True,
+            "agent_id": req.agent_id,
         },
     }
 
@@ -272,20 +291,56 @@ async def generate_agent(req: GenerateAgentRequest) -> dict[str, Any]:
 
 @router.get("/agents/jobs/{task_id}")
 async def get_generation_job(task_id: str) -> dict[str, Any]:
-    return _get("agent_generator").get_status(task_id)
+    generator = _get("agent_generator")
+    if generator is None:
+        return {"task_id": task_id, "status": "failed", "error": "generator not available"}
+    raw = generator.get_status(task_id)
+    return {
+        "task_id": task_id,
+        "name": "",
+        "status": raw.get("status", "not_found"),
+        "created_at": "",
+        "started_at": None,
+        "completed_at": None,
+        "error": raw.get("error"),
+        "result": raw.get("result"),
+        "progress": 100 if raw.get("status") == "completed" else 0,
+    }
 
 
 @router.post("/agents/add-generated")
 async def add_generated_agent(req: AddGeneratedAgentRequest) -> dict[str, Any]:
+    generator = _get("agent_generator")
+    registry = _get("agent_registry")
+    if generator is None or registry is None:
+        return {"success": False, "message": "service not available"}
+
+    display_name = req.title or req.name or req.agent_id
+    # Use the generator pipeline so task_id is real and pollable
+    profile = {
+        "agent_id": req.agent_id,
+        "display_name": display_name,
+        "role": req.duty,
+        "description": req.personality,
+    }
+    task_id = await generator.generate(profile)
+
+    # Register agent immediately (config will be written by generator task)
     reg = AgentRegistration(
         agent_id=req.agent_id,
-        config_path=req.config_path,
+        display_name=display_name,
+        config_path=str(_get("agent_generator")._agents_dir / req.agent_id),
         status=AgentStatus.REGISTERED,
     )
-    await _get("agent_registry").register(reg)
-    pid = await _get("process_manager").spawn(reg)
-    await _get("agent_registry").update_status(req.agent_id, AgentStatus.STARTING, pid)
-    return {"agent_id": req.agent_id, "pid": pid}
+    await registry.register(reg)
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "agent_id": req.agent_id,
+        "status": "pending",
+        "message": f"Agent {display_name} generation started",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -349,29 +404,29 @@ async def send_group_message(req: GroupMessageRequest) -> dict[str, Any]:
         for aid in agent_ids:
             await queue.enqueue(aid, event)
 
-    return {"status": "sent", "agent_ids": agent_ids}
+    return {"success": True, "sent_agents": agent_ids, "count": len(agent_ids)}
 
 
 @router.post("/groups/add-agent")
 async def add_agent_to_group(req: GroupAgentRequest) -> dict[str, Any]:
     store = _get("group_store")
     if store is None:
-        return {"error": "group_store not available"}
+        return {"success": False}
     group = store.add_agent(req.group_id, req.agent_id)
     if group is None:
-        return {"error": "Group not found"}
-    return group.to_dict()
+        return {"success": False}
+    return {"success": True}
 
 
 @router.post("/groups/remove-agent")
 async def remove_agent_from_group(req: GroupAgentRequest) -> dict[str, Any]:
     store = _get("group_store")
     if store is None:
-        return {"error": "group_store not available"}
+        return {"success": False}
     group = store.remove_agent(req.group_id, req.agent_id)
     if group is None:
-        return {"error": "Group not found"}
-    return group.to_dict()
+        return {"success": False}
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------
@@ -520,8 +575,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     try:
         while True:
             data = await ws.receive_json()
-            # Client can send commands via WS too
-            if data.get("type") == "command":
+            msg_type = data.get("type")
+            if msg_type in ("command", "chat"):
                 req = SendCommandRequest(
                     text=data.get("text", ""),
                     agent=data.get("agent"),

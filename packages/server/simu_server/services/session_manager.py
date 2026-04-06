@@ -62,6 +62,13 @@ class SessionManager:
         )
         await self._db.conn.commit()
 
+    async def update_metadata(self, session_id: str, metadata: dict) -> None:
+        await self._db.conn.execute(
+            "UPDATE sessions SET metadata = ?, updated_at = datetime('now') WHERE session_id = ?",
+            (json.dumps(metadata), session_id),
+        )
+        await self._db.conn.commit()
+
     async def add_agent(self, session_id: str, agent_id: str) -> None:
         session = await self.get(session_id)
         if session and agent_id not in session.agent_ids:
