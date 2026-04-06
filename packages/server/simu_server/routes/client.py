@@ -126,6 +126,7 @@ async def create_session(req: CreateSessionRequest = CreateSessionRequest()) -> 
     # Store name in metadata if provided
     if req.name:
         session.metadata["title"] = req.name
+        await sm.update_metadata(session.session_id, session.metadata)
     # Associate agent if provided
     if req.agent_id:
         await sm.add_agent(session.session_id, req.agent_id)
@@ -290,28 +291,55 @@ async def generate_agent(req: GenerateAgentRequest) -> dict[str, Any]:
 
 @router.get("/agents/jobs/{task_id}")
 async def get_generation_job(task_id: str) -> dict[str, Any]:
-    return _get("agent_generator").get_status(task_id)
+    generator = _get("agent_generator")
+    if generator is None:
+        return {"task_id": task_id, "status": "failed", "error": "generator not available"}
+    raw = generator.get_status(task_id)
+    return {
+        "task_id": task_id,
+        "name": "",
+        "status": raw.get("status", "not_found"),
+        "created_at": "",
+        "started_at": None,
+        "completed_at": None,
+        "error": raw.get("error"),
+        "result": raw.get("result"),
+        "progress": 100 if raw.get("status") == "completed" else 0,
+    }
 
 
 @router.post("/agents/add-generated")
 async def add_generated_agent(req: AddGeneratedAgentRequest) -> dict[str, Any]:
+    generator = _get("agent_generator")
     registry = _get("agent_registry")
-    if registry is None:
-        return {"success": False, "message": "agent_registry not available"}
+    if generator is None or registry is None:
+        return {"success": False, "message": "service not available"}
+
     display_name = req.title or req.name or req.agent_id
+    # Use the generator pipeline so task_id is real and pollable
+    profile = {
+        "agent_id": req.agent_id,
+        "display_name": display_name,
+        "role": req.duty,
+        "description": req.personality,
+    }
+    task_id = await generator.generate(profile)
+
+    # Register agent immediately (config will be written by generator task)
     reg = AgentRegistration(
         agent_id=req.agent_id,
         display_name=display_name,
-        config_path=req.config_path,
+        config_path=str(_get("agent_generator")._agents_dir / req.agent_id),
         status=AgentStatus.REGISTERED,
     )
     await registry.register(reg)
+
     return {
         "success": True,
-        "task_id": "",
+        "task_id": task_id,
         "agent_id": req.agent_id,
-        "status": "registered",
-        "message": f"Agent {display_name} registered",
+        "status": "pending",
+        "message": f"Agent {display_name} generation started",
     }
 
 
