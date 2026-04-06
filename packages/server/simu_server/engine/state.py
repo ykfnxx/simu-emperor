@@ -30,10 +30,23 @@ class GameState:
             "SELECT value FROM game_state WHERE key = 'nation'",
         )
         row = await cursor.fetchone()
+        need_file_init = False
+
         if row:
-            self.nation = NationData.model_validate_json(row[0])
-            logger.info("Game state loaded from DB (turn %d)", self.nation.turn)
-        elif initial_state_path and initial_state_path.exists():
+            loaded = NationData.model_validate_json(row[0])
+            if loaded.provinces:
+                self.nation = loaded
+                logger.info("Game state loaded from DB (turn %d)", self.nation.turn)
+                return
+            logger.warning(
+                "DB state has no provinces (turn %d) — re-initializing from file",
+                loaded.turn,
+            )
+            need_file_init = True
+        else:
+            need_file_init = True
+
+        if need_file_init and initial_state_path and initial_state_path.exists():
             data = json.loads(initial_state_path.read_text(encoding="utf-8"))
             # Support both flat and nested JSON formats.
             # Nested: {"nation": {...}, "provinces": {...}}
