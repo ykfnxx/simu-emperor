@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from simu_shared.models import NationData, ProvinceData
+from simu_shared.models import NationData
 from simu_server.stores.database import Database
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,14 @@ class GameState:
             logger.info("Game state loaded from DB (turn %d)", self.nation.turn)
         elif initial_state_path and initial_state_path.exists():
             data = json.loads(initial_state_path.read_text(encoding="utf-8"))
-            self.nation = NationData.model_validate(data)
+            # Support both flat and nested JSON formats.
+            # Nested: {"nation": {...}, "provinces": {...}}
+            # Flat: {"turn": 0, "provinces": {...}, ...}
+            if "nation" in data and "provinces" in data and "turn" not in data:
+                nation_dict = {**data["nation"], "provinces": data["provinces"]}
+            else:
+                nation_dict = data
+            self.nation = NationData.model_validate(nation_dict)
             await self.save()
             logger.info("Game state initialized from %s", initial_state_path)
         else:

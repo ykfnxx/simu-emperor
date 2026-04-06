@@ -5,6 +5,7 @@ Preserves all V4 Web API functionality per design constraint.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -14,7 +15,7 @@ from simu_shared.constants import EventType
 from simu_shared.models import (
     AgentRegistration,
     AgentStatus,
-    Incident,
+    ProvinceData,
     RoutedMessage,
     TapeEvent,
 )
@@ -228,6 +229,49 @@ async def send_command(req: SendCommandRequest) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Game state helpers
+# ---------------------------------------------------------------------------
+
+
+def _province_to_dict(p: ProvinceData, base_tax_rate: Decimal) -> dict[str, Any]:
+    """Convert ProvinceData to frontend-friendly dict with float values."""
+    return {
+        "province_id": p.province_id,
+        "name": p.name,
+        "production_value": float(p.production_value),
+        "population": float(p.population),
+        "fixed_expenditure": float(p.fixed_expenditure),
+        "stockpile": float(p.stockpile),
+        "base_production_growth": float(p.base_production_growth),
+        "base_population_growth": float(p.base_population_growth),
+        "tax_modifier": float(p.tax_modifier),
+        "actual_tax_rate": float(base_tax_rate + p.tax_modifier),
+    }
+
+
+def _serialize_incidents(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure incident effects have string-typed add/factor for frontend."""
+    result = []
+    for inc in raw:
+        effects = []
+        for eff in inc.get("effects", []):
+            effects.append({
+                "target_path": eff.get("target_path", ""),
+                "add": str(eff["add"]) if eff.get("add") is not None else None,
+                "factor": str(eff["factor"]) if eff.get("factor") is not None else None,
+            })
+        result.append({
+            "incident_id": inc.get("incident_id", ""),
+            "title": inc.get("title", ""),
+            "description": inc.get("description", ""),
+            "source": inc.get("source", "system"),
+            "remaining_ticks": inc.get("remaining_ticks", 0),
+            "effects": effects,
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
 
@@ -235,11 +279,22 @@ async def send_command(req: SendCommandRequest) -> dict[str, Any]:
 async def get_state() -> dict[str, Any]:
     engine = _get("engine")
     if engine is None:
-        return {"turn": 0, "state": {}, "incidents": []}
-    state = engine.query_state()
-    overview = engine.get_overview()
+        return {"turn": 0, "provinces": {}, "incidents": []}
+    nation = engine.state.nation
+    provinces = {
+        pid: _province_to_dict(p, nation.base_tax_rate)
+        for pid, p in nation.provinces.items()
+    }
     incidents = engine.list_incidents()
-    return {**overview, "state": state, "incidents": incidents}
+    return {
+        "turn": nation.turn,
+        "imperial_treasury": float(nation.imperial_treasury),
+        "base_tax_rate": float(nation.base_tax_rate),
+        "tribute_rate": float(nation.tribute_rate),
+        "fixed_expenditure": float(nation.fixed_expenditure),
+        "provinces": provinces,
+        "incidents": _serialize_incidents(incidents),
+    }
 
 
 @router.get("/overview")
@@ -356,7 +411,7 @@ async def list_incidents() -> list[dict[str, Any]]:
     engine = _get("engine")
     if engine is None:
         return []
-    return engine.list_incidents()
+    return _serialize_incidents(engine.list_incidents())
 
 
 # ---------------------------------------------------------------------------
