@@ -290,11 +290,16 @@ function extractEventText(event: TapeEvent): string {
   return '';
 }
 
+function isPlayerMessage(src: string): boolean {
+  // Match all player sources: "player" (from API/DB), "player:web", "player:web:group"
+  return src === 'player' || src.startsWith('player:');
+}
+
 function toChatMessages(events: TapeEvent[]): TapeEvent[] {
   return events
     .filter((event) => {
-      // 显示玩家发送的消息（包括私聊 player:web 和群聊 player:web:group）
-      if (event.src === 'player:web' || event.src === 'player:web:group') {
+      // 显示玩家发送的消息（包括来自API的 "player" 和前端的 "player:web" / "player:web:group"）
+      if (isPlayerMessage(event.src)) {
         return normalizeEventType(event.type) === 'chat';
       }
       return isAgentReplyEvent(event);
@@ -311,7 +316,7 @@ function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {
   let lastPlayerMessageIndex = -1;
 
   for (let i = 0; i < scoped.length; i += 1) {
-    if ((scoped[i].src === 'player:web' || scoped[i].src === 'player:web:group') && normalizeEventType(scoped[i].type) === 'chat') {
+    if (isPlayerMessage(scoped[i].src) && normalizeEventType(scoped[i].type) === 'chat') {
       lastPlayerMessageIndex = i;
     }
   }
@@ -1622,8 +1627,8 @@ export default function App() {
             {isValidSession && (
               <div className="space-y-3">
                 {chatMessages.map((event) => {
-                // 所有 player: 开头的消息都是玩家消息（包括私聊 player:web 和群聊 player:web:group）
-                const isPlayer = event.src.startsWith('player:');
+                // 所有 player 开头的消息都是玩家消息（API返回 "player"，前端生成 "player:web" / "player:web:group"）
+                const isPlayer = isPlayerMessage(event.src);
                 return (
                   <div key={event.event_id} className={`flex ${isPlayer ? 'justify-end' : 'justify-start'}`}>
                     <div

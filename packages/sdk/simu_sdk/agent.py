@@ -162,7 +162,9 @@ class BaseAgent:
             return
 
         # Handle reply events — unblock session waiting for reply
-        if event.event_type == EventType.AGENT_MESSAGE:
+        # Both AGENT_MESSAGE (initiated messages) and RESPONSE (auto-replies)
+        # can serve as replies to a pending await_reply.
+        if event.event_type in (EventType.AGENT_MESSAGE, EventType.RESPONSE):
             cleared = self._try_clear_pending_reply(event)
             if cleared:
                 # Reply received — process queued messages if session unblocked
@@ -262,7 +264,17 @@ class BaseAgent:
             invocation_id=event.invocation_id,
         )
         await self.tape.append(response_event)
-        await self.server.push_tape_event(response_event)
+
+        # Route RESPONSE to destination agents for agent-to-agent replies.
+        # Only when the ReAct loop ended naturally (text output) — if a tool
+        # ended the loop (e.g. send_message already routed an AGENT_MESSAGE),
+        # routing the RESPONSE would be redundant.
+        should_route = (
+            result.ended_by_tool is None
+            and event.src.startswith("agent:")
+            and event.src != f"agent:{self.agent_id}"
+        )
+        await self.server.push_tape_event(response_event, route=should_route)
 
         # Handle session transitions triggered by tools
         if result.ended_by_tool == "create_task_session":
@@ -380,27 +392,32 @@ class BaseAgent:
         """Instructions for replying to messages from other agents."""
         return """## 回复其他官员的消息
 
-当你收到来自其他官员（agent）的消息时，你必须使用 `send_message` 工具回复对方，**不能只在内心生成回复**。
+当你收到来自其他官员（agent）的消息时，**直接输出文字回复即可**，系统会自动将你的回复发送给对方。
 
-重要规则：
-- **必须使用 `send_message`** 回复发送者，否则对方收不到你的回复。
-- **禁止给自己发消息** — `send_message` 的 `recipients` 中不能包含你自己的 agent_id。
-- 根据消息来源（`src`）确定回复对象。例如收到 `agent:governor_jiangnan` 的消息，就用 `send_message(recipients=["governor_jiangnan"], ...)` 回复。
+### send_message 与直接回复的区别
+
+- **直接回复（输出文字）**：用于**回应**收到的消息。你只需输出回复内容，系统会自动路由给发送者。
+- **`send_message` 工具**：用于**主动发起**新的沟通，例如向某位官员询问信息、下达指令等。
 
 ### 示例
 
 收到 `agent:governor_jiangnan` 发来的问候消息，正确的回复方式：
 
-调用 `send_message(recipients=["governor_jiangnan"], message="承蒙挂念，老夫身体尚好…")`
+直接输出："承蒙挂念，老夫身体尚好…"
 
-**错误方式**：直接输出文字而不调用 `send_message` — 这样对方无法收到回复。
+**不需要**调用 `send_message` — 系统会自动将你的回复发送给 governor_jiangnan。
+
+### 重要规则
+- 回复收到的消息时，直接输出文字，不要调用 `send_message`
+- 主动发起沟通时，使用 `send_message` 工具
+- **禁止给自己发消息** — `send_message` 的 `recipients` 中不能包含你自己的 agent_id
 
 ### 任务会话中的角色
 
 如果你在一个 task session 中收到消息，但你**不是**这个 task 的创建者（即消息是别人发来的询问），那么：
 - 你是任务**参与者**，不是创建者
 - **禁止调用 `finish_task_session` 或 `fail_task_session`** — 只有创建者有权结束任务
-- 你只需要用 `send_message` 回复发送者即可"""
+- 直接输出文字回复即可，系统会自动发送给对方"""
 
     # ------------------------------------------------------------------
     # Background tasks

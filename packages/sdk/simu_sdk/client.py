@@ -98,8 +98,14 @@ class ServerClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def push_tape_event(self, event: TapeEvent) -> None:
-        """Push an internal tape event to the Server's MessageStore for frontend display."""
+    async def push_tape_event(self, event: TapeEvent, route: bool = False) -> None:
+        """Push an internal tape event to the Server's MessageStore for frontend display.
+
+        If *route* is True and the event is a RESPONSE, the Server will also
+        deliver the event to destination agents via the normal event queue.
+        This enables automatic agent-to-agent reply routing without requiring
+        the replying agent to call ``send_message``.
+        """
         try:
             resp = await self._http.post(
                 "/api/callback/tape-event",
@@ -112,6 +118,7 @@ class ServerClient:
                     "payload": event.payload,
                     "timestamp": event.timestamp.isoformat(),
                     "parent_event_id": event.parent_event_id,
+                    "route": route,
                 },
             )
             resp.raise_for_status()

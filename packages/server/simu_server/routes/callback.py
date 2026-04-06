@@ -237,6 +237,7 @@ class TapeEventRequest(BaseModel):
     payload: dict
     timestamp: str
     parent_event_id: str | None = None
+    route: bool = False
 
 
 @router.post("/tape-event")
@@ -245,7 +246,12 @@ async def push_tape_event(
     x_agent_id: str = Header(...),
     x_callback_token: str = Header(...),
 ) -> dict[str, str]:
-    """Receive internal tape events (TOOL_CALL, TOOL_RESULT, RESPONSE) from agents."""
+    """Receive internal tape events (TOOL_CALL, TOOL_RESULT, RESPONSE) from agents.
+
+    When ``route=True`` and the event is a RESPONSE, the server also delivers
+    the event to destination agents via the normal queue — enabling automatic
+    agent-to-agent reply routing.
+    """
     await _verify_agent(x_agent_id, x_callback_token)
     msg_store = _get("message_store")
 
@@ -263,6 +269,26 @@ async def push_tape_event(
         origin_event_id=req.parent_event_id,
     )
     await msg_store.store(msg)
+
+    # Route RESPONSE events to destination agents when requested
+    if req.route and req.event_type == EventType.RESPONSE:
+        queue = _get("queue_controller")
+        if queue:
+            event = TapeEvent(
+                event_id=req.event_id,
+                src=req.src,
+                dst=req.dst,
+                event_type=req.event_type,
+                payload=req.payload,
+                session_id=req.session_id,
+                parent_event_id=req.parent_event_id,
+            )
+            for dst in req.dst:
+                if dst.startswith("agent:"):
+                    target_id = dst.removeprefix("agent:")
+                    if target_id != x_agent_id:
+                        await queue.enqueue(target_id, event)
+
     return {"status": "ok"}
 
 
