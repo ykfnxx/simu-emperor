@@ -26,6 +26,10 @@ class GameState:
 
     async def load(self, initial_state_path: Path | None = None) -> None:
         """Load state from DB, or initialize from a JSON file if DB is empty."""
+        logger.info(
+            "GameState.load called with initial_state_path=%s",
+            initial_state_path,
+        )
         cursor = await self._db.conn.execute(
             "SELECT value FROM game_state WHERE key = 'nation'",
         )
