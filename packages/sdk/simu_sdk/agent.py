@@ -293,6 +293,31 @@ class BaseAgent:
 # Convenience entry point for launching an Agent from CLI
 # ---------------------------------------------------------------------------
 
+def _setup_logging(config: AgentConfig) -> None:
+    """Configure logging to write to both stderr and a per-agent log file."""
+    log_dir = config.config_path / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "agent.log"
+
+    fmt = f"%(asctime)s [{config.agent_id}] %(name)s %(levelname)s: %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    # File handler — rotating would be nice but keep it simple
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    # Stderr handler (captured by server's ProcessManager)
+    stderr_handler = logging.StreamHandler()
+    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(file_handler)
+    root.addHandler(stderr_handler)
+
+
 def run_agent(agent_cls: type[BaseAgent] | None = None) -> None:
     """Entry point for running an Agent process.
 
@@ -300,6 +325,7 @@ def run_agent(agent_cls: type[BaseAgent] | None = None) -> None:
     runs it until SIGTERM/SIGINT.
     """
     config = AgentConfig.from_env()
+    _setup_logging(config)
     agent = (agent_cls or BaseAgent)(config)
 
     loop = asyncio.new_event_loop()
