@@ -35,6 +35,7 @@ class ServerConfig(BaseSettings):
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_api_key: str = ""
+    llm_base_url: str = ""  # Custom base URL for OpenAI-compatible APIs
 
 
 settings = ServerConfig()

@@ -16,7 +16,10 @@ class OpenAIProvider(LLMProvider):
 
     def __init__(self, config: LLMConfig) -> None:
         self._config = config
-        self._client = AsyncOpenAI(api_key=config.api_key)
+        kwargs: dict[str, Any] = {"api_key": config.api_key}
+        if config.base_url:
+            kwargs["base_url"] = config.base_url
+        self._client = AsyncOpenAI(**kwargs)
 
     async def call(
         self,

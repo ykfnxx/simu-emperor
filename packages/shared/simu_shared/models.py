@@ -171,6 +171,7 @@ class LLMConfig(BaseModel):
     provider: str = "anthropic"  # "anthropic" | "openai" | "mock"
     model: str = "claude-sonnet-4-20250514"
     api_key: str = ""
+    base_url: str | None = None  # Custom base URL for OpenAI-compatible APIs
     temperature: float = 0.7
     max_tokens: int = 4096
 

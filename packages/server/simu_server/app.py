@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "provider": settings.llm_provider,
             "model": settings.llm_model,
             "api_key": settings.llm_api_key,
+            "base_url": settings.llm_base_url or None,
         },
     )
 
