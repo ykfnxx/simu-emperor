@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from simu_sdk.tools.registry import tool
+from simu_sdk.tools.registry import ToolResult, tool
 
 if TYPE_CHECKING:
     from simu_shared.models import TapeEvent
@@ -72,7 +72,7 @@ class StandardTools:
         },
         category="communication",
     )
-    async def send_message(self, args: dict, event: TapeEvent) -> str:
+    async def send_message(self, args: dict, event: TapeEvent) -> str | ToolResult:
         event_id = await self._server.post_message(
             recipients=args["recipients"],
             message=args["message"],
@@ -80,6 +80,10 @@ class StandardTools:
         )
         if args.get("await_reply") and self._session_state:
             self._session_state.add_pending_reply(event.session_id, event_id)
+            return ToolResult(
+                output="Message sent. Waiting for reply — session paused.",
+                ends_loop=True,
+            )
         return "Message sent."
 
     @tool(
@@ -146,7 +150,7 @@ class StandardTools:
         },
         category="session",
     )
-    async def create_task_session(self, args: dict, event: TapeEvent) -> str:
+    async def create_task_session(self, args: dict, event: TapeEvent) -> str | ToolResult:
         if self._session_state is None:
             return "Error: session state manager not available."
 
@@ -168,6 +172,7 @@ class StandardTools:
             task_session_id=task_session_id,
             parent_session_id=event.session_id,
             depth=current_depth + 1,
+            goal=args["goal"],
         )
 
         # Mark parent as waiting for this task
@@ -180,7 +185,10 @@ class StandardTools:
             "Created task session %s (parent=%s, depth=%d, goal=%s)",
             task_session_id, event.session_id, current_depth + 1, args["goal"],
         )
-        return f"Task session created: {task_session_id}. Context switched to task session."
+        return ToolResult(
+            output=f"Task session created: {task_session_id}. Processing task now.",
+            ends_loop=True,
+        )
 
     @tool(
         name="finish_task_session",
@@ -196,7 +204,7 @@ class StandardTools:
         },
         category="session",
     )
-    async def finish_task_session(self, args: dict, event: TapeEvent) -> str:
+    async def finish_task_session(self, args: dict, event: TapeEvent) -> str | ToolResult:
         if self._session_state is None:
             return "Error: session state manager not available."
 
@@ -218,7 +226,10 @@ class StandardTools:
         self._session_state.set_active_session(parent_id)
 
         logger.info("Finished task session %s, returning to %s", event.session_id, parent_id)
-        return f"Task completed. Context switched back to parent session {parent_id}."
+        return ToolResult(
+            output=f"Task completed. Returning to parent session {parent_id}.",
+            ends_loop=True,
+        )
 
     @tool(
         name="fail_task_session",
@@ -234,7 +245,7 @@ class StandardTools:
         },
         category="session",
     )
-    async def fail_task_session(self, args: dict, event: TapeEvent) -> str:
+    async def fail_task_session(self, args: dict, event: TapeEvent) -> str | ToolResult:
         if self._session_state is None:
             return "Error: session state manager not available."
 
@@ -256,7 +267,10 @@ class StandardTools:
         self._session_state.set_active_session(parent_id)
 
         logger.info("Failed task session %s, returning to %s", event.session_id, parent_id)
-        return f"Task failed. Context switched back to parent session {parent_id}."
+        return ToolResult(
+            output=f"Task failed. Returning to parent session {parent_id}.",
+            ends_loop=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +294,7 @@ class SessionStateManager:
         self._message_queue: dict[str, list[Any]] = {}  # session_id → [events]
         self._parents: dict[str, str] = {}  # task_session_id → parent_session_id
         self._depths: dict[str, int] = {}  # session_id → depth (0 for root)
+        self._goals: dict[str, str] = {}  # task_session_id → goal description
         self._active_session: str | None = None
 
     def is_blocked(self, session_id: str) -> bool:
@@ -320,15 +335,21 @@ class SessionStateManager:
 
     def register_task_session(
         self, task_session_id: str, parent_session_id: str, depth: int,
+        goal: str = "",
     ) -> None:
         self._parents[task_session_id] = parent_session_id
         self._depths[task_session_id] = depth
+        if goal:
+            self._goals[task_session_id] = goal
 
     def get_parent(self, session_id: str) -> str | None:
         return self._parents.get(session_id)
 
     def get_depth(self, session_id: str) -> int:
         return self._depths.get(session_id, 0)
+
+    def get_goal(self, session_id: str) -> str:
+        return self._goals.get(session_id, "")
 
     # -- Active session --
 
