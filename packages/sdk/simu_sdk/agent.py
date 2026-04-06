@@ -441,10 +441,15 @@ class BaseAgent:
 
 你现在正在执行一个任务，目标是：**{goal}**
 
+你是这个任务的**创建者**，负责执行并结束任务。
+
 在任务会话中，你应该：
 1. 直接执行任务 — 查询所需信息、向目标 agent 发送消息等
-2. 完成后调用 `finish_task_session`，将结果汇报
+2. 完成后**必须调用 `finish_task_session`**，将结果汇报给主会话
 3. 如果无法完成，调用 `fail_task_session` 说明原因
+
+**重要：收到其他 agent 的回复后，不要直接输出文字，而是立即调用 `finish_task_session` 汇总结果。**
+直接输出文字不会结束任务，只有调用 `finish_task_session` 才能正确完成任务并返回主会话。
 
 **禁止在任务会话中再次创建 task session**，除非你发现必须委派给其他 agent 才能完成任务。绝大多数情况下，你应该直接执行。
 
@@ -455,7 +460,7 @@ class BaseAgent:
 1. 调用 `query_role_map` 查到张廷玉的 agent_id 是 `minister_of_revenue`
 2. 调用 `send_message(recipients=["minister_of_revenue"], message="张廷玉大人，皇上关心您的身体状况，请据实禀报。", await_reply=true)`
 3. 等待回复（会话自动暂停）
-4. 收到回复后，调用 `finish_task_session(result="张廷玉回复：...")`
+4. 收到回复后，**立即**调用 `finish_task_session(result="张廷玉回复：臣身体尚好…")`
 
 请立即开始执行任务。"""
 
@@ -465,6 +470,8 @@ class BaseAgent:
         return """## 回复其他官员的消息
 
 当你收到来自其他官员（agent）的消息时，**直接输出文字回复即可**，系统会自动将你的回复发送给对方。
+
+**例外**：如果你是任务创建者并且收到了等待的回复，应调用 `finish_task_session` 结束任务，不要直接输出文字（详见"当前处于任务会话中"的说明）。
 
 ### send_message 与直接回复的区别
 
