@@ -228,15 +228,23 @@ class BaseAgent:
         await self.react(event)
 
     async def _handle_task_completion(self, event: TapeEvent) -> None:
-        """Process a TASK_FINISHED or TASK_FAILED event."""
-        # Record in tape
-        await self.tape.append(event)
+        """Process a TASK_FINISHED or TASK_FAILED event.
 
-        # The event arrives in the parent session — check if it unblocks
+        The event arrives on the parent session.  If the session is fully
+        unblocked (no more pending tasks/replies), feed the event into the
+        ReAct loop so the agent can see the task result and report to the
+        player.  Otherwise queue it for later processing.
+        """
         session_id = event.session_id
-        # The task_session_id is in the event payload or can be inferred
-        # For now, try to unblock by checking if all pending tasks are done
-        await self._process_queued_messages(session_id)
+
+        if not self.session_state.is_blocked(session_id):
+            # Parent session unblocked — process the completion event
+            await self.react(event)
+            await self._process_queued_messages(session_id)
+        else:
+            # Still blocked (other pending tasks/replies) — queue for later
+            await self.tape.append(event)
+            self.session_state.enqueue_message(session_id, event)
 
     def _try_clear_pending_reply(self, event: TapeEvent) -> bool:
         """Clear pending reply matched by sender. Returns True if cleared."""
@@ -400,6 +408,10 @@ class BaseAgent:
             scope_text = yaml.dump(self.data_scope, allow_unicode=True, default_flow_style=False)
             parts.append(f"\n## Data Access Scope\n\n```yaml\n{scope_text}```")
 
+        # Action execution instructions (only when agent has data_scope)
+        if self.data_scope:
+            parts.append(self._action_execution_instructions())
+
         # Context-aware instructions
         if session_id.startswith("task:"):
             goal = self.session_state.get_goal(session_id)
@@ -411,6 +423,31 @@ class BaseAgent:
         parts.append(self._agent_reply_instructions())
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _action_execution_instructions() -> str:
+        """Instructions for using create_incident to affect game state."""
+        return """## 执行影响游戏状态的指令
+
+当皇帝下达涉及经济、税收、生产等方面的具体指令时，你**必须调用 `create_incident` 工具**来执行，仅口头回复不会产生实际效果。
+
+### 需要调用 `create_incident` 的场景
+- 调整税率（如"给直隶加税5%"）→ 使用 `tax_modifier` 字段
+- 增减库存/拨款（如"拨银十万两赈灾"）→ 使用 `stockpile` 或 `imperial_treasury` 的 `add`
+- 影响生产/人口增长 → 使用 `base_production_growth` 或 `base_population_growth` 的 `factor`
+- 任何需要改变省份或国家数值的指令
+
+### 关键规则
+- **先执行，再汇报**：收到指令后先调用 `create_incident` 创建 incident，再向皇帝回复执行结果
+- **不要只回复"遵旨"**：如果指令要求改变数值，必须通过工具调用实际执行
+- 你只能修改 Data Access Scope 中列出的字段和省份，超出范围的操作会被拒绝
+- 使用 `query_state` 工具可以查询当前数值，帮助你确定合理的参数
+
+### 示例
+
+皇帝指令："给直隶加税5%"
+正确做法：调用 `create_incident(title="直隶增税", effects=[{"target_path": "provinces.zhili.tax_modifier", "factor": "0.05"}], remaining_ticks=12, description="奉旨增加直隶税率5%")`
+错误做法：仅回复"遵旨，臣即刻办理"而不调用工具"""
 
     @staticmethod
     def _task_dispatch_instructions() -> str:
