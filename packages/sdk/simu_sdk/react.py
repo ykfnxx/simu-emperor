@@ -77,7 +77,10 @@ class ReActLoop:
             # Record assistant reasoning + tool calls to tape
             if tape:
                 tape_evt = await self._record_tool_calls(
-                    tape, event, response, agent_id,
+                    tape,
+                    event,
+                    response,
+                    agent_id,
                 )
                 if server and tape_evt:
                     await server.push_tape_event(tape_evt)
@@ -86,23 +89,31 @@ class ReActLoop:
             tool_results: list[dict[str, str]] = []
             for tc in response.tool_calls:
                 if total_tool_calls >= self._max_tool_calls:
-                    tool_results.append({
-                        "tool_call_id": tc.id,
-                        "output": "Error: tool call limit reached.",
-                    })
+                    tool_results.append(
+                        {
+                            "tool_call_id": tc.id,
+                            "output": "Error: tool call limit reached.",
+                        }
+                    )
                     continue
 
                 total_tool_calls += 1
                 result = await self._execute_tool(tc, event)
-                tool_results.append({
-                    "tool_call_id": tc.id,
-                    "output": result.output,
-                })
+                tool_results.append(
+                    {
+                        "tool_call_id": tc.id,
+                        "output": result.output,
+                    }
+                )
 
                 # Record tool result to tape
                 if tape:
                     tape_evt = await self._record_tool_result(
-                        tape, event, tc, result, agent_id,
+                        tape,
+                        event,
+                        tc,
+                        result,
+                        agent_id,
                     )
                     if server and tape_evt:
                         await server.push_tape_event(tape_evt)
@@ -142,10 +153,7 @@ class ReActLoop:
         agent_id: str,
     ) -> TapeEvent:
         """Record the assistant's reasoning and tool calls to tape."""
-        calls_summary = [
-            {"name": tc.name, "arguments": tc.arguments}
-            for tc in response.tool_calls
-        ]
+        calls_summary = [{"name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls]
         tape_event = TapeEvent(
             src=f"agent:{agent_id}",
             dst=[f"agent:{agent_id}"],
@@ -189,16 +197,20 @@ class ReActLoop:
     # ------------------------------------------------------------------
 
     def _build_initial_messages(
-        self, event: TapeEvent, context: ContextWindow,
+        self,
+        event: TapeEvent,
+        context: ContextWindow,
     ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
 
         # Inject context summary if present
         if context.summary:
-            messages.append({
-                "role": "user",
-                "content": f"[Context summary]\n{context.summary}",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"[Context summary]\n{context.summary}",
+                }
+            )
 
         # Inject recent tape events as context
         for tape_event in context.events:
@@ -208,10 +220,14 @@ class ReActLoop:
                 messages.append({"role": role, "content": content})
 
         # The triggering event
-        messages.append({
-            "role": "user",
-            "content": event.payload.get("content", json.dumps(event.payload, ensure_ascii=False)),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": event.payload.get(
+                    "content", json.dumps(event.payload, ensure_ascii=False)
+                ),
+            }
+        )
 
         return messages
 
@@ -233,23 +249,27 @@ class ReActLoop:
         if response.content:
             content_parts.append({"type": "text", "text": response.content})
         for tc in response.tool_calls:
-            content_parts.append({
-                "type": "tool_use",
-                "id": tc.id,
-                "name": tc.name,
-                "input": tc.arguments,
-            })
+            content_parts.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.id,
+                    "name": tc.name,
+                    "input": tc.arguments,
+                }
+            )
         return {"role": "assistant", "content": content_parts}
 
     @staticmethod
     def _tool_results_anthropic(results: list[dict[str, str]]) -> dict[str, Any]:
         content_parts = []
         for r in results:
-            content_parts.append({
-                "type": "tool_result",
-                "tool_use_id": r["tool_call_id"],
-                "content": r["output"],
-            })
+            content_parts.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": r["tool_call_id"],
+                    "content": r["output"],
+                }
+            )
         return {"role": "user", "content": content_parts}
 
     # --- OpenAI format ---

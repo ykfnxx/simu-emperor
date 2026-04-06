@@ -37,11 +37,7 @@ class EventType:
 
     @classmethod
     def all(cls) -> list[str]:
-        return [
-            v
-            for k, v in vars(cls).items()
-            if not k.startswith("_") and isinstance(v, str)
-        ]
+        return [v for k, v in vars(cls).items() if not k.startswith("_") and isinstance(v, str)]
 
     @classmethod
     def is_valid(cls, event_type: str) -> bool:

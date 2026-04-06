@@ -460,7 +460,7 @@ class BaseAgent:
 当玩家的指令涉及其他官员时（例如"问问张廷玉…"、"让各省加税"），按以下流程处理：
 
 1. **查询角色表**：先调用 `query_role_map` 获取官员姓名与 agent_id 的对应关系。
-2. **创建任务会话**：调用 `create_task_session`，明确 goal（例如"向张廷玉询问身体状况"）。
+2. **创建任务会话**：调用 `create_task_session`，goal 必须包含**完整的具体指令和数值**（例如"命令江南巡抚将江南税率降低5%"，而不是"让江南巡抚减税"）。
    创建后你会自动进入任务会话上下文。
 3. **在任务会话中执行**：在任务会话中调用 `send_message`，设置 `await_reply=true`，向目标 agent 发送询问。
    发送后会话自动暂停等待回复。
@@ -472,8 +472,10 @@ class BaseAgent:
 重要规则：
 - 必须先用 `query_role_map` 查到 agent_id，不要猜测。
 - 与其他官员沟通时始终使用 `await_reply=true`。
+- `create_task_session` 的 goal 必须包含玩家指令中的**所有具体数值和细节**，不得遗漏或概括。
 - `create_task_session`、`finish_task_session`、`fail_task_session` 调用后会话会自动切换，无需额外操作。
-- `send_message(await_reply=true)` 发送后当前会话自动暂停，等待回复后继续。"""
+- `send_message(await_reply=true)` 发送后当前会话自动暂停，等待回复后继续。
+- 向其他 agent 传达指令时，必须**原样传达玩家的具体数值和要求**，不得自行修改或概括。"""
 
     @staticmethod
     def _task_execution_instructions(goal: str) -> str:
@@ -486,11 +488,18 @@ class BaseAgent:
 
 在任务会话中，你应该：
 1. 直接执行任务 — 查询所需信息、向目标 agent 发送消息等
-2. 完成后**必须调用 `finish_task_session`**，将结果汇报给主会话
-3. 如果无法完成，调用 `fail_task_session` 说明原因
+2. 向其他 agent 传达命令时，必须**原样传达 goal 中的具体数值和要求**
+3. 完成后**必须调用 `finish_task_session`**，将结果汇报给主会话
+4. 如果无法完成，调用 `fail_task_session` 说明原因
 
 **重要：收到其他 agent 的回复后，不要直接输出文字，而是立即调用 `finish_task_session` 汇总结果。**
 直接输出文字不会结束任务，只有调用 `finish_task_session` 才能正确完成任务并返回主会话。
+
+### 工具调用失败处理
+- 如果工具调用返回错误（如 `create_incident` 失败），**不得谎称已经执行成功**
+- 可以尝试修正参数后重试一次
+- 如果仍然失败，必须在 `finish_task_session` 或回复中**如实说明失败原因**
+- 接收到其他 agent 回复"未能执行"时，必须**如实向上级传达**，不得篡改结果
 
 ### 禁止行为
 - **不要直接输出文字回复** — 输出文字无法结束任务
@@ -498,6 +507,7 @@ class BaseAgent:
 - **不要在未收到回复前就结束任务** — 必须等待 `send_message(await_reply=true)` 的回复到达后再行动
 - **不要继续对话** — 收到回复后立即结束，不要寒暄或追问
 - **禁止在任务会话中再次创建 task session**，除非你发现必须委派给其他 agent 才能完成任务
+- **不得在工具调用失败后声称执行成功** — 这是欺君之罪
 
 ### 示例流程
 
@@ -536,6 +546,8 @@ class BaseAgent:
 - 回复收到的消息时，直接输出文字，不要调用 `send_message`
 - 主动发起沟通时，使用 `send_message` 工具
 - **禁止给自己发消息** — `send_message` 的 `recipients` 中不能包含你自己的 agent_id
+- 收到命令后执行工具调用，如果工具调用失败，**必须如实回复失败原因**，不得谎称已执行
+- 收到包含具体数值的命令（如"减税5%"），必须**严格按照该数值执行**，不得自行修改
 
 ### 任务会话中的角色
 

@@ -48,11 +48,13 @@ class AnthropicProvider(LLMProvider):
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
-                tool_calls.append(ToolCall(
-                    id=block.id,
-                    name=block.name,
-                    arguments=block.input if isinstance(block.input, dict) else {},
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=block.id,
+                        name=block.name,
+                        arguments=block.input if isinstance(block.input, dict) else {},
+                    )
+                )
 
         return LLMResponse(
             content=content,
@@ -72,9 +74,11 @@ def _convert_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, A
     result = []
     for t in tools:
         func = t.get("function", t)
-        result.append({
-            "name": func["name"],
-            "description": func.get("description", ""),
-            "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-        })
+        result.append(
+            {
+                "name": func["name"],
+                "description": func.get("description", ""),
+                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+            }
+        )
     return result

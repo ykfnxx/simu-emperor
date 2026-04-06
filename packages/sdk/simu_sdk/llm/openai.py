@@ -47,11 +47,15 @@ class OpenAIProvider(LLMProvider):
         tool_calls: list[ToolCall] = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=json.loads(tc.function.arguments) if tc.function.arguments else {},
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=json.loads(tc.function.arguments)
+                        if tc.function.arguments
+                        else {},
+                    )
+                )
 
         return LLMResponse(
             content=msg.content or "",
