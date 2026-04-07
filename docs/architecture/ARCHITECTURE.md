@@ -39,7 +39,10 @@
 │  │                  Services Layer                        │ │
 │  │  QueueController    EventRouter    InvocationManager   │ │
 │  │  SessionManager     MessageStore   ProcessManager      │ │
-│  │  AgentRegistry      GroupStore     WSManager           │ │
+│  │  GroupStore          WSManager                         │ │
+│  │                                                       │ │
+│  │  agents/                                              │ │
+│  │  AgentRegistry                                        │ │
 │  └───────────────────────────────────────────────────────┘ │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐ │
@@ -235,7 +238,7 @@ while iterations < max_iterations:
 4. 任务派发指令 / 任务执行指令 — 根据会话类型
 5. 消息回复指令 — 区分 send_message 与直接文字回复
 
-### 3.5 SessionStateManager
+### 3.5 SessionStateManager（定义于 `tools/standard.py`）
 
 每个 Agent 内部维护的会话状态：
 
