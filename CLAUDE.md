@@ -5,171 +5,219 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (uv workspace)
 uv sync
 
 # Run tests
 uv run pytest tests/                    # All tests
+uv run pytest tests/ -k "not MemoryStore and not MemoryRetriever"  # Skip ChromaDB tests
 uv run pytest tests/unit/               # Unit tests only
-uv run pytest tests/unit/event_bus/     # Single test directory
-uv run pytest tests/unit/event_bus/test_core.py  # Single file
-uv run pytest tests/unit/event_bus/test_core.py::test_name -v  # Single test
 
 # Lint and format
 uv run ruff check .
 uv run ruff format .
 
-# Run CLI game
-uv run simu-emperor
+# Start server
+uv run python -m simu_server
+
+# Start a single agent (usually done by server's ProcessManager)
+SIMU_SERVER_URL=http://localhost:8000 SIMU_AGENT_ID=governor_zhili \
+  SIMU_AGENT_TOKEN=xxx SIMU_CONFIG_PATH=data/agents/governor_zhili \
+  uv run python -m simu_sdk
 ```
 
 ## Architecture
 
-**V4.2: Tick-Based Real-Time Multi-Agent Architecture**
+**V5: Process-Per-Agent Multi-Agent Architecture**
 
-Tick-based emperor simulation game. The player is the emperor; AI agents play officials who may lie in reports and slack off when executing commands. All communication happens through an event bus — no direct function calls between modules. The game advances automatically via periodic ticks (1 tick = 1 week, 4 ticks = 1 month, 48 ticks = 1 year).
+Emperor simulation game. The player is the emperor; AI agents play court officials (governors, ministers). Each agent runs as an independent subprocess communicating with the central Server via SSE (events) and HTTP callbacks (actions).
 
 ### Core Principles
 
 | Principle | Description |
 |-----------|-------------|
-| **Event-Driven** | All interactions via EventBus (src/dst routing) |
-| **Fully Async** | asyncio-based, fire-and-forget by default |
-| **Tick-Based Timing** | Automatic tick progression (configurable interval, default 5s) |
-| **Unified Writes** | Only Engine can modify game state |
-| **Passive Agents** | Agents only respond to events, never initiate |
-| **Clean Architecture** | Adapter → Application → Core (no upward dependencies) |
+| **Process-per-Agent** | Each agent is an independent Python subprocess |
+| **SSE + HTTP Callback** | Server pushes events via SSE; agents call back via HTTP |
+| **Serial Dispatch** | QueueController ensures one invocation at a time per agent |
+| **ReAct Loop** | Agents use reason-act-observe cycles with LLM + tool calls |
+| **File-Driven Personality** | `soul.md` + `data_scope.yaml` define each agent |
+| **Tape-Based History** | Append-only JSONL + SQLite event logs per agent |
 
-### Directory Structure
+### Package Structure
 
 ```
-src/simu_emperor/
-├── event_bus/          # Event routing (EventBus, Event, EventType)
-├── engine/             # Game engine (Engine, TickCoordinator, ProvinceData/NationData, Incident/Effect)
-├── agents/             # AI officials
-│   ├── agent.py        # Agent base (event queue with backpressure)
-│   ├── react_loop.py   # ReAct loop for LLM tool-calling
-│   ├── system_prompts.py # System prompt assembly
-│   ├── skills/         # File-driven skill system (YAML frontmatter + markdown)
-│   └── tools/          # ToolRegistry, query/action/memory/task_session tools
-├── memory/             # Memory system (dual-write, DB-first reads, two-level search)
-├── application/        # Application layer (GameService, SessionService, AgentService, etc.)
-├── persistence/        # SQLite via aiosqlite (repositories + TapeRepository)
-├── llm/                # LLM providers (Anthropic, OpenAI, Mock)
-├── adapters/web/       # FastAPI server, WebSocket, message converter
-├── session/            # Session management, group chat
-└── common/             # Utilities
+packages/
+├── shared/         # Pydantic models (TapeEvent, NationData, Effect, etc.)
+│   └── simu_shared/
+│       ├── models.py       # All data models
+│       └── constants.py    # EventType enum
+│
+├── server/         # FastAPI backend — orchestration, state, routing
+│   └── simu_server/
+│       ├── app.py          # Startup, dependency wiring, dispatch function
+│       ├── routes/
+│       │   ├── client.py   # Frontend API (/api/command, /api/state, /ws, etc.)
+│       │   └── callback.py # Agent API (/api/callback/*, SSE, incidents)
+│       ├── services/
+│       │   ├── event_router.py       # Per-agent asyncio.Queue, SSE delivery
+│       │   ├── queue_controller.py   # Per-agent FIFO, serial dispatch
+│       │   ├── process_manager.py    # Subprocess spawn/terminate
+│       │   ├── session_manager.py    # Session CRUD (SQLite)
+│       │   ├── message_store.py      # Message persistence (SQLite + JSONL)
+│       │   ├── invocation_manager.py # Invocation lifecycle tracking
+│       │   └── group_store.py        # Agent groups
+│       ├── engine/
+│       │   ├── game_engine.py  # Facade: GameState + TickCoordinator + IncidentSystem
+│       │   ├── state.py        # NationData + ProvinceData (Decimal precision)
+│       │   ├── tick.py         # Turn advancement, growth, tax calculation
+│       │   └── incidents.py    # Time-limited economic effects (add/factor)
+│       └── stores/
+│           └── database.py     # SQLite + WAL mode
+│
+├── sdk/            # Agent runtime SDK
+│   └── simu_sdk/
+│       ├── agent.py        # BaseAgent: lifecycle, event dispatch, ReAct, prompts
+│       ├── client.py       # ServerClient: HTTP + SSE communication
+│       ├── config.py       # AgentConfig from environment variables
+│       ├── react.py        # ReActLoop: LLM → tool calls → observations
+│       ├── tools/
+│       │   ├── registry.py   # @tool decorator, ToolRegistry
+│       │   ├── standard.py   # send_message, query_state, create_incident, task sessions
+│       │   └── memory.py     # search_memory tool
+│       ├── tape/
+│       │   ├── manager.py    # TapeManager: JSONL + SQLite dual-write
+│       │   └── context.py    # ContextManager: sliding window, summaries, views
+│       ├── memory/
+│       │   ├── store.py      # MemoryStore (ChromaDB vector DB)
+│       │   ├── retriever.py  # MemoryRetriever (L1 session, L2 view search)
+│       │   └── metadata.py   # TapeMetadataManager (SQLite)
+│       └── llm/
+│           ├── base.py       # LLMProvider interface
+│           ├── anthropic.py  # Claude integration
+│           └── openai.py     # OpenAI/compatible integration
+│
+└── agents/         # Concrete agent configs (soul.md + data_scope.yaml per agent)
+
+web/                # React + Vite + TypeScript + Tailwind frontend
+├── src/App.tsx     # Main component, WebSocket, chat UI
+└── src/api/        # GameClient (REST + WebSocket)
 
 data/
-├── skills/             # Universal skill templates (v2.0 format)
 ├── default_agents/     # Agent templates (soul.md + data_scope.yaml)
-├── agent/              # Active agent workspace (runtime, mutable)
-├── memory/             # Dual-write storage (tape_meta.jsonl + per-agent sessions)
-└── initial_state_v4.json
+├── agent_templates/    # For dynamic agent generation
+└── memory/             # Runtime mirror (tape_meta.jsonl, per-agent sessions)
+```
 
-tests/
-├── unit/               # Mock all I/O and LLM
-├── integration/        # Real DB (in-memory), mock LLM
-└── e2e/                # Full game loop, mock LLM
+### Communication Flow
+
+**Player → Agent:**
+```
+Frontend POST /api/command
+  → TapeEvent(src=player, type=CHAT)
+  → QueueController.enqueue(agent_id, event)
+  → InvocationManager.create() → EventRouter.route()
+  → Agent receives via SSE /api/callback/events
+  → BaseAgent.on_event() → react(event)
+  → ReActLoop: LLM + tool calls
+  → RESPONSE → push_tape_event → post_message → WebSocket → Frontend
+```
+
+**Agent → Agent:**
+```
+Agent A: send_message(recipients=["agent_b"], await_reply=true)
+  → POST /api/callback/message → QueueController → EventRouter → Agent B SSE
+  → Agent B react() → text output → RESPONSE auto-routed back to A
+  → A's pending reply cleared → A continues processing
+```
+
+**Task Sessions:**
+```
+create_task_session(goal="...") → enters child session
+  → send_message(await_reply=true) → waits
+  → reply arrives → finish_task_session(result="...")
+  → TASK_FINISHED routed to parent session → agent reports to player
 ```
 
 ### Agent System
 
-Agents are file-driven AI officials. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access permissions (per-skill field whitelist). Deception emerges from LLM reading soul.md — no hardcoded logic.
+Agents are file-driven AI officials. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access permissions.
 
-**Available Tools:**
+**Standard Tools:**
 
-| Tool | Type | Description |
-|------|------|-------------|
-| `query_province` | Query | Query province data |
-| `query_nation` | Query | Query nation data |
-| `query_incidents` | Query | Query active incidents |
-| `send_message` | Action | Unified message sending (to agents or player) |
-| `write_memory` | Action | Short-term memory (recent/turn_*.md) |
-| `write_long_term_memory` | Action | Long-term memory (MEMORY.md) |
-| `update_soul` | Action | Personality evolution (soul.md append) |
-| `summarize_segment` | Action | Summarize memory segments via VectorStore |
-| `create_incident` | Action | Create time-limited game events |
-| `start_task_session` | Action | Create sub-session for tasks |
-| `end_task_session` | Action | End sub-session with summary |
+| Tool | Category | Description |
+|------|----------|-------------|
+| `send_message` | communication | Send to agents/player, optional `await_reply` |
+| `query_state` | communication | Query game state (provinces, treasury) |
+| `query_role_map` | communication | Look up agent IDs by official name |
+| `create_incident` | action | Create economic effects (add/factor on fields) |
+| `create_task_session` | session | Create sub-session for focused work |
+| `finish_task_session` | session | Complete task, return result to parent |
+| `fail_task_session` | session | Fail task with reason |
+| `search_memory` | memory | Vector search across past sessions |
 
-**Skill System** — Each skill is a markdown file with YAML frontmatter. Three-tier caching (Memory LRU → mtime → FS). Event-to-skill mapping: `CHAT → chat.md`, `AGENT_MESSAGE → receive_message.md`, `TICK_COMPLETED → on_tick_completed.md`. Supports `{{agent_id}}`, `{{turn}}`, `{{timestamp}}` placeholders.
+**System Prompt Construction** (`_build_system_prompt`):
+1. `soul.md` content (personality)
+2. `data_scope.yaml` (permissions)
+3. Action execution instructions (when to use `create_incident`)
+4. Task dispatch or task execution instructions (context-dependent)
+5. Agent reply instructions (text reply vs send_message)
 
-**Autonomous Memory** — Agents self-reflect every N ticks (default 4 = monthly). On reflection tick: `retrieve_memory → write_long_term_memory → (optional) update_soul`. Config: `AutonomousMemoryConfig` in `config.py`.
+### Session State Management
+
+`SessionStateManager` in each agent tracks:
+- `pending_tasks`: unfinished task sub-sessions
+- `pending_replies`: messages awaiting reply (from `await_reply=true`)
+- `message_queue`: events queued while session is blocked
+- Session hierarchy: parent/child relationships, nesting depth (max 5)
+
+When a session is blocked (has pending tasks or replies), new events are queued. When unblocked, queued events are drained through the ReAct loop.
 
 ### Memory System
 
-Dual-write event-based memory with DB-first retrieval.
+**Tape** (per-agent, per-session):
+- JSONL + SQLite dual-write
+- Optional mirror to `data/memory/` (via `SIMU_MEMORY_DIR`)
 
-**Write Path:** `Agent event → TapeWriter → tape.jsonl + TapeRepository (SQLite tape_events)`
+**Context Window**:
+- Sliding window with auto-compression into ViewSegments
+- Session summaries generated by LLM after each response
+- Views stored in ChromaDB for cross-session retrieval
 
-**Read Path:** `ContextManager → TapeRepository (DB-first) → JSONL fallback`
+**Memory Retrieval** (two-level):
+- L1: Search across sessions by title/summary
+- L2: Search within sessions for specific views
 
-**Search Path (cross-session):**
-- L1: TapeMetadataIndex — keyword search on session titles
-- L1.5: VectorStore (ChromaDB) — semantic search with retry
-- L2: SegmentSearcher — event content retrieval
+### Engine & Economic Model
 
-**Context Management:** Sliding window with auto-summarization (8000 token threshold, keeps 20 recent events after compaction).
-
-### Event System
-
-```json
-{
-    "event_id": "evt_20260226120000_a1b2c3d4",
-    "src": "player",
-    "dst": ["agent:revenue_minister"],
-    "type": "command",
-    "payload": {"intent": "adjust_tax", "province": "zhili", "rate": 0.05}
-}
+**Tick** (manual trigger via `POST /api/state/tick`):
+```
+TickCoordinator.tick()
+  → Apply base growth (production, population)
+  → Apply active Incident effects (add: one-time, factor: per-tick)
+  → Calculate tax: production × (base_tax_rate + tax_modifier)
+  → Calculate surplus, remittance, treasury
+  → Decrement incident remaining_ticks, expire completed
 ```
 
-**ID Naming:** Player: `"player"`, Agent: `"agent:{agent_id}"`, TickCoordinator: `"system:tick_coordinator"`, Broadcast: `"*"`
+**Key Fields:**
+- Province: `production_value`, `population`, `fixed_expenditure`, `stockpile`, `tax_modifier`, `base_production_growth`, `base_population_growth`
+- Nation: `imperial_treasury`, `base_tax_rate`, `tribute_rate`, `fixed_expenditure`
+- `tax_modifier` is an additive offset (initial 0.0), not the tax rate itself
 
-**Event Types:** `command` (Player→Agent), `query` (Player→Agent), `chat` (Player→Agent), `response` (Agent→Player), `agent_message` (Agent→Agent), `tick_completed` (TickCoordinator→*)
+### Event Types
 
-**Tape Event Types:** `USER_QUERY`, `TOOL_CALL`, `TOOL_RESULT`, `RESPONSE`, `GAME_EVENT`
-
-### Engine & Tick Flow
-
-```
-TickCoordinator timer → Engine.apply_tick()
-  → Apply growth rates (production ×1.01, population ×1.005)
-  → Apply active Effects (add: one-time, factor: per-tick multiplier)
-  → Calculate tax/treasury
-  → Refresh Incidents (decrement remaining_ticks, remove expired)
-  → Publish tick_completed event to all agents
-```
-
-### Session State Isolation
-
-Every agent maintains independent state per session. All state checks/mutations scoped to calling agent.
-
-- `agent_states: dict[str, str]` — per-agent (`ACTIVE` / `WAITING_REPLY` / `FINISHED` / `FAILED`)
-- `pending_async_replies: dict[str, int]` — per-agent async reply counter
-- Cross-session messages: only the sender's counter increments, receiver processes normally
-
-### Import Rules
-
-```python
-# ✅ Upper imports lower
-from simu_emperor.event_bus.core import EventBus
-from simu_emperor.agents.agent import Agent
-
-# ❌ Lower must NOT import upper
-from simu_emperor.cli.app import EmperorCLI  # core must not import cli
-```
-
-### Key Patterns
-
-- **Pydantic v2** with `Decimal` precision for game data
-- **Event sourcing:** Immutable append-only JSONL logs
-- **Dual-write:** TapeWriter writes to both JSONL and SQLite
-- **DB-first reads:** ContextManager reads from SQLite, falls back to JSONL
-- **ToolRegistry class** (not _function_handlers dict)
-- **Event queue backpressure:** asyncio.Queue with configurable max_size
-- **Deterministic engine:** Random functions accept seeded `random.Random`
-- **Repository pattern:** All data access through Repository interface
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `CHAT` | player → agent | Player command |
+| `AGENT_MESSAGE` | agent → agent | Initiated communication |
+| `RESPONSE` | agent → agent/player | Auto-routed reply |
+| `TASK_CREATED` | agent → self | Synthetic event for new task |
+| `TASK_FINISHED` | server → agent | Task completed |
+| `TASK_FAILED` | server → agent | Task failed |
+| `TOOL_CALL` | agent → tape | ReAct loop tool invocation |
+| `TOOL_RESULT` | agent → tape | Tool execution result |
+| `SHUTDOWN` | server → agent | Graceful shutdown |
+| `RELOAD_CONFIG` | server → agent | Hot-reload personality |
 
 ## Coding Standards
 
@@ -184,35 +232,36 @@ if not role_map_path.exists():
 
 # ✅ CORRECT
 if not role_map_path.exists():
-    return "❌ 无法查询官员信息：role_map.md 文件不存在"
+    return "无法查询官员信息：role_map 文件不存在"
 ```
 
-Acceptable fallbacks: testing/mock mode, feature flags with consent, cached data with staleness warning.
+### Key Patterns
 
-### Logging
+- **Pydantic v2** with `Decimal` precision for game data
+- **Event sourcing:** Append-only JSONL + SQLite tape
+- **@tool decorator** for registering agent tools
+- **ToolResult** with `ends_loop=True` for session-switching tools
+- **Hot-reload:** `soul.md` / `data_scope.yaml` changes auto-detected
+- **asyncio throughout:** All I/O is async
 
-- Structured logging with `request_id` / `event_id` for traceability
-- Levels: DEBUG (dev), INFO (normal), WARNING (recoverable), ERROR (failures)
+### Import Rules
+
+Packages have strict dependency directions:
+```
+shared ← sdk ← agents
+shared ← server
+```
+SDK and server do NOT depend on each other — they communicate via HTTP/SSE.
 
 ## Development Workflow
 
-1. Read relevant design docs in `.prd/` and `.design/`
-2. Check existing tests for patterns
-3. Write unit tests before implementation (TDD)
-4. Run `uv run ruff check .` and `uv run pytest` before committing
-5. Update this CLAUDE.md if architecture changes
+1. Check existing tests for patterns
+2. Run `uv run ruff check .` and `uv run pytest` before committing
+3. Use `develop-v5` as the primary development branch
+4. Create feature/fix branches from `develop-v5`
+5. PR review required before merge
 
 ### Design Documents
 
-- `.prd/V2_PRD.md` — Product requirements
-- `.design/V2_TDD.md` — Technical design
-- `.design/V2_SKILL_TOOL_REFACTOR_DESIGN.md` — Skill system design
-- `.design/V3_MEMORY_SYSTEM_SPEC.md` — Memory system spec
-- `.design/V4.2_PERSISTENCE_ENHANCEMENT.md` — Dual-write, DB-first patterns
-
-## Testing Strategy
-
-- **Unit tests:** Mock all I/O and LLM calls. Test pure logic.
-- **Integration tests:** Real database (in-memory), mock LLM. Test event flows.
-- **E2E tests:** Full game loop, mock LLM. Test multi-turn scenarios.
-- **No external dependencies:** All tests runnable without API keys.
+- `docs/architecture/ARCHITECTURE.md` — V5 architecture details
+- `docs/research/v6-architecture-research.md` — Future architecture research
