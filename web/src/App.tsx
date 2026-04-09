@@ -83,8 +83,8 @@ function formatTurn(turn: number): string {
 }
 
 function getSenderName(event: TapeEvent): string {
-  // 所有 player: 开头的消息都显示为"皇帝"
-  if (event.src.startsWith('player:')) return '皇帝';
+  // 所有 player 消息都显示为"皇帝"（API返回 "player"，前端生成 "player:web"）
+  if (isPlayerMessage(event.src)) return '皇帝';
   if (event.src.startsWith('agent:')) {
     const agentId = event.src.replace('agent:', '');
     if (agentId === 'governor_zhili') return '直隶巡抚';
@@ -290,11 +290,16 @@ function extractEventText(event: TapeEvent): string {
   return '';
 }
 
+function isPlayerMessage(src: string): boolean {
+  // Match all player sources: "player" (from API/DB), "player:web", "player:web:group"
+  return src === 'player' || src.startsWith('player:');
+}
+
 function toChatMessages(events: TapeEvent[]): TapeEvent[] {
   return events
     .filter((event) => {
-      // 显示玩家发送的消息（包括私聊 player:web 和群聊 player:web:group）
-      if (event.src === 'player:web' || event.src === 'player:web:group') {
+      // 显示玩家发送的消息（包括来自API的 "player" 和前端的 "player:web" / "player:web:group"）
+      if (isPlayerMessage(event.src)) {
         return normalizeEventType(event.type) === 'chat';
       }
       return isAgentReplyEvent(event);
@@ -303,8 +308,7 @@ function toChatMessages(events: TapeEvent[]): TapeEvent[] {
 }
 
 function toTapeContextEvents(events: TapeEvent[]): TapeEvent[] {
-  return events
-    .filter((event) => !isRespondToPlayerToolResult(event));
+  return events;
 }
 
 function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {
@@ -312,7 +316,7 @@ function hasPendingReply(events: TapeEvent[], sessionId: string): boolean {
   let lastPlayerMessageIndex = -1;
 
   for (let i = 0; i < scoped.length; i += 1) {
-    if ((scoped[i].src === 'player:web' || scoped[i].src === 'player:web:group') && normalizeEventType(scoped[i].type) === 'chat') {
+    if (isPlayerMessage(scoped[i].src) && normalizeEventType(scoped[i].type) === 'chat') {
       lastPlayerMessageIndex = i;
     }
   }
@@ -340,7 +344,11 @@ function getEventTimeMs(event: TapeEvent): number {
 
 function isEquivalentEvent(left: TapeEvent, right: TapeEvent): boolean {
   if (left.session_id !== right.session_id) return false;
-  if (left.src !== right.src) return false;
+  // Normalize player sources: "player", "player:web", "player:web:group" are all equivalent
+  const leftIsPlayer = isPlayerMessage(left.src);
+  const rightIsPlayer = isPlayerMessage(right.src);
+  if (leftIsPlayer !== rightIsPlayer) return false;
+  if (!leftIsPlayer && left.src !== right.src) return false;
   if (!isEquivalentType(left.type, right.type)) return false;
 
   const leftText = extractEventText(left).trim();
@@ -1623,8 +1631,8 @@ export default function App() {
             {isValidSession && (
               <div className="space-y-3">
                 {chatMessages.map((event) => {
-                // 所有 player: 开头的消息都是玩家消息（包括私聊 player:web 和群聊 player:web:group）
-                const isPlayer = event.src.startsWith('player:');
+                // 所有 player 开头的消息都是玩家消息（API返回 "player"，前端生成 "player:web" / "player:web:group"）
+                const isPlayer = isPlayerMessage(event.src);
                 return (
                   <div key={event.event_id} className={`flex ${isPlayer ? 'justify-end' : 'justify-start'}`}>
                     <div

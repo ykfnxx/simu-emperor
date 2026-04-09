@@ -1,15 +1,13 @@
 display_name: 户部尚书
 
-skills:
-  query_data:
-    national: [imperial_treasury, national_tax_modifier, tribute_rate]
-    provinces: all
-    fields:
-      - commerce.*
-      - trade.*
-      - taxation.*
-      - granary_stock
-      - local_treasury
-
-  write_report:
-    inherits: query_data
+provinces: all
+fields:
+  - production_value
+  - population
+  - stockpile
+  - tax_modifier
+nation_fields:
+  - imperial_treasury
+  - base_tax_rate
+  - tribute_rate
+  - fixed_expenditure
