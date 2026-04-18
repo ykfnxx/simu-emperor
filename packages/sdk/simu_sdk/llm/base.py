@@ -50,20 +50,16 @@ class LLMProvider(ABC):
 
 
 def create_llm_provider(config: LLMConfig) -> LLMProvider:
-    """Factory that returns the appropriate provider for *config*."""
-    match config.provider:
-        case "anthropic":
-            from simu_sdk.llm.anthropic import AnthropicProvider
+    """Factory that returns the appropriate provider for *config*.
 
-            return AnthropicProvider(config)
-        case "openai":
-            from simu_sdk.llm.openai import OpenAIProvider
+    Uses any-llm-sdk for all real providers (anthropic, openai, deepseek,
+    groq, etc.).  Only ``mock`` is handled separately for testing.
+    """
+    if config.provider == "mock":
+        from simu_sdk.llm.mock import MockProvider
 
-            return OpenAIProvider(config)
-        case "mock":
-            from simu_sdk.llm.mock import MockProvider
+        return MockProvider(config)
 
-            return MockProvider(config)
-        case _:
-            msg = f"Unknown LLM provider: {config.provider}"
-            raise ValueError(msg)
+    from simu_sdk.llm.any_llm_provider import AnyLLMProvider
+
+    return AnyLLMProvider(config)
