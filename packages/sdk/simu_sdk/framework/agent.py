@@ -314,15 +314,16 @@ class SimuAgent:
         from simu_sdk.framework.plugins.mcp_plugin import MCPClientPlugin
         from simu_sdk.framework.plugins.memory_plugin import SimuMemoryPlugin
 
-        self._framework.register(SimuTapePlugin(self.tape))
-        self._framework.register(SimuContextPlugin(
+        pm = self._framework._plugin_manager
+        pm.register(SimuTapePlugin(self.tape), name="SimuTapePlugin")
+        pm.register(SimuContextPlugin(
             context_manager=self.context_manager,
             soul=self.soul,
             data_scope=self.data_scope,
             session_state=self.session_state,
-        ))
-        self._framework.register(SimuMemoryPlugin(self.memory_retriever))
-        self._framework.register(SimuReActPlugin(
+        ), name="SimuContextPlugin")
+        pm.register(SimuMemoryPlugin(self.memory_retriever), name="SimuMemoryPlugin")
+        pm.register(SimuReActPlugin(
             llm=self.llm,
             tools=self.tools,
             tape=self.tape,
@@ -330,13 +331,13 @@ class SimuAgent:
             agent_id=self.agent_id,
             max_iterations=self.config.react.max_iterations,
             max_tool_calls=self.config.react.max_tool_calls,
-        ))
-        self._framework.register(MCPClientPlugin(
+        ), name="SimuReActPlugin")
+        pm.register(MCPClientPlugin(
             server=self.server,
             agent_id=self.agent_id,
             session_state=self.session_state,
             context_manager=self.context_manager,
-        ))
+        ), name="MCPClientPlugin")
 
         await self.server.register(capabilities=self.tools.list_names())
         logger.info("Agent %s registered with Server (V6 framework)", self.agent_id)
