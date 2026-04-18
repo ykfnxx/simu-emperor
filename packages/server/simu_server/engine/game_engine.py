@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -13,18 +14,25 @@ from simu_server.stores.database import Database
 
 
 class GameEngine:
-    """Combines GameState, TickCoordinator, and IncidentSystem."""
+    """Combines GameState, TickCoordinator, and IncidentSystem.
+
+    A single asyncio.Lock serializes tick and state mutations to prevent
+    concurrent access from MCP queries and tick execution.
+    """
 
     def __init__(self, db: Database) -> None:
         self.state = GameState(db)
-        self.incidents = IncidentSystem()
+        self.incidents = IncidentSystem(db)
         self.tick_coordinator = TickCoordinator(self.state, self.incidents)
+        self._lock = asyncio.Lock()
 
     async def initialize(self, initial_state_path: Path | None = None) -> None:
         await self.state.load(initial_state_path)
+        await self.incidents.load()
 
     async def tick(self, session_id: str) -> TapeEvent:
-        return await self.tick_coordinator.tick(session_id)
+        async with self._lock:
+            return await self.tick_coordinator.tick(session_id)
 
     def query_state(self, path: str = "") -> dict[str, Any]:
         return self.state.query(path)
@@ -32,8 +40,9 @@ class GameEngine:
     def get_overview(self) -> dict[str, Any]:
         return self.state.get_overview()
 
-    def add_incident(self, incident: Incident) -> None:
-        self.incidents.add(incident)
+    async def add_incident(self, incident: Incident) -> None:
+        async with self._lock:
+            await self.incidents.add(incident)
 
     def list_incidents(self) -> list[dict[str, Any]]:
         return self.incidents.list_all()

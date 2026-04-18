@@ -9,6 +9,7 @@ from typing import Any, AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from simu_shared.models import InvocationStatus
 from simu_server.agents.generator import AgentGenerator
 from simu_server.agents.registry import AgentRegistry
 from simu_server.config import settings
@@ -123,7 +124,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         inv = await invocation_manager.create(agent_id, event.session_id, event)
         event_with_inv = event.model_copy(update={"invocation_id": inv.invocation_id})
         await invocation_manager.mark_running(inv.invocation_id)
-        await event_router.route(event_with_inv)
+        try:
+            await event_router.route(event_with_inv)
+        except Exception:
+            logger.exception("Dispatch failed for agent %s, marking invocation FAILED", agent_id)
+            await invocation_manager.complete(
+                inv.invocation_id, InvocationStatus.FAILED, error="dispatch routing failed"
+            )
+            raise
 
     queue_controller.set_dispatcher(dispatch)
 
@@ -180,9 +188,10 @@ def create_app() -> FastAPI:
     """Build the FastAPI application."""
     app = FastAPI(title="Simu-Emperor Server", lifespan=lifespan)
 
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
