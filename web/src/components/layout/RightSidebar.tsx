@@ -13,6 +13,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useChatStore } from '../../stores/chatStore';
 import { formatTurn } from '../../utils/format';
 import { extractEventText, getTapeEventStyle } from '../../utils/tape';
+import { BlockSelector, hasRichBlock } from '../rich/BlockSelector';
 import { OverviewPanel } from '../empire/OverviewPanel';
 import { IncidentPanel } from '../empire/IncidentPanel';
 import { ProvincePanel } from '../empire/ProvincePanel';
@@ -302,6 +303,13 @@ export function RightSidebar({
             )}
 
             {tapeContextEvents.map((event) => {
+              if (hasRichBlock(event)) {
+                return (
+                  <div key={event.event_id}>
+                    <BlockSelector event={event} compact />
+                  </div>
+                );
+              }
               const style = getTapeEventStyle(event.type);
               return (
                 <div key={event.event_id} className={`rounded-xl border p-3 ${style.cardClass}`}>
