@@ -55,7 +55,9 @@ class EventRouter:
     async def broadcast(self, event: TapeEvent) -> list[str]:
         """Send *event* to all connected agents."""
         delivered: list[str] = []
-        for agent_id, q in self._queues.items():
+        # Snapshot to avoid RuntimeError if a connect/disconnect mutates
+        # _queues during iteration (e.g. an agent disconnects while we broadcast).
+        for agent_id, q in list(self._queues.items()):
             try:
                 q.put_nowait(event)
                 delivered.append(agent_id)

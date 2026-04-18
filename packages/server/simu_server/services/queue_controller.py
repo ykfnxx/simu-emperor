@@ -38,16 +38,16 @@ class QueueController:
             logger.warning("Queue full for agent %s, rejecting event", agent_id)
             return False
         await q.put(event)
-        # Kick off processing if not already running
+        # Kick off processing if not already running.
+        # Add to _processing BEFORE creating the task to prevent the TOCTOU
+        # race where two enqueue() calls both see agent_id not in _processing.
         if agent_id not in self._processing:
+            self._processing.add(agent_id)
             asyncio.create_task(self._process_loop(agent_id))
         return True
 
     async def _process_loop(self, agent_id: str) -> None:
         """Drain the queue for *agent_id*, one event at a time."""
-        if agent_id in self._processing:
-            return
-        self._processing.add(agent_id)
 
         try:
             q = self._queues[agent_id]
