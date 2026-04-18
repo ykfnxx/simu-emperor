@@ -162,6 +162,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "queue_controller": queue_controller,
         "agent_registry": agent_registry,
         "ws_manager": ws_manager,
+        "invocation_manager": invocation_manager,
     }
     set_simu_dependencies(**mcp_deps)
     set_role_dependencies(agent_registry=agent_registry)

@@ -18,6 +18,7 @@ dependencies = [
     "pyyaml>=6.0",
     "chromadb>=0.5.0",
     "bub>=0.3.6",
+    "mcp>=1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

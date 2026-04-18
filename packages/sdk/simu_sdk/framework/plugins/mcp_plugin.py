@@ -9,7 +9,7 @@ from typing import Any, TYPE_CHECKING
 from bub.hookspecs import hookimpl
 
 if TYPE_CHECKING:
-    from simu_sdk.client import ServerClient
+    from simu_sdk.mcp_client import MCPServerClient
     from simu_sdk.tape.context import ContextManager
     from simu_sdk.tools.standard import SessionStateManager
 
@@ -20,18 +20,17 @@ class MCPClientPlugin:
     """Handles outbound dispatch — routing responses, posting messages,
     completing invocations, and updating session summaries.
 
-    In V6 Phase 1 this still uses the ServerClient HTTP callbacks.
-    In Phase 2+ this will be replaced with MCP client calls.
+    Uses MCPServerClient for all server communication via MCP protocol.
     """
 
     def __init__(
         self,
-        server: ServerClient,
+        mcp: MCPServerClient,
         agent_id: str,
         session_state: SessionStateManager,
         context_manager: ContextManager,
     ) -> None:
-        self._server = server
+        self._server = mcp
         self._agent_id = agent_id
         self._session_state = session_state
         self._context_manager = context_manager

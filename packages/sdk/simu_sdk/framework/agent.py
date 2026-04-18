@@ -29,6 +29,7 @@ from bub.framework import BubFramework
 
 from simu_sdk.client import ServerClient
 from simu_sdk.config import AgentConfig
+from simu_sdk.mcp_client import MCPServerClient
 from simu_sdk.hot_reload import watch_config
 from simu_sdk.llm.base import LLMProvider, create_llm_provider
 from simu_sdk.memory.metadata import TapeMetadataManager
@@ -96,10 +97,13 @@ class SimuAgent:
         self.agent_id = config.agent_id
         self.config = config
 
-        # Communication (kept for lifecycle — SSE, heartbeat, register)
+        # Lifecycle client (SSE, heartbeat, register)
         self.server = ServerClient(config.server_url, config.agent_id, config.agent_token)
 
-        # Legacy session state (used by StandardTools, bridged to new state machine)
+        # MCP client (all game interaction — replaces HTTP callbacks)
+        self.mcp = MCPServerClient(config.server_url, config.agent_id, config.agent_token)
+
+        # Session state (used by StandardTools, bridged to state machine)
         self.session_state = SessionStateManager()
 
         # LLM
@@ -135,7 +139,7 @@ class SimuAgent:
         # Tools
         self.tools = ToolRegistry()
         self._standard_tools = StandardTools(
-            self.server,
+            self.mcp,
             session_state=self.session_state,
             agent_id=config.agent_id,
         )
@@ -327,20 +331,21 @@ class SimuAgent:
             llm=self.llm,
             tools=self.tools,
             tape=self.tape,
-            server=self.server,
+            mcp=self.mcp,
             agent_id=self.agent_id,
             max_iterations=self.config.react.max_iterations,
             max_tool_calls=self.config.react.max_tool_calls,
         ), name="SimuReActPlugin")
         pm.register(MCPClientPlugin(
-            server=self.server,
+            mcp=self.mcp,
             agent_id=self.agent_id,
             session_state=self.session_state,
             context_manager=self.context_manager,
         ), name="MCPClientPlugin")
 
         await self.server.register(capabilities=self.tools.list_names())
-        logger.info("Agent %s registered with Server (V6 framework)", self.agent_id)
+        await self.mcp.connect()
+        logger.info("Agent %s registered with Server (V6 framework, MCP)", self.agent_id)
 
         self._running = True
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -358,6 +363,7 @@ class SimuAgent:
         if self._watch_task:
             self._watch_task.cancel()
         await self.server.deregister()
+        await self.mcp.close()
         await self.memory_store.close()
         await self.metadata_manager.close()
         await self.tape.close()
@@ -376,7 +382,7 @@ class SimuAgent:
                 await self.on_event(event)
             except Exception as exc:
                 logger.exception("Error handling event %s", event.event_id)
-                await self.server.report_error(event, exc)
+                await self.mcp.report_error(event, exc)
 
     async def _heartbeat_loop(self) -> None:
         while self._running:
@@ -408,7 +414,7 @@ class SimuAgent:
             return
         title = await self.context_manager.generate_title(event)
         await self.metadata_manager.create_metadata(event.session_id, title)
-        await self.server.update_session_title(event.session_id, title)
+        await self.mcp.update_session_title(event.session_id, title)
         logger.info("Generated title for session %s: %s", event.session_id, title)
 
 

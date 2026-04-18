@@ -21,7 +21,7 @@ from simu_sdk.tape.context import ContextWindow
 from simu_sdk.tools.registry import ToolRegistry, ToolResult
 
 if TYPE_CHECKING:
-    from simu_sdk.client import ServerClient
+    from simu_sdk.mcp_client import MCPServerClient
     from simu_sdk.tape.manager import TapeManager
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class ReActLoop:
         context: ContextWindow,
         tape: TapeManager | None = None,
         agent_id: str = "",
-        server: ServerClient | None = None,
+        server: MCPServerClient | None = None,
     ) -> ReActResult:
         """Run the loop and return the final result."""
         messages = self._build_initial_messages(event, context)

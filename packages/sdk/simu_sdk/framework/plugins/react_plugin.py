@@ -12,8 +12,8 @@ from simu_sdk.react import ReActLoop
 from simu_sdk.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from simu_sdk.client import ServerClient
     from simu_sdk.llm.base import LLMProvider
+    from simu_sdk.mcp_client import MCPServerClient
     from simu_sdk.tape.manager import TapeManager
 
 logger = logging.getLogger(__name__)
@@ -31,14 +31,14 @@ class SimuReActPlugin:
         llm: LLMProvider,
         tools: ToolRegistry,
         tape: TapeManager,
-        server: ServerClient,
+        mcp: MCPServerClient,
         agent_id: str,
         max_iterations: int = 10,
         max_tool_calls: int = 20,
     ) -> None:
         self._react_loop = ReActLoop(llm, tools, max_iterations, max_tool_calls)
         self._tape = tape
-        self._server = server
+        self._mcp = mcp
         self._agent_id = agent_id
 
     @hookimpl
@@ -63,7 +63,7 @@ class SimuReActPlugin:
             context=context,
             tape=self._tape,
             agent_id=self._agent_id,
-            server=self._server,
+            server=self._mcp,
         )
 
         # Store result in state for downstream hooks

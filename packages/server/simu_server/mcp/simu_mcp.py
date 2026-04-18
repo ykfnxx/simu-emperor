@@ -21,7 +21,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from simu_shared.constants import EventType
-from simu_shared.models import Effect, Incident, RoutedMessage, SessionStatus, TapeEvent
+from simu_shared.models import Effect, Incident, InvocationStatus, RoutedMessage, SessionStatus, TapeEvent
 
 from simu_server.mcp.auth import get_agent_id
 
@@ -471,6 +471,75 @@ async def push_tape_event(
                 if target_id != agent_id:
                     await queue.enqueue(target_id, event)
 
+    return json.dumps({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Tool: complete_invocation
+# ---------------------------------------------------------------------------
+
+
+@simu_mcp.tool()
+async def complete_invocation(
+    invocation_id: str,
+    status: str = "succeeded",
+    error: str | None = None,
+) -> str:
+    """Complete an agent invocation lifecycle.
+
+    Args:
+        invocation_id: The invocation to complete.
+        status: "succeeded" or "failed".
+        error: Error message if status is "failed".
+
+    Returns:
+        JSON status.
+    """
+    get_agent_id()  # ensure authenticated
+    inv_mgr = _get("invocation_manager")
+    inv_status = InvocationStatus(status)
+    await inv_mgr.complete(invocation_id, inv_status, error)
+    return json.dumps({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Tool: update_session_title
+# ---------------------------------------------------------------------------
+
+
+@simu_mcp.tool()
+async def update_session_title(
+    session_id: str,
+    title: str,
+) -> str:
+    """Update a session's title (typically LLM-generated).
+
+    Args:
+        session_id: The session to update.
+        title: The new title.
+
+    Returns:
+        JSON status.
+    """
+    agent_id = get_agent_id()
+    sm = _get("session_manager")
+    ws_mgr = _get("ws_manager")
+
+    session = await sm.get(session_id)
+    existing = session.metadata if session else {}
+    existing["title"] = title
+    await sm.update_metadata(session_id, existing)
+
+    await ws_mgr.broadcast({
+        "kind": "session_title",
+        "data": {
+            "session_id": session_id,
+            "title": title,
+            "agent_id": agent_id,
+        },
+    })
+
+    logger.info("Agent %s set title for session %s: %s", agent_id, session_id, title)
     return json.dumps({"status": "ok"})
 
 

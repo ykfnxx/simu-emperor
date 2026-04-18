@@ -20,7 +20,7 @@ from simu_sdk.tools.registry import ToolResult, tool
 if TYPE_CHECKING:
     from simu_shared.models import TapeEvent
 
-    from simu_sdk.client import ServerClient
+    from simu_sdk.mcp_client import MCPServerClient
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +31,17 @@ MAX_TASK_DEPTH = 5
 class StandardTools:
     """Communication and task management tool set.
 
-    Requires a ``ServerClient`` instance and a reference to the agent's
+    Requires an ``MCPServerClient`` instance and a reference to the agent's
     session state manager for task session support.
     """
 
     def __init__(
         self,
-        server: ServerClient,
+        mcp: MCPServerClient,
         session_state: SessionStateManager | None = None,
         agent_id: str = "",
     ) -> None:
-        self._server = server
+        self._server = mcp
         self._session_state = session_state
         self._agent_id = agent_id
 
