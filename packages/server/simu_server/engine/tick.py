@@ -48,7 +48,7 @@ class TickCoordinator:
         nation.imperial_treasury += total_tax - nation.fixed_expenditure
 
         # 3. Incident effects
-        expired = self._incidents.apply_tick(nation)
+        expired = await self._incidents.apply_tick(nation)
 
         # 4. Increment turn
         nation.turn += 1

@@ -80,6 +80,9 @@ class ServerConfig(BaseSettings):
     agent_invocation_timeout: int = 600  # seconds
     agent_queue_depth: int = 10
 
+    # CORS (comma-separated origins, default "*" for development)
+    cors_origins: str = "*"
+
     # LLM (for agent generation only — Server does NOT do LLM reasoning)
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-4-20250514"
@@ -91,8 +94,13 @@ class ServerConfig(BaseSettings):
         """Resolve relative paths against the project root, not CWD."""
         root = _find_project_root()
         path_fields = [
-            "data_dir", "db_path", "memory_dir", "agent_templates_dir",
-            "agents_dir", "default_agents_dir", "initial_state_path",
+            "data_dir",
+            "db_path",
+            "memory_dir",
+            "agent_templates_dir",
+            "agents_dir",
+            "default_agents_dir",
+            "initial_state_path",
         ]
         for field in path_fields:
             p = getattr(self, field)

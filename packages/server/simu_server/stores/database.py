@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS game_state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Incidents
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id     TEXT PRIMARY KEY,
+    data            TEXT NOT NULL,
+    remaining_ticks INTEGER NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

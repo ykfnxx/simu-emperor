@@ -56,6 +56,7 @@ simu_mcp = FastMCP("simu-mcp")
 # Tool: query_state
 # ---------------------------------------------------------------------------
 
+
 @simu_mcp.tool()
 async def query_state(path: str = "") -> str:
     """Query the current game state.
@@ -77,17 +78,27 @@ async def query_state(path: str = "") -> str:
 # Tool: send_message
 # ---------------------------------------------------------------------------
 
+
 @simu_mcp.tool()
-async def send_message(recipients: list[str], message: str, session_id: str) -> str:
+async def send_message(
+    recipients: list[str],
+    message: str,
+    session_id: str,
+    await_reply: bool = False,
+) -> str:
     """Send a message to other agents or the player.
 
     Args:
         recipients: List of target agent IDs (e.g. ["governor_zhili"]) or "player".
         message: The message content.
         session_id: The session this message belongs to.
+        await_reply: If True, the caller expects to block until a reply arrives.
+            The server records this intent; the agent-side state machine handles
+            actual blocking via SSE events.
 
     Returns:
-        JSON with the generated event_id.
+        JSON with event_id and await_reply flag. When await_reply=True, the
+        agent should mark its session as BLOCKED and wait for a RESPONSE event.
     """
     agent_id = get_agent_id()
     msg_store = _get("message_store")
@@ -119,18 +130,24 @@ async def send_message(recipients: list[str], message: str, session_id: str) -> 
 
     agent_reg = await _get("agent_registry").get(agent_id)
     display_name = agent_reg.display_name if agent_reg else agent_id
-    await ws_mgr.broadcast({
-        "kind": "chat",
-        "data": {
-            "agent": agent_id,
-            "agentDisplayName": display_name,
-            "text": message,
-            "timestamp": event.timestamp.isoformat(),
-            "session_id": session_id,
-        },
-    })
+    await ws_mgr.broadcast(
+        {
+            "kind": "chat",
+            "data": {
+                "agent": agent_id,
+                "agentDisplayName": display_name,
+                "text": message,
+                "timestamp": event.timestamp.isoformat(),
+                "session_id": session_id,
+            },
+        }
+    )
 
-    return json.dumps({"event_id": event.event_id})
+    result: dict[str, Any] = {"event_id": event.event_id}
+    if await_reply:
+        result["await_reply"] = True
+        result["awaiting_from"] = [f"agent:{r}" if r != "player" else r for r in recipients]
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +250,14 @@ async def create_incident(
         remaining_ticks=remaining_ticks,
         source=source or f"agent:{agent_id}",
     )
-    engine.add_incident(incident)
+    await engine.add_incident(incident)
 
     logger.info(
         "Agent %s created incident '%s' (%d effects, %d ticks)",
-        agent_id, title, len(built_effects), remaining_ticks,
+        agent_id,
+        title,
+        len(built_effects),
+        remaining_ticks,
     )
     return json.dumps({"incident_id": incident.incident_id, "status": "created"})
 
@@ -245,6 +265,7 @@ async def create_incident(
 # ---------------------------------------------------------------------------
 # Tool: create_task_session
 # ---------------------------------------------------------------------------
+
 
 @simu_mcp.tool()
 async def create_task_session(
@@ -279,14 +300,17 @@ async def create_task_session(
         session_id=task_session_id,
     )
     await sm.add_agent(task_session_id, agent_id)
-    await sm.update_metadata(task_session_id, {
-        "goal": goal,
-        "description": description,
-        "constraints": constraints,
-        "timeout_seconds": timeout_seconds,
-        "depth": depth,
-        "created_by_agent": agent_id,
-    })
+    await sm.update_metadata(
+        task_session_id,
+        {
+            "goal": goal,
+            "description": description,
+            "constraints": constraints,
+            "timeout_seconds": timeout_seconds,
+            "depth": depth,
+            "created_by_agent": agent_id,
+        },
+    )
 
     task_event = RoutedMessage(
         session_id=task_session_id,
@@ -299,7 +323,10 @@ async def create_task_session(
 
     logger.info(
         "Agent %s created task session %s (parent=%s, goal=%s)",
-        agent_id, task_session_id, parent_session_id, goal,
+        agent_id,
+        task_session_id,
+        parent_session_id,
+        goal,
     )
     return json.dumps({"task_session_id": task_session_id})
 
@@ -307,6 +334,7 @@ async def create_task_session(
 # ---------------------------------------------------------------------------
 # Tool: finish_task_session
 # ---------------------------------------------------------------------------
+
 
 @simu_mcp.tool()
 async def finish_task_session(
@@ -359,19 +387,23 @@ async def finish_task_session(
         )
         await queue.enqueue(agent_id, finish_event)
 
-    await ws_mgr.broadcast({
-        "kind": "task_finished",
-        "data": {
-            "task_session_id": task_session_id,
-            "parent_session_id": parent_session_id,
-            "status": status,
-            "result": result,
-        },
-    })
+    await ws_mgr.broadcast(
+        {
+            "kind": "task_finished",
+            "data": {
+                "task_session_id": task_session_id,
+                "parent_session_id": parent_session_id,
+                "status": status,
+                "result": result,
+            },
+        }
+    )
 
     logger.info(
         "Agent %s finished task session %s (status=%s)",
-        agent_id, task_session_id, status,
+        agent_id,
+        task_session_id,
+        status,
     )
     return json.dumps({"status": "ok"})
 
@@ -379,6 +411,7 @@ async def finish_task_session(
 # ---------------------------------------------------------------------------
 # Tool: push_tape_event
 # ---------------------------------------------------------------------------
+
 
 @simu_mcp.tool()
 async def push_tape_event(
@@ -444,6 +477,7 @@ async def push_tape_event(
 # ---------------------------------------------------------------------------
 # Shared validation helpers (extracted from routes/callback.py)
 # ---------------------------------------------------------------------------
+
 
 def _load_data_scope(agent_id: str) -> dict[str, Any]:
     """Load data_scope.yaml for an agent.
@@ -524,7 +558,10 @@ def _validate_effect(
     _allow_non_positive = {"tax_modifier", "base_production_growth", "base_population_growth"}
 
     nation_field_names = {
-        "imperial_treasury", "base_tax_rate", "tribute_rate", "fixed_expenditure",
+        "imperial_treasury",
+        "base_tax_rate",
+        "tribute_rate",
+        "fixed_expenditure",
     }
     canonical_path = effect.target_path
     if len(parts) == 1 and parts[0] in nation_field_names:

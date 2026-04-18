@@ -3,6 +3,8 @@
 Incidents apply one-time additive changes and ongoing multiplicative
 factors to the game state.  Each tick decrements remaining_ticks; when
 it reaches zero the incident expires.
+
+Incidents are persisted to SQLite so they survive server restarts.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 
 from simu_shared.models import Effect, Incident, NationData
+from simu_server.stores.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -19,18 +22,35 @@ logger = logging.getLogger(__name__)
 class IncidentSystem:
     """Manages active incidents and applies their effects each tick."""
 
-    def __init__(self) -> None:
+    def __init__(self, db: Database) -> None:
+        self._db = db
         self._incidents: list[Incident] = []
+
+    async def load(self) -> None:
+        """Load active incidents from SQLite on startup."""
+        cursor = await self._db.conn.execute(
+            "SELECT data FROM incidents WHERE remaining_ticks > 0",
+        )
+        rows = await cursor.fetchall()
+        for (data,) in rows:
+            self._incidents.append(Incident.model_validate_json(data))
+        if self._incidents:
+            logger.info("Restored %d active incidents from database", len(self._incidents))
 
     @property
     def active(self) -> list[Incident]:
         return [i for i in self._incidents if i.remaining_ticks > 0]
 
-    def add(self, incident: Incident) -> None:
+    async def add(self, incident: Incident) -> None:
         self._incidents.append(incident)
+        await self._db.conn.execute(
+            "INSERT OR REPLACE INTO incidents (incident_id, data, remaining_ticks) VALUES (?, ?, ?)",
+            (incident.incident_id, incident.model_dump_json(), incident.remaining_ticks),
+        )
+        await self._db.conn.commit()
         logger.info("Incident added: %s (%d ticks)", incident.title, incident.remaining_ticks)
 
-    def apply_tick(self, nation: NationData) -> list[Incident]:
+    async def apply_tick(self, nation: NationData) -> list[Incident]:
         """Apply all active effects and tick down.  Returns newly expired incidents."""
         expired: list[Incident] = []
 
@@ -48,6 +68,14 @@ class IncidentSystem:
             if incident.remaining_ticks <= 0:
                 expired.append(incident)
                 logger.info("Incident expired: %s", incident.title)
+
+        # Persist updated state
+        for incident in self._incidents:
+            await self._db.conn.execute(
+                "UPDATE incidents SET data = ?, remaining_ticks = ? WHERE incident_id = ?",
+                (incident.model_dump_json(), incident.remaining_ticks, incident.incident_id),
+            )
+        await self._db.conn.commit()
 
         return expired
 

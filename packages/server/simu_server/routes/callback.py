@@ -760,7 +760,7 @@ async def create_incident(
         remaining_ticks=req.remaining_ticks,
         source=req.source or f"agent:{x_agent_id}",
     )
-    engine.add_incident(incident)
+    await engine.add_incident(incident)
 
     logger.info(
         "Agent %s created incident '%s' (%d effects, %d ticks)",
