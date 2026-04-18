@@ -12,6 +12,7 @@ and implement hooks via ``@hookimpl``.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -84,27 +85,31 @@ class BubFramework:
         hook = self._pm.hook
 
         # 1. Resolve session
-        session_id = hook.resolve_session(envelope=envelope)
+        session_id = await self._call_hook(hook.resolve_session, envelope=envelope)
         if not session_id:
             session_id = envelope.session_id
         logger.debug("Resolved session: %s", session_id)
 
         # 2. Load state — each plugin contributes its portion
         state = SimuTurnState(session_id=session_id)
-        contributions = hook.load_state(envelope=envelope, session_id=session_id)
-        for contrib in contributions:
-            if contrib is not None:
-                self._merge_state(state, contrib)
+        contributions = await self._call_hook(
+            hook.load_state, envelope=envelope, session_id=session_id,
+        )
+        if isinstance(contributions, list):
+            for contrib in contributions:
+                if contrib is not None:
+                    self._merge_state(state, contrib)
 
         # 3. Build prompt
-        prompt = hook.build_prompt(
-            envelope=envelope, session_id=session_id, state=state,
+        prompt = await self._call_hook(
+            hook.build_prompt, envelope=envelope, session_id=session_id, state=state,
         )
         if prompt:
             state.system_prompt = prompt
 
         # 4. Run model (ReAct loop)
-        result = hook.run_model(
+        result = await self._call_hook(
+            hook.run_model,
             envelope=envelope, session_id=session_id, state=state, prompt=state.system_prompt,
         )
         logger.debug(
@@ -113,16 +118,33 @@ class BubFramework:
         )
 
         # 5. Save state — each plugin persists its portion
-        hook.save_state(
+        await self._call_hook(
+            hook.save_state,
             envelope=envelope, session_id=session_id, state=state, result=result,
         )
 
         # 6. Dispatch outbound
-        hook.dispatch_outbound(
+        await self._call_hook(
+            hook.dispatch_outbound,
             envelope=envelope, session_id=session_id, state=state, result=result,
         )
 
         return TurnResult(session_id=session_id, state=state, result=result)
+
+    @staticmethod
+    async def _call_hook(hook_method: Any, **kwargs: Any) -> Any:
+        """Call a pluggy hook, awaiting any coroutine results.
+
+        pluggy does not natively support async hooks — calling an async
+        hookimpl returns an unawaited coroutine.  This wrapper detects
+        and awaits them transparently.
+        """
+        results = hook_method(**kwargs)
+        if isinstance(results, list):
+            return [await r if inspect.iscoroutine(r) else r for r in results]
+        if inspect.iscoroutine(results):
+            return await results
+        return results
 
     @staticmethod
     def _merge_state(state: SimuTurnState, contrib: Any) -> None:

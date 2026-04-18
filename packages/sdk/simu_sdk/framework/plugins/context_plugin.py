@@ -65,7 +65,7 @@ class SimuContextPlugin:
         parts.append(self._agent_reply_instructions())
         return "\n\n".join(parts)
 
-    # --- Instruction templates (reused from BaseAgent) ---
+    # --- Instruction templates ---
 
     @staticmethod
     def _action_execution_instructions() -> str:

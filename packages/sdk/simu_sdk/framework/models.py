@@ -42,5 +42,5 @@ class SimuTurnState:
     ended_by_tool: str | None = None
 
     # Session transition flags (set by tools during run_model)
-    new_task_session_id: str | None = None
+    new_task_session_id: bool = False
     drain_queue_after: bool = False

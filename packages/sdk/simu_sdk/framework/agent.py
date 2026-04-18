@@ -18,11 +18,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import signal
+
 import yaml
 
 from simu_shared.constants import EventType
 from simu_shared.models import TapeEvent
-import signal
 
 from simu_sdk.client import ServerClient
 from simu_sdk.config import AgentConfig
@@ -34,11 +35,13 @@ from simu_sdk.memory.retriever import MemoryRetriever
 from simu_sdk.memory.store import MemoryStore
 from simu_sdk.tape.context import ContextManager
 from simu_sdk.tape.manager import TapeManager
+from simu_sdk.tools.memory import MemoryTools
 from simu_sdk.tools.registry import ToolRegistry
-from simu_sdk.tools.standard import SessionStateManager
+from simu_sdk.tools.standard import SessionStateManager, StandardTools
 
 logger = logging.getLogger(__name__)
 
+MAX_TASK_DEPTH = 5
 
 # ---------------------------------------------------------------------------
 # Session state dataclass
@@ -130,6 +133,15 @@ class SimuAgent:
 
         # Tools
         self.tools = ToolRegistry()
+        self._standard_tools = StandardTools(
+            self.server,
+            session_state=self.session_state,
+            agent_id=config.agent_id,
+        )
+        self.tools.register_provider(self._standard_tools)
+        self._memory_tools = MemoryTools(self.memory_retriever)
+        self.tools.register_provider(self._memory_tools)
+        self.tools.register_provider(self)  # auto-register @tool methods on subclasses
 
         # Personality
         self.soul: str = ""
@@ -234,7 +246,9 @@ class SimuAgent:
         # Check if a tool triggered a session transition
         state = turn.state
         if state.new_task_session_id:
-            await self._enter_task_session(event, state.new_task_session_id)
+            task_session_id = self.session_state.get_active_session()
+            if task_session_id:
+                await self._enter_task_session(event, task_session_id)
 
     async def _drain_queue(self, session: SessionState) -> None:
         """Process queued messages one by one while session stays idle."""
@@ -250,11 +264,19 @@ class SimuAgent:
 
     async def _enter_task_session(self, parent_event: TapeEvent, task_session_id: str) -> None:
         """Dispatch a synthetic event into a newly created task session."""
+        parent_session = self._get_or_create_session(parent_event.session_id)
+
+        if parent_session.depth >= MAX_TASK_DEPTH:
+            logger.warning(
+                "Max task depth %d reached, rejecting task %s",
+                MAX_TASK_DEPTH, task_session_id,
+            )
+            return
+
         goal = self.session_state.get_goal(task_session_id)
         logger.info("Entering task session %s (goal=%s)", task_session_id, goal)
 
         # Register in state machine
-        parent_session = self._get_or_create_session(parent_event.session_id)
         parent_session.pending_tasks.add(task_session_id)
         parent_session.recompute_status()
 

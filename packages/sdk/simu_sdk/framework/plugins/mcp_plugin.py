@@ -35,6 +35,7 @@ class MCPClientPlugin:
         self._agent_id = agent_id
         self._session_state = session_state
         self._context_manager = context_manager
+        self._background_tasks: set[asyncio.Task] = set()
 
     @hookimpl
     async def dispatch_outbound(
@@ -55,8 +56,10 @@ class MCPClientPlugin:
         )
         await self._server.push_tape_event(response_event, route=should_route)
 
-        # Update session summary in background
-        asyncio.create_task(self._update_summary(session_id))
+        # Update session summary in background (prevent GC from swallowing exceptions)
+        task = asyncio.create_task(self._update_summary(session_id))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
         # Send response to player (non-task sessions, natural endings only)
         if (

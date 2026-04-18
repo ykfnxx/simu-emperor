@@ -83,6 +83,6 @@ class SimuReActPlugin:
 
         # Track session transitions from tools
         if result.ended_by_tool == "create_task_session":
-            state.new_task_session_id = "pending"  # Signal to SimuAgent
+            state.new_task_session_id = True  # Signal to SimuAgent
 
         return result
