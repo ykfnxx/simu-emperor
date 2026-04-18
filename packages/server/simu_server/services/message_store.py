@@ -25,8 +25,8 @@ class MessageStore:
     async def store(self, msg: RoutedMessage) -> None:
         await self._db.conn.execute(
             """
-            INSERT INTO messages (message_id, session_id, src, dst, content, event_type, timestamp, origin_event_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (message_id, session_id, src, dst, content, event_type, timestamp, origin_event_id, payload_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 msg.message_id,
@@ -37,6 +37,7 @@ class MessageStore:
                 msg.event_type,
                 msg.timestamp.isoformat(),
                 msg.origin_event_id,
+                msg.payload_json,
             ),
         )
         await self._db.conn.commit()
@@ -104,4 +105,5 @@ class MessageStore:
             event_type=row[5],
             timestamp=row[6],
             origin_event_id=row[7],
+            payload_json=row[8] if len(row) > 8 else None,
         )

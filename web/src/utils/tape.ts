@@ -124,8 +124,8 @@ export function extractEventText(event: TapeEvent): string {
   const message = payload.message;
   const command = payload.command;
   const description = payload.description;
-  const tool = payload.tool;
-  const result = payload.result;
+  const tool = payload.tool_name ?? payload.tool;
+  const result = payload.output ?? payload.result;
   const thought = payload.thought;
   const actions = payload.actions;
   const assistantReply = extractRespondToPlayerContent(payload);

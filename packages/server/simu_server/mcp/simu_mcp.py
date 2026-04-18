@@ -451,6 +451,7 @@ async def push_tape_event(
         content=content,
         event_type=event_type,
         origin_event_id=parent_event_id,
+        payload_json=json.dumps(payload, ensure_ascii=False, default=str),
     )
     await msg_store.store(msg)
 
