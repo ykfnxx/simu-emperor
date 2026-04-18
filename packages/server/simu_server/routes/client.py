@@ -5,6 +5,7 @@ Preserves all V4 Web API functionality per design constraint.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from typing import Any
 
@@ -542,7 +543,7 @@ async def get_current_tape(
             "src": m.src,
             "dst": m.dst,
             "type": m.event_type,
-            "payload": {"content": m.content},
+            "payload": json.loads(m.payload_json) if m.payload_json else {"content": m.content},
             "timestamp": m.timestamp.isoformat() if m.timestamp else "",
             "session_id": m.session_id,
             "agent_id": agent_id,

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content       TEXT NOT NULL,
     event_type    TEXT NOT NULL,
     timestamp     TEXT NOT NULL,
-    origin_event_id TEXT
+    origin_event_id TEXT,
+    payload_json  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, timestamp);
 
@@ -94,8 +95,18 @@ class Database:
         self._conn = await aiosqlite.connect(str(self._db_path))
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.executescript(_SCHEMA)
+        await self._migrate(self._conn)
         await self._conn.commit()
         logger.info("Database initialized at %s", self._db_path)
+
+    @staticmethod
+    async def _migrate(conn: aiosqlite.Connection) -> None:
+        """Apply incremental schema migrations for existing databases."""
+        cursor = await conn.execute("PRAGMA table_info(messages)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "payload_json" not in columns:
+            await conn.execute("ALTER TABLE messages ADD COLUMN payload_json TEXT")
+            logger.info("Migrated messages table: added payload_json column")
 
     @property
     def conn(self) -> aiosqlite.Connection:

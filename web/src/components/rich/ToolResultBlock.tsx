@@ -62,9 +62,12 @@ function renderResult(tool: string, result: string, compact: boolean) {
 
 export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps) {
   const payload = event.payload ?? {};
-  const tool = typeof payload.tool === 'string' ? payload.tool : '';
+  // Backend uses tool_name/output (react.py:185-186), old format uses tool/result
+  const tool = typeof payload.tool_name === 'string' ? payload.tool_name
+    : typeof payload.tool === 'string' ? payload.tool : '';
   const args = payload.arguments as Record<string, unknown> | undefined;
-  const result = typeof payload.result === 'string' ? payload.result : '';
+  const result = typeof payload.output === 'string' ? payload.output
+    : typeof payload.result === 'string' ? payload.result : '';
   const endsLoop = !!payload.ends_loop;
 
   const agentId = event.src.replace('agent:', '');

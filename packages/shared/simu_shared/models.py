@@ -106,6 +106,7 @@ class RoutedMessage(BaseModel):
     event_type: str
     timestamp: datetime = Field(default_factory=_utcnow)
     origin_event_id: str | None = None  # points to source TapeEvent
+    payload_json: str | None = None  # full TapeEvent payload as JSON string
 
 
 # ---------------------------------------------------------------------------
