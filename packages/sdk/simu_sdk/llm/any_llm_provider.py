@@ -1,25 +1,37 @@
-"""OpenAI provider."""
+"""Unified LLM provider via any-llm-sdk.
+
+Supports all providers (anthropic, openai, deepseek, groq, etc.)
+through a single implementation. Responses are normalized to OpenAI
+ChatCompletion format by any-llm-sdk.
+"""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from openai import AsyncOpenAI
+from any_llm import acompletion
 
 from simu_shared.models import LLMConfig
 from simu_sdk.llm.base import LLMProvider, LLMResponse, ToolCall
 
 
-class OpenAIProvider(LLMProvider):
-    """Calls OpenAI-compatible APIs (GPT, etc.)."""
+class AnyLLMProvider(LLMProvider):
+    """LLM provider backed by any-llm-sdk.
+
+    All providers use OpenAI message format — any-llm-sdk handles
+    conversion to/from provider-native formats (e.g. Anthropic tool_use).
+    """
+
+    message_format = "openai"
 
     def __init__(self, config: LLMConfig) -> None:
-        self._config = config
-        kwargs: dict[str, Any] = {"api_key": config.api_key}
-        if config.base_url:
-            kwargs["base_url"] = config.base_url
-        self._client = AsyncOpenAI(**kwargs)
+        self._model = config.model
+        self._provider = config.provider
+        self._api_key = config.api_key
+        self._api_base = config.base_url
+        self._temperature = config.temperature
+        self._max_tokens = config.max_tokens
 
     async def call(
         self,
@@ -31,16 +43,17 @@ class OpenAIProvider(LLMProvider):
         if system:
             full_messages.insert(0, {"role": "system", "content": system})
 
-        kwargs: dict[str, Any] = {
-            "model": self._config.model,
-            "max_tokens": self._config.max_tokens,
-            "temperature": self._config.temperature,
-            "messages": full_messages,
-        }
-        if tools:
-            kwargs["tools"] = tools
+        response = await acompletion(
+            model=self._model,
+            provider=self._provider,
+            messages=full_messages,
+            tools=tools or None,
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            api_key=self._api_key,
+            api_base=self._api_base,
+        )
 
-        response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
         msg = choice.message
 
@@ -67,4 +80,4 @@ class OpenAIProvider(LLMProvider):
         )
 
     async def close(self) -> None:
-        await self._client.close()
+        pass  # acompletion manages clients internally

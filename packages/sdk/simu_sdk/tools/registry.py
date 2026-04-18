@@ -1,7 +1,7 @@
 """Tool registry with @tool decorator for auto-discovery.
 
 Usage:
-    class MyAgent(BaseAgent):
+    class MyAgent(SimuAgent):
         @tool(name="greet", description="Say hello", parameters={"name": {"type": "string"}})
         async def greet(self, args: dict, event: TapeEvent) -> str:
             return f"Hello {args['name']}"
