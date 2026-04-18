@@ -49,7 +49,7 @@ class ReActLoop:
         context: ContextWindow,
         tape: TapeManager | None = None,
         agent_id: str = "",
-        server: MCPServerClient | None = None,
+        mcp: MCPServerClient | None = None,
     ) -> ReActResult:
         """Run the loop and return the final result."""
         messages = self._build_initial_messages(event, context)
@@ -82,8 +82,8 @@ class ReActLoop:
                     response,
                     agent_id,
                 )
-                if server and tape_evt:
-                    await server.push_tape_event(tape_evt)
+                if mcp and tape_evt:
+                    await mcp.push_tape_event(tape_evt)
 
             # Execute tool calls
             tool_results: list[dict[str, str]] = []
@@ -115,8 +115,8 @@ class ReActLoop:
                         result,
                         agent_id,
                     )
-                    if server and tape_evt:
-                        await server.push_tape_event(tape_evt)
+                    if mcp and tape_evt:
+                        await mcp.push_tape_event(tape_evt)
 
                 if result.ends_loop:
                     return ReActResult(

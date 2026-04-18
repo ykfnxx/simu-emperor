@@ -63,7 +63,7 @@ class SimuReActPlugin:
             context=context,
             tape=self._tape,
             agent_id=self._agent_id,
-            server=self._mcp,
+            mcp=self._mcp,
         )
 
         # Store result in state for downstream hooks

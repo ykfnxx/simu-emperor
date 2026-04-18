@@ -30,7 +30,7 @@ class MCPClientPlugin:
         session_state: SessionStateManager,
         context_manager: ContextManager,
     ) -> None:
-        self._server = mcp
+        self._mcp = mcp
         self._agent_id = agent_id
         self._session_state = session_state
         self._context_manager = context_manager
@@ -55,7 +55,7 @@ class MCPClientPlugin:
             and event.src.startswith("agent:")
             and event.src != f"agent:{self._agent_id}"
         )
-        await self._server.push_tape_event(response_event, route=should_route)
+        await self._mcp.push_tape_event(response_event, route=should_route)
 
         # Update session summary in background (prevent GC from swallowing exceptions)
         task = asyncio.create_task(self._update_summary(session_id))
@@ -68,7 +68,7 @@ class MCPClientPlugin:
             and not session_id.startswith("task:")
             and ended_by_tool is None
         ):
-            await self._server.post_message(
+            await self._mcp.post_message(
                 recipients=["player"],
                 message=model_output,
                 session_id=session_id,
@@ -77,7 +77,7 @@ class MCPClientPlugin:
         # Complete invocation
         invocation_id = getattr(event, "invocation_id", None)
         if invocation_id:
-            await self._server.complete_invocation(invocation_id)
+            await self._mcp.complete_invocation(invocation_id)
 
     async def _update_summary(self, session_id: str) -> None:
         try:

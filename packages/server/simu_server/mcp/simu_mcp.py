@@ -526,7 +526,9 @@ async def update_session_title(
     ws_mgr = _get("ws_manager")
 
     session = await sm.get(session_id)
-    existing = session.metadata if session else {}
+    if session is None:
+        return json.dumps({"error": f"Session {session_id} not found"})
+    existing = session.metadata or {}
     existing["title"] = title
     await sm.update_metadata(session_id, existing)
 

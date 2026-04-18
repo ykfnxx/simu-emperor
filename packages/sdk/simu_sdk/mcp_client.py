@@ -21,6 +21,8 @@ from simu_shared.models import TapeEvent
 
 logger = logging.getLogger(__name__)
 
+_MAX_RECONNECT_ATTEMPTS = 3
+
 
 class MCPCallError(Exception):
     """Raised when an MCP tool call returns an error."""
@@ -43,77 +45,108 @@ def _extract_text(result: Any) -> str:
     return "\n".join(parts)
 
 
-class MCPServerClient:
-    """Agent's MCP connection to the Server.
+class _MCPSession:
+    """Manages a single MCP session with its transport context managers."""
 
-    Manages two persistent MCP sessions (simu + role) over Streamable HTTP.
-    Authentication is via X-Agent-Id / X-Callback-Token headers.
-    """
-
-    def __init__(self, server_url: str, agent_id: str, agent_token: str) -> None:
-        self._base_url = server_url.rstrip("/")
-        self._agent_id = agent_id
-        self._headers = {
-            "X-Agent-Id": agent_id,
-            "X-Callback-Token": agent_token,
-        }
-        self._simu_session: ClientSession | None = None
-        self._role_session: ClientSession | None = None
+    def __init__(self, url: str, headers: dict[str, str]) -> None:
+        self._url = url
+        self._headers = headers
+        self._session: ClientSession | None = None
         self._contexts: list[Any] = []
 
-    async def connect(self) -> None:
-        """Establish MCP sessions to both simu and role servers."""
-        # Connect to /mcp/simu
-        simu_transport_cm = streamablehttp_client(
-            f"{self._base_url}/mcp/simu",
-            headers=self._headers,
-        )
-        read, write, _ = await simu_transport_cm.__aenter__()
-        self._contexts.append(simu_transport_cm)
-        simu_session_cm = ClientSession(read, write)
-        self._simu_session = await simu_session_cm.__aenter__()
-        self._contexts.append(simu_session_cm)
-        await self._simu_session.initialize()
+    @property
+    def connected(self) -> bool:
+        return self._session is not None
 
-        # Connect to /mcp/role
-        role_transport_cm = streamablehttp_client(
-            f"{self._base_url}/mcp/role",
-            headers=self._headers,
-        )
-        read, write, _ = await role_transport_cm.__aenter__()
-        self._contexts.append(role_transport_cm)
-        role_session_cm = ClientSession(read, write)
-        self._role_session = await role_session_cm.__aenter__()
-        self._contexts.append(role_session_cm)
-        await self._role_session.initialize()
-
-        logger.info("MCP sessions established for agent %s", self._agent_id)
+    async def open(self) -> None:
+        """Establish the MCP session."""
+        transport_cm = streamablehttp_client(self._url, headers=self._headers)
+        read, write, _ = await transport_cm.__aenter__()
+        self._contexts.append(transport_cm)
+        session_cm = ClientSession(read, write)
+        self._session = await session_cm.__aenter__()
+        self._contexts.append(session_cm)
+        await self._session.initialize()
 
     async def close(self) -> None:
-        """Tear down MCP sessions."""
+        """Tear down the session and all transport contexts."""
         for cm in reversed(self._contexts):
             try:
                 await cm.__aexit__(None, None, None)
             except Exception:
-                logger.warning("Error closing MCP context", exc_info=True)
+                pass
         self._contexts.clear()
-        self._simu_session = None
-        self._role_session = None
+        self._session = None
+
+    async def call_tool(self, tool: str, args: dict[str, Any]) -> Any:
+        """Call a tool, reconnecting once on connection failure."""
+        for attempt in range(_MAX_RECONNECT_ATTEMPTS):
+            if not self.connected:
+                try:
+                    await self.open()
+                except Exception:
+                    if attempt == _MAX_RECONNECT_ATTEMPTS - 1:
+                        raise
+                    logger.warning("MCP reconnect attempt %d failed for %s", attempt + 1, self._url)
+                    continue
+
+            try:
+                return await self._session.call_tool(tool, args)
+            except Exception:
+                logger.warning("MCP call failed for %s, reconnecting...", tool)
+                await self.close()
+                if attempt == _MAX_RECONNECT_ATTEMPTS - 1:
+                    raise
+
+        raise RuntimeError(f"MCP call to {tool} failed after {_MAX_RECONNECT_ATTEMPTS} attempts")
+
+
+class MCPServerClient:
+    """Agent's MCP connection to the Server.
+
+    Manages two MCP sessions (simu + role) over Streamable HTTP.
+    Sessions auto-reconnect on connection failure.
+    Authentication is via X-Agent-Id / X-Callback-Token headers.
+    """
+
+    def __init__(self, server_url: str, agent_id: str, agent_token: str) -> None:
+        base_url = server_url.rstrip("/")
+        self._agent_id = agent_id
+        headers = {
+            "X-Agent-Id": agent_id,
+            "X-Callback-Token": agent_token,
+        }
+        self._simu = _MCPSession(f"{base_url}/mcp/simu", headers)
+        self._role = _MCPSession(f"{base_url}/mcp/role", headers)
+
+    async def connect(self) -> None:
+        """Establish MCP sessions to both simu and role servers."""
+        try:
+            await self._simu.open()
+            await self._role.open()
+        except Exception:
+            # Clean up any partially established connections
+            await self.close()
+            raise
+        logger.info("MCP sessions established for agent %s", self._agent_id)
+
+    async def close(self) -> None:
+        """Tear down MCP sessions."""
+        await self._simu.close()
+        await self._role.close()
 
     # ------------------------------------------------------------------
     # Internal call helpers
     # ------------------------------------------------------------------
 
     async def _call_simu(self, tool: str, args: dict[str, Any]) -> str:
-        assert self._simu_session is not None, "MCP simu session not connected"
-        result = await self._simu_session.call_tool(tool, args)
+        result = await self._simu.call_tool(tool, args)
         if result.isError:
             raise MCPCallError(tool, result)
         return _extract_text(result)
 
     async def _call_role(self, tool: str, args: dict[str, Any]) -> str:
-        assert self._role_session is not None, "MCP role session not connected"
-        result = await self._role_session.call_tool(tool, args)
+        result = await self._role.call_tool(tool, args)
         if result.isError:
             raise MCPCallError(tool, result)
         return _extract_text(result)

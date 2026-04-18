@@ -41,7 +41,7 @@ class StandardTools:
         session_state: SessionStateManager | None = None,
         agent_id: str = "",
     ) -> None:
-        self._server = mcp
+        self._mcp = mcp
         self._session_state = session_state
         self._agent_id = agent_id
 
@@ -84,7 +84,7 @@ class StandardTools:
                 success=False,
             )
 
-        event_id = await self._server.post_message(
+        event_id = await self._mcp.post_message(
             recipients=args["recipients"],
             message=args["message"],
             session_id=event.session_id,
@@ -118,7 +118,7 @@ class StandardTools:
     async def query_state(self, args: dict, event: TapeEvent) -> str:
         import json
 
-        result = await self._server.query_state(path=args.get("path", ""))
+        result = await self._mcp.query_state(path=args.get("path", ""))
         return json.dumps(result, ensure_ascii=False, default=str)
 
     @tool(
@@ -135,7 +135,7 @@ class StandardTools:
     async def query_role_map(self, args: dict, event: TapeEvent) -> str:
         import json
 
-        result = await self._server.query_role_map()
+        result = await self._mcp.query_role_map()
         return json.dumps(result, ensure_ascii=False)
 
     @tool(
@@ -196,7 +196,7 @@ class StandardTools:
     async def create_incident(self, args: dict, event: TapeEvent) -> str:
         import json
 
-        result = await self._server.create_incident(
+        result = await self._mcp.create_incident(
             title=args["title"],
             effects=args["effects"],
             remaining_ticks=args["remaining_ticks"],
@@ -244,7 +244,7 @@ class StandardTools:
         if current_depth >= MAX_TASK_DEPTH:
             return f"Error: maximum task nesting depth ({MAX_TASK_DEPTH}) reached."
 
-        task_session_id = await self._server.create_task_session(
+        task_session_id = await self._mcp.create_task_session(
             parent_session_id=event.session_id,
             goal=args["goal"],
             description=args.get("description", ""),
@@ -304,7 +304,7 @@ class StandardTools:
                 "You are a participant, not the creator of this task."
             )
 
-        await self._server.finish_task_session(
+        await self._mcp.finish_task_session(
             task_session_id=event.session_id,
             parent_session_id=parent_id,
             result=args["result"],
@@ -348,7 +348,7 @@ class StandardTools:
                 "You are a participant, not the creator of this task."
             )
 
-        await self._server.finish_task_session(
+        await self._mcp.finish_task_session(
             task_session_id=event.session_id,
             parent_session_id=parent_id,
             result=args["reason"],
