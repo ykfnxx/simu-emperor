@@ -294,6 +294,10 @@ export default function App() {
     return () => {
       clearInterval(timer);
       client.current.disconnect();
+      // Clear response timeout on unmount
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -330,11 +334,6 @@ export default function App() {
       }),
     [],
   );
-
-  // Fetch full state on mount
-  useEffect(() => {
-    fetchFullState();
-  }, [fetchFullState]);
 
   // ── WebSocket event listeners ──────────────────────────────────────
   useEffect(() => {
@@ -560,7 +559,7 @@ export default function App() {
   };
 
   const handleSend = async () => {
-    const { inputText, sending } = chatStore.getState();
+    const { inputText } = chatStore.getState();
     const { currentAgentId, currentSessionId, pendingSession } = agentStore.getState();
     const content = inputText.trim();
     if (!content || !currentAgentId) return;

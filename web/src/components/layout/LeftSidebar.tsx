@@ -7,7 +7,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useAgentStore } from '../../stores/agentStore';
 import type { GroupChat } from '../../api/types';
@@ -37,21 +37,32 @@ export function LeftSidebar({
   onCreateGroup,
   onAddAgent,
 }: LeftSidebarProps) {
-  const {
-    agentSessions,
-    currentAgentId,
-    currentSessionId,
-    expandedAgents,
-    creatingAgentId,
-    groupChats,
-    currentGroupId,
-    toggleAgent,
-  } = useAgentStore();
+  const agentSessions = useAgentStore((s) => s.agentSessions);
+  const currentAgentId = useAgentStore((s) => s.currentAgentId);
+  const currentSessionId = useAgentStore((s) => s.currentSessionId);
+  const expandedAgents = useAgentStore((s) => s.expandedAgents);
+  const creatingAgentId = useAgentStore((s) => s.creatingAgentId);
+  const groupChats = useAgentStore((s) => s.groupChats);
+  const currentGroupId = useAgentStore((s) => s.currentGroupId);
+  const toggleAgent = useAgentStore((s) => s.toggleAgent);
 
   const [leftPanelSplit, setLeftPanelSplit] = useState(50);
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [showAddAgentDialog, setShowAddAgentDialog] = useState(false);
   const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
+
+  // Outside-click to close agent menu
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showAgentMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowAgentMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showAgentMenu]);
 
   return (
     <>
@@ -60,7 +71,7 @@ export function LeftSidebar({
         <div className="flex flex-col min-h-0" style={{ height: `${leftPanelSplit}%` }}>
           <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
             <h2 className="text-base font-semibold">百官行述</h2>
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={() => setShowAgentMenu((prev) => !prev)}

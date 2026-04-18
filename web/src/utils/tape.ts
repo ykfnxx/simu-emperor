@@ -1,4 +1,5 @@
 import type { CurrentTapeResponse, TapeEvent } from '../api/types';
+import { getAgentToken } from '../theme/agent-tokens';
 
 export function normalizeEventType(type: string): string {
   return type.toLowerCase();
@@ -13,12 +14,10 @@ export function isMainSession(sessionId: string): boolean {
 }
 
 export function getSenderName(event: TapeEvent): string {
-  if (isPlayerMessage(event.src)) return '皇帝';
+  if (isPlayerMessage(event.src)) return getAgentToken('player').displayName;
   if (event.src.startsWith('agent:')) {
     const agentId = event.src.replace('agent:', '');
-    if (agentId === 'governor_zhili') return '直隶巡抚';
-    if (agentId === 'minister_of_revenue') return '户部尚书';
-    return agentId;
+    return getAgentToken(agentId).displayName;
   }
   return event.src;
 }

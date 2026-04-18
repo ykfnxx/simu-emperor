@@ -10,11 +10,15 @@ interface ChatInputProps {
 }
 
 export function ChatInput({ isValidSession, onSend, onSendToGroup }: ChatInputProps) {
-  const { inputText, setInputText, sending } = useChatStore();
-  const { currentGroupId, pendingSession } = useAgentStore();
+  const inputText = useChatStore((s) => s.inputText);
+  const setInputText = useChatStore((s) => s.setInputText);
+  const sending = useChatStore((s) => s.sending);
+  const currentGroupId = useAgentStore((s) => s.currentGroupId);
+  const pendingSession = useAgentStore((s) => s.pendingSession);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !(e.nativeEvent as KeyboardEvent).isComposing && !e.shiftKey) {
+      e.preventDefault();
       if (currentGroupId) {
         onSendToGroup();
       } else {

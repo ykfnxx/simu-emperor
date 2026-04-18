@@ -14,15 +14,23 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
-  const { chatTape, agentTyping, responseTimeoutError } = useChatStore();
-  const { currentAgentId, currentSessionId, pendingSession, currentGroupId, groupChats, sessions } =
-    useAgentStore();
+  const chatTape = useChatStore((s) => s.chatTape);
+  const agentTyping = useChatStore((s) => s.agentTyping);
+  const responseTimeoutError = useChatStore((s) => s.responseTimeoutError);
+
+  const currentAgentId = useAgentStore((s) => s.currentAgentId);
+  const currentSessionId = useAgentStore((s) => s.currentSessionId);
+  const pendingSession = useAgentStore((s) => s.pendingSession);
+  const currentGroupId = useAgentStore((s) => s.currentGroupId);
+  const groupChats = useAgentStore((s) => s.groupChats);
+  const sessions = useAgentStore((s) => s.sessions);
 
   const currentSession = useMemo(
     () => sessions.find((s) => s.session_id === currentSessionId),
     [sessions, currentSessionId],
   );
-  const isValidSession = currentSession !== undefined || pendingSession !== null || currentGroupId !== null;
+  const isValidSession =
+    currentSession !== undefined || pendingSession !== null || currentGroupId !== null;
   const chatMessages = useMemo(() => toChatMessages(chatTape.events), [chatTape.events]);
 
   const currentAgentName = useAgentStore((s) => {
@@ -33,8 +41,9 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
   const headerTitle = pendingSession
     ? `新建会话 - ${pendingSession.agentId}`
     : currentGroupId
-      ? (groupChats.find((g) => g.group_id === currentGroupId)?.name ?? currentGroupId) + ' - 群聊'
-      : currentSession?.title ?? `${currentAgentId} - 对话`;
+      ? (groupChats.find((g) => g.group_id === currentGroupId)?.name ?? currentGroupId) +
+        ' - 群聊'
+      : (currentSession?.title ?? `${currentAgentId} - 对话`);
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -58,7 +67,8 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
               <MessageSquare className="mx-auto mb-4 h-12 w-12 text-amber-500" />
               <h3 className="mb-2 text-lg font-semibold text-amber-800">请先选择或创建会话</h3>
               <p className="text-sm text-amber-700">
-                在左侧列表中选择一个现有会话，或点击 <Plus className="inline h-4 w-4" /> 按钮创建新会话。
+                在左侧列表中选择一个现有会话，或点击{' '}
+                <Plus className="inline h-4 w-4" /> 按钮创建新会话。
               </p>
             </div>
           </div>
@@ -95,11 +105,7 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
         )}
       </div>
 
-      <ChatInput
-        isValidSession={isValidSession}
-        onSend={onSend}
-        onSendToGroup={onSendToGroup}
-      />
+      <ChatInput isValidSession={isValidSession} onSend={onSend} onSendToGroup={onSendToGroup} />
     </main>
   );
 }

@@ -6,7 +6,7 @@ import {
   RefreshCw,
   Users,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import { useEmpireStore } from '../../stores/empireStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -17,6 +17,7 @@ import { OverviewPanel } from '../empire/OverviewPanel';
 import { IncidentPanel } from '../empire/IncidentPanel';
 import { ProvincePanel } from '../empire/ProvincePanel';
 import { IncidentDetailDialog } from '../empire/IncidentDetailDialog';
+import { VerticalResizeHandle } from './VerticalResizeHandle';
 
 interface RightSidebarProps {
   onRefresh: () => void;
@@ -35,30 +36,33 @@ export function RightSidebar({
   onSwitchViewSession,
   onRefreshViewTape,
 }: RightSidebarProps) {
-  const { overview, currentPanelTab, setCurrentPanelTab, selectedIncident, setSelectedIncident, refreshing } =
-    useEmpireStore();
-  const {
-    currentAgentId,
-    currentSessionId,
-    currentGroupId,
-    selectedGroupAgentId,
-    selectedViewSessionId,
-    agentSessions,
-    groupChats,
-    subSessions,
-    showSubSessions,
-    loadingSubSessions,
-    setSelectedGroupAgentId,
-    setShowSubSessions,
-  } = useAgentStore();
-  const { viewTape } = useChatStore();
+  const overview = useEmpireStore((s) => s.overview);
+  const currentPanelTab = useEmpireStore((s) => s.currentPanelTab);
+  const setCurrentPanelTab = useEmpireStore((s) => s.setCurrentPanelTab);
+  const selectedIncident = useEmpireStore((s) => s.selectedIncident);
+  const setSelectedIncident = useEmpireStore((s) => s.setSelectedIncident);
+  const refreshing = useEmpireStore((s) => s.refreshing);
+  const incidents = useEmpireStore((s) => s.incidents);
+
+  const currentAgentId = useAgentStore((s) => s.currentAgentId);
+  const currentSessionId = useAgentStore((s) => s.currentSessionId);
+  const currentGroupId = useAgentStore((s) => s.currentGroupId);
+  const selectedGroupAgentId = useAgentStore((s) => s.selectedGroupAgentId);
+  const selectedViewSessionId = useAgentStore((s) => s.selectedViewSessionId);
+  const agentSessions = useAgentStore((s) => s.agentSessions);
+  const groupChats = useAgentStore((s) => s.groupChats);
+  const subSessions = useAgentStore((s) => s.subSessions);
+  const showSubSessions = useAgentStore((s) => s.showSubSessions);
+  const loadingSubSessions = useAgentStore((s) => s.loadingSubSessions);
+  const setSelectedGroupAgentId = useAgentStore((s) => s.setSelectedGroupAgentId);
+  const setShowSubSessions = useAgentStore((s) => s.setShowSubSessions);
+
+  const viewTape = useChatStore((s) => s.viewTape);
 
   const viewAgentId = selectedGroupAgentId ?? currentAgentId;
-
-  const tapeContextEvents = useMemo(() => viewTape.events, [viewTape.events]);
+  const tapeContextEvents = viewTape.events;
 
   const [tapeContextHeight, setTapeContextHeight] = useState(300);
-  const [tapeContextDragging, setTapeContextDragging] = useState(false);
 
   return (
     <>
@@ -104,9 +108,9 @@ export function RightSidebar({
               }`}
             >
               天下大事
-              {useEmpireStore.getState().incidents.length > 0 && (
+              {incidents.length > 0 && (
                 <span className="ml-1 rounded-full bg-red-500 px-1.5 py-0.5 text-xs text-white">
-                  {useEmpireStore.getState().incidents.length}
+                  {incidents.length}
                 </span>
               )}
             </button>
@@ -134,44 +138,17 @@ export function RightSidebar({
           {currentPanelTab === 'province' && <ProvincePanel />}
         </div>
 
-        {/* Tape context drag handle */}
-        <div
-          className={`flex items-center justify-center gap-1.5 py-1 cursor-row-resize select-none group relative z-10 ${
-            tapeContextDragging ? 'bg-slate-100' : ''
-          }`}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            setTapeContextDragging(true);
-            const startY = e.clientY;
-            const startHeight = tapeContextHeight;
-
-            const handleMouseMove = (moveEvent: MouseEvent) => {
-              const delta = moveEvent.clientY - startY;
-              const mainEl = document.querySelector('main');
-              const minHeight = 150;
-              const maxHeight = (mainEl?.clientHeight || 800) - 100;
-              setTapeContextHeight(Math.max(minHeight, Math.min(maxHeight, startHeight - delta)));
-            };
-
-            const handleMouseUp = () => {
-              setTapeContextDragging(false);
-              document.removeEventListener('mousemove', handleMouseMove);
-              document.removeEventListener('mouseup', handleMouseUp);
-            };
-
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
+        {/* Tape context drag handle — reuse VerticalResizeHandle */}
+        <VerticalResizeHandle
+          onDrag={(deltaY) => {
+            const aside = document.querySelectorAll('aside')[1];
+            const minHeight = 150;
+            const maxHeight = (aside?.clientHeight || 800) - 100;
+            setTapeContextHeight((prev) =>
+              Math.max(minHeight, Math.min(maxHeight, prev - deltaY)),
+            );
           }}
-        >
-          {[0, 1, 2, 3, 4].map((i) => (
-            <span
-              key={i}
-              className={`w-1 h-1 rounded-full transition-all ${
-                tapeContextDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
-              }`}
-            />
-          ))}
-        </div>
+        />
 
         {/* Tape context */}
         <div
@@ -270,7 +247,7 @@ export function RightSidebar({
                         onClick={() => onSwitchViewSession(currentSessionId)}
                         className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm text-left ${
                           selectedViewSessionId === currentSessionId ||
-                          (!selectedViewSessionId && true)
+                          !selectedViewSessionId
                             ? 'border-blue-300 bg-blue-50'
                             : 'border-slate-200 hover:bg-slate-50'
                         }`}

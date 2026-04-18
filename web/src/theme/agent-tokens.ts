@@ -69,20 +69,26 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+const tokenCache = new Map<string, AgentToken>();
+
 /**
  * Returns the visual identity token for a given agent ID.
  * Known agents get their predefined tokens; unknown agents get a
  * deterministic fallback based on hashing the agent ID.
+ * Results are cached to ensure stable object references.
  */
 export function getAgentToken(agentId: string): AgentToken {
   if (KNOWN_AGENTS[agentId]) {
     return KNOWN_AGENTS[agentId];
   }
 
+  const cached = tokenCache.get(agentId);
+  if (cached) return cached;
+
   const index = hashString(agentId) % FALLBACK_SCHEMES.length;
   const scheme = FALLBACK_SCHEMES[index];
 
-  return {
+  const token: AgentToken = {
     id: agentId,
     displayName: agentId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     color: scheme.color,
@@ -90,4 +96,6 @@ export function getAgentToken(agentId: string): AgentToken {
     borderColor: scheme.borderColor,
     icon: scheme.icon,
   };
+  tokenCache.set(agentId, token);
+  return token;
 }
