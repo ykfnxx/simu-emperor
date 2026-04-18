@@ -403,6 +403,9 @@ async def push_tape_event(
     agent_id = get_agent_id()
     msg_store = _get("message_store")
 
+    # Force src to authenticated agent to prevent identity spoofing
+    src = f"agent:{agent_id}"
+
     content = payload.get("content", "")
     if not content:
         content = json.dumps(payload, ensure_ascii=False, default=str)

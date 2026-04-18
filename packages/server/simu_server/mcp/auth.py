@@ -63,14 +63,17 @@ class MCPAuthMiddleware:
             await self._send_error(send, 401, "Missing X-Agent-Id or X-Callback-Token header")
             return
 
-        if _process_manager is not None:
-            expected = _process_manager.get_token(agent_id)
-            if expected is None:
-                await self._send_error(send, 401, f"Unknown agent: {agent_id}")
-                return
-            if expected != token:
-                await self._send_error(send, 403, "Invalid callback token")
-                return
+        if _process_manager is None:
+            await self._send_error(send, 503, "Server not ready: ProcessManager not initialized")
+            return
+
+        expected = _process_manager.get_token(agent_id)
+        if expected is None:
+            await self._send_error(send, 401, f"Unknown agent: {agent_id}")
+            return
+        if expected != token:
+            await self._send_error(send, 403, "Invalid callback token")
+            return
 
         tok = current_agent_id.set(agent_id)
         try:
