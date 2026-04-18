@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from simu_sdk.framework.hooks import hookimpl
+from bub.hookspecs import hookimpl
 from simu_sdk.tape.context import ContextManager
 from simu_sdk.tools.standard import SessionStateManager
 
@@ -35,7 +35,7 @@ class SimuContextPlugin:
         self._session_state = session_state
 
     @hookimpl
-    async def load_state(self, envelope: Any, session_id: str) -> dict:
+    async def load_state(self, message: Any, session_id: str) -> dict:
         """Load context window for the current session."""
         context = await self._context_manager.get_context(session_id)
         return {
@@ -44,7 +44,7 @@ class SimuContextPlugin:
         }
 
     @hookimpl
-    def build_prompt(self, envelope: Any, session_id: str, state: Any) -> str:
+    def build_prompt(self, message: Any, session_id: str, state: dict) -> str:
         """Build the complete system prompt."""
         parts = []
         if self._soul:

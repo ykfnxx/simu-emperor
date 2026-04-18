@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any, TYPE_CHECKING
 
-from simu_sdk.framework.hooks import hookimpl
+from bub.hookspecs import hookimpl
 
 if TYPE_CHECKING:
     from simu_sdk.client import ServerClient
@@ -38,19 +38,21 @@ class MCPClientPlugin:
         self._background_tasks: set[asyncio.Task] = set()
 
     @hookimpl
-    async def dispatch_outbound(
-        self, envelope: Any, session_id: str, state: Any, result: Any,
+    async def save_state(
+        self, session_id: str, state: dict, message: Any, model_output: str,
     ) -> None:
-        """Route response to server, post to player, complete invocation."""
-        event = envelope.payload
-        response_event = state.response_event
+        """Push response to server and update session summary."""
+        response_event = state.get("response_event")
         if response_event is None:
             return
+
+        event = state.get("_inbound_event", message)
+        ended_by_tool = state.get("ended_by_tool")
 
         # Route RESPONSE to destination agents for agent-to-agent replies.
         # Only when the ReAct loop ended naturally (text output).
         should_route = (
-            state.ended_by_tool is None
+            ended_by_tool is None
             and event.src.startswith("agent:")
             and event.src != f"agent:{self._agent_id}"
         )
@@ -63,13 +65,13 @@ class MCPClientPlugin:
 
         # Send response to player (non-task sessions, natural endings only)
         if (
-            state.response_content
+            model_output
             and not session_id.startswith("task:")
-            and state.ended_by_tool is None
+            and ended_by_tool is None
         ):
             await self._server.post_message(
                 recipients=["player"],
-                message=state.response_content,
+                message=model_output,
                 session_id=session_id,
             )
 

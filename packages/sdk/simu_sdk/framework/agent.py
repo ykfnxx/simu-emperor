@@ -25,9 +25,10 @@ import yaml
 from simu_shared.constants import EventType
 from simu_shared.models import TapeEvent
 
+from bub.framework import BubFramework
+
 from simu_sdk.client import ServerClient
 from simu_sdk.config import AgentConfig
-from simu_sdk.framework.core import BubFramework, Envelope
 from simu_sdk.hot_reload import watch_config
 from simu_sdk.llm.base import LLMProvider, create_llm_provider
 from simu_sdk.memory.metadata import TapeMetadataManager
@@ -240,15 +241,13 @@ class SimuAgent:
 
     async def _run_pipeline(self, event: TapeEvent) -> None:
         """Run the Bub pipeline for a single event."""
-        envelope = Envelope(payload=event)
-        turn = await self._framework.process_inbound(envelope)
+        prev_active = self.session_state.get_active_session()
+        await self._framework.process_inbound(event)
 
-        # Check if a tool triggered a session transition
-        state = turn.state
-        if state.new_task_session_id:
-            task_session_id = self.session_state.get_active_session()
-            if task_session_id:
-                await self._enter_task_session(event, task_session_id)
+        # Detect if a tool created a new task session during the pipeline
+        new_active = self.session_state.get_active_session()
+        if new_active and new_active != prev_active:
+            await self._enter_task_session(event, new_active)
 
     async def _drain_queue(self, session: SessionState) -> None:
         """Process queued messages one by one while session stays idle."""

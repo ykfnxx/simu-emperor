@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 
 from simu_shared.constants import EventType
 from simu_shared.models import TapeEvent
-from simu_sdk.framework.hooks import hookimpl
+from bub.hookspecs import hookimpl
 from simu_sdk.react import ReActLoop
 from simu_sdk.tools.registry import ToolRegistry
 
@@ -42,21 +42,23 @@ class SimuReActPlugin:
         self._agent_id = agent_id
 
     @hookimpl
-    async def run_model(self, envelope: Any, session_id: str, state: Any, prompt: str) -> Any:
+    async def run_model(self, prompt: str | list[dict], session_id: str, state: dict) -> str:
         """Execute the ReAct loop and populate state with results."""
         from simu_sdk.tape.context import ContextWindow
 
-        event = envelope.payload
+        event = state.get("_inbound_event")
 
         # Build ContextWindow from state
         context = ContextWindow(
-            events=state.context_events,
-            summary=state.context_summary,
-            total_events=len(state.context_events),
+            events=state.get("context_events", []),
+            summary=state.get("context_summary", ""),
+            total_events=len(state.get("context_events", [])),
         )
 
+        system_prompt = prompt if isinstance(prompt, str) else ""
+
         result = await self._react_loop.run(
-            system_prompt=prompt,
+            system_prompt=system_prompt,
             event=event,
             context=context,
             tape=self._tape,
@@ -65,8 +67,8 @@ class SimuReActPlugin:
         )
 
         # Store result in state for downstream hooks
-        state.response_content = result.content
-        state.ended_by_tool = result.ended_by_tool
+        state["response_content"] = result.content
+        state["ended_by_tool"] = result.ended_by_tool
 
         # Build response event
         response_event = TapeEvent(
@@ -79,10 +81,10 @@ class SimuReActPlugin:
             root_event_id=getattr(event, "root_event_id", None) or event.event_id,
             invocation_id=getattr(event, "invocation_id", None),
         )
-        state.response_event = response_event
+        state["response_event"] = response_event
 
-        # Track session transitions from tools
+        # Signal task session creation
         if result.ended_by_tool == "create_task_session":
-            state.new_task_session_id = True  # Signal to SimuAgent
+            state["new_task_session"] = True
 
-        return result
+        return result.content

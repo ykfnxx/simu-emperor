@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from simu_sdk.framework.hooks import hookimpl
+from bub.hookspecs import hookimpl
 from simu_sdk.memory.retriever import MemoryRetriever
 
 logger = logging.getLogger(__name__)
@@ -22,12 +22,11 @@ class SimuMemoryPlugin:
         self._retriever = retriever
 
     @hookimpl
-    async def load_state(self, envelope: Any, session_id: str) -> dict:
+    async def load_state(self, message: Any, session_id: str) -> dict:
         """Retrieve relevant memories for the current event."""
-        event = envelope.payload
         content = ""
-        if hasattr(event, "payload") and isinstance(event.payload, dict):
-            content = event.payload.get("content", "")
+        if hasattr(message, "payload") and isinstance(message.payload, dict):
+            content = message.payload.get("content", "")
 
         if not content:
             return {}
