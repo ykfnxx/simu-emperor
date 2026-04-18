@@ -22,6 +22,8 @@ import yaml
 
 from simu_shared.constants import EventType
 from simu_shared.models import TapeEvent
+import signal
+
 from simu_sdk.client import ServerClient
 from simu_sdk.config import AgentConfig
 from simu_sdk.framework.core import BubFramework, Envelope
@@ -386,3 +388,55 @@ class SimuAgent:
         await self.metadata_manager.create_metadata(event.session_id, title)
         await self.server.update_session_title(event.session_id, title)
         logger.info("Generated title for session %s: %s", event.session_id, title)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def _setup_logging(config: AgentConfig) -> None:
+    """Configure logging to write to both stderr and a per-agent log file."""
+    log_dir = config.config_path / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "agent.log"
+
+    fmt = f"%(asctime)s [{config.agent_id}] %(name)s %(levelname)s: %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    stderr_handler = logging.StreamHandler()
+    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(file_handler)
+    root.addHandler(stderr_handler)
+
+
+def run_agent() -> None:
+    """Entry point for running a SimuAgent process.
+
+    Reads config from environment variables, creates the agent, and
+    runs until SIGTERM/SIGINT.
+    """
+    config = AgentConfig.from_env()
+    _setup_logging(config)
+    agent = SimuAgent(config)
+
+    loop = asyncio.new_event_loop()
+
+    def _shutdown() -> None:
+        loop.create_task(agent.stop())
+
+    loop.add_signal_handler(signal.SIGTERM, _shutdown)
+    loop.add_signal_handler(signal.SIGINT, _shutdown)
+
+    try:
+        loop.run_until_complete(agent.start())
+    finally:
+        loop.close()
