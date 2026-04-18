@@ -13,6 +13,8 @@ from simu_server.agents.generator import AgentGenerator
 from simu_server.agents.registry import AgentRegistry
 from simu_server.config import settings
 from simu_server.engine.game_engine import GameEngine
+from simu_server.mcp import set_role_dependencies, set_simu_dependencies, simu_mcp, role_mcp
+from simu_server.mcp.auth import MCPAuthMiddleware, set_process_manager
 from simu_server.routes import callback, client
 from simu_server.routes.client import WSManager, ws_manager, ws_router
 from simu_server.services.event_router import EventRouter
@@ -143,6 +145,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     client.set_dependencies(**deps)
     callback.set_dependencies(**deps)
 
+    # MCP server dependencies
+    set_process_manager(process_manager)
+    mcp_deps = {
+        "engine": engine,
+        "session_manager": session_manager,
+        "message_store": message_store,
+        "queue_controller": queue_controller,
+        "agent_registry": agent_registry,
+        "ws_manager": ws_manager,
+    }
+    set_simu_dependencies(**mcp_deps)
+    set_role_dependencies(agent_registry=agent_registry)
+
     # Spawn agent processes for all registered agents
     for agent in await agent_registry.list_all():
         if agent.config_path:
@@ -176,5 +191,9 @@ def create_app() -> FastAPI:
     app.include_router(client.router)
     app.include_router(ws_router)
     app.include_router(callback.router)
+
+    # Mount MCP servers with auth middleware
+    app.mount("/mcp/simu", MCPAuthMiddleware(simu_mcp.streamable_http_app()))
+    app.mount("/mcp/role", MCPAuthMiddleware(role_mcp.streamable_http_app()))
 
     return app
