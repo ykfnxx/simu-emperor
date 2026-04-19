@@ -275,7 +275,8 @@ class MCPToolAdapter:
         if parent_id is None:
             return (
                 "Error: only the task creator can finish a task session. "
-                "You are a participant, not the creator of this task."
+                "You are a participant, not the creator of this task. "
+                "请使用 send_message 工具将回复发送给任务创建者。"
             )
 
         status = args.get("status", "completed")

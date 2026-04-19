@@ -239,10 +239,18 @@ async def post_message(
     )
     await msg_store.store(msg)
 
-    # Route to target agents
+    # Route to target agents (validate recipients)
+    agent_registry = _get("agent_registry")
+    invalid_recipients = []
     for r in req.recipients:
         if r != "player":
-            await queue.enqueue(r, event)
+            reg = await agent_registry.get(r)
+            if reg is None:
+                invalid_recipients.append(r)
+            else:
+                await queue.enqueue(r, event)
+    if invalid_recipients:
+        return {"error": f"Unknown recipient(s): {invalid_recipients}. Use query_role_map to get valid agent_id values."}
 
     # Push to frontend WebSocket — use "chat" kind with ChatData format
     # so the frontend's existing 'chat' handler can process it.
@@ -347,8 +355,10 @@ async def push_tape_event(
     )
     await msg_store.store(msg)
 
-    # Route RESPONSE events to destination agents when requested
-    if req.route and req.event_type == EventType.RESPONSE:
+    # Route RESPONSE events to destination agents when requested.
+    # In task sessions, response events are NOT routed — participants must
+    # use send_message explicitly. This prevents infinite reply loops.
+    if req.route and req.event_type == EventType.RESPONSE and not req.session_id.startswith("task:"):
         queue = _get("queue_controller")
         if queue:
             event = TapeEvent(

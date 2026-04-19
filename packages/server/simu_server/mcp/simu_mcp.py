@@ -124,9 +124,17 @@ async def send_message(
     )
     await msg_store.store(msg)
 
+    agent_registry = _get("agent_registry")
+    invalid_recipients = []
     for r in recipients:
         if r != "player":
-            await queue.enqueue(r, event)
+            reg = await agent_registry.get(r)
+            if reg is None:
+                invalid_recipients.append(r)
+            else:
+                await queue.enqueue(r, event)
+    if invalid_recipients:
+        return json.dumps({"error": f"Unknown recipient(s): {invalid_recipients}. Use query_role_map to get valid agent_id values."})
 
     agent_reg = await _get("agent_registry").get(agent_id)
     display_name = agent_reg.display_name if agent_reg else agent_id
