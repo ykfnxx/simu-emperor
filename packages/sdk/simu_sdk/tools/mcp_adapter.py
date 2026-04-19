@@ -14,6 +14,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
+from simu_sdk.mcp_client import MCPCallError
 from simu_sdk.tools.registry import ToolMeta, ToolResult
 
 if TYPE_CHECKING:
@@ -148,8 +149,6 @@ class MCPToolAdapter:
         async def handler(args: dict, event: TapeEvent) -> str:
             result = await session.call_tool(tool_name, args)
             if result.isError:
-                from simu_sdk.mcp_client import MCPCallError
-
                 raise MCPCallError(tool_name, result)
             return _extract_text(result)
 
@@ -165,8 +164,11 @@ class MCPToolAdapter:
         """send_message with self-send guard and await_reply support."""
         recipients = args.get("recipients", [])
 
-        # Self-send guard
-        if self._agent_id and self._agent_id in recipients:
+        # Self-send guard (normalize agent: prefix for comparison)
+        if self._agent_id and any(
+            r == self._agent_id or r == f"agent:{self._agent_id}"
+            for r in recipients
+        ):
             return ToolResult(
                 output=f"Error: cannot send a message to yourself ({self._agent_id}).",
                 success=False,
@@ -178,8 +180,6 @@ class MCPToolAdapter:
         session = self._tool_sessions["send_message"]
         result = await session.call_tool("send_message", call_args)
         if result.isError:
-            from simu_sdk.mcp_client import MCPCallError
-
             raise MCPCallError("send_message", result)
 
         text = _extract_text(result)
@@ -221,8 +221,6 @@ class MCPToolAdapter:
         session = self._tool_sessions["create_task_session"]
         result = await session.call_tool("create_task_session", call_args)
         if result.isError:
-            from simu_sdk.mcp_client import MCPCallError
-
             raise MCPCallError("create_task_session", result)
 
         text = _extract_text(result)
@@ -262,6 +260,10 @@ class MCPToolAdapter:
         if self._session_state is None:
             return "Error: session state manager not available."
 
+        # get_parent() returns non-None only for sessions registered via
+        # register_task_session(), which is called exclusively from
+        # _handle_create_task_session — so this implicitly verifies the
+        # caller is the task creator, not a participant.
         parent_id = self._session_state.get_parent(event.session_id)
         if parent_id is None:
             return (
@@ -282,8 +284,6 @@ class MCPToolAdapter:
         session = self._tool_sessions["finish_task_session"]
         result = await session.call_tool("finish_task_session", call_args)
         if result.isError:
-            from simu_sdk.mcp_client import MCPCallError
-
             raise MCPCallError("finish_task_session", result)
 
         # Update session state
