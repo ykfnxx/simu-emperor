@@ -11,6 +11,7 @@ import type {
   HealthResponse,
   AgentsResponse,
   AgentInfo,
+  AgentDetail,
   GameStateResponse,
   EmpireOverview,
   SessionsResponse,
@@ -241,6 +242,10 @@ export class GameClient {
     };
 
     return normalize(raw);
+  }
+
+  async getAgentDetail(agentId: string): Promise<AgentDetail> {
+    return this.request<AgentDetail>(`/agents/${encodeURIComponent(agentId)}`);
   }
 
   async healthCheck(): Promise<HealthResponse> {

@@ -697,6 +697,7 @@ export default function App() {
           onSelectGroup={handleSelectGroup}
           onCreateGroup={handleCreateGroup}
           onAddAgent={handleAddAgent}
+          onFetchAgentDetail={(agentId) => client.current.getAgentDetail(agentId)}
         />
 
         <ChatPanel onSend={handleSend} onSendToGroup={handleSendToGroup} />

@@ -97,6 +97,11 @@ export interface AgentStatusData {
   is_online: boolean;
 }
 
+export interface AgentDetail extends AgentInfo {
+  soul: string;
+  data_scope: Record<string, unknown>;
+}
+
 export type AgentsResponse = AgentInfo[];
 
 // V4 游戏状态响应（扁平结构）
