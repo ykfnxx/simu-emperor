@@ -91,6 +91,7 @@ class TapeManager:
             self._append_sqlite(event),
             self._append_memory_mirror(event),
         )
+        await self._db.commit()
 
         # Fire callback on first event per session (non-blocking — title
         # generation calls LLM and should not delay the react loop).
