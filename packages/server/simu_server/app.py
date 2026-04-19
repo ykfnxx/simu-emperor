@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI
@@ -137,6 +136,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     queue_controller.set_dispatcher(dispatch)
 
+    # Shared set tracking which agents are currently online — used by both
+    # the periodic heartbeat checker and the callback broadcast helper to
+    # avoid duplicate WebSocket broadcasts.
+    online_agents: set[str] = set()
+
     # Inject dependencies into route modules
     deps = {
         "db": db,
@@ -151,6 +155,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "engine": engine,
         "group_store": group_store,
         "ws_manager": ws_manager,
+        "online_agents": online_agents,
     }
     client.set_dependencies(**deps)
     callback.set_dependencies(**deps)
@@ -179,31 +184,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 logger.warning("Failed to spawn agent %s", agent.agent_id, exc_info=True)
 
     # Background task: detect agents that missed heartbeat and broadcast offline
-    _online_agents: set[str] = set()
-
     async def _heartbeat_checker() -> None:
         timeout = settings.agent_heartbeat_timeout
         while True:
             await asyncio.sleep(15)
             try:
                 agents = await agent_registry.list_all()
-                now = datetime.now(UTC)
                 for agent in agents:
-                    hb = agent.last_heartbeat
-                    if isinstance(hb, str):
-                        hb = datetime.fromisoformat(hb)
-                    if hb and hb.tzinfo is None:
-                        hb = hb.replace(tzinfo=UTC)
+                    is_online = AgentRegistry.is_agent_online(agent, timeout)
+                    was_online = agent.agent_id in online_agents
 
-                    is_online = (
-                        agent.status in (AgentStatus.RUNNING, AgentStatus.STARTING)
-                        and hb is not None
-                        and (now - hb).total_seconds() < timeout
-                    )
-
-                    was_online = agent.agent_id in _online_agents
                     if is_online and not was_online:
-                        _online_agents.add(agent.agent_id)
+                        online_agents.add(agent.agent_id)
                         await ws_manager.broadcast({
                             "kind": "agent_status",
                             "data": {
@@ -214,7 +206,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                             },
                         })
                     elif not is_online and was_online:
-                        _online_agents.discard(agent.agent_id)
+                        online_agents.discard(agent.agent_id)
                         await ws_manager.broadcast({
                             "kind": "agent_status",
                             "data": {

@@ -6,7 +6,6 @@ Preserves all V4 Web API functionality per design constraint.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +20,7 @@ from simu_shared.models import (
     RoutedMessage,
     TapeEvent,
 )
+from simu_server.agents.registry import AgentRegistry
 from simu_server.config import settings
 
 router = APIRouter(prefix="/api")
@@ -330,33 +330,19 @@ async def manual_tick() -> dict[str, Any]:
 # Agent management
 # ---------------------------------------------------------------------------
 
-def _is_agent_online(agent: AgentRegistration) -> bool:
-    """Determine if an agent is online based on status and heartbeat recency."""
-    if agent.status not in (AgentStatus.RUNNING, AgentStatus.STARTING):
-        return False
-    if agent.last_heartbeat is None:
-        return False
-    hb = agent.last_heartbeat
-    if isinstance(hb, str):
-        hb = datetime.fromisoformat(hb)
-    if hb.tzinfo is None:
-        hb = hb.replace(tzinfo=UTC)
-    elapsed = (datetime.now(UTC) - hb).total_seconds()
-    return elapsed < settings.agent_heartbeat_timeout
-
-
 @router.get("/agents")
 async def list_agents() -> list[dict[str, Any]]:
-    registry = _get("agent_registry")
+    registry: AgentRegistry | None = _get("agent_registry")
     if registry is None:
         return []
     agents = await registry.list_all()
+    timeout = settings.agent_heartbeat_timeout
     return [
         {
             "agent_id": a.agent_id,
             "agent_name": a.display_name or a.agent_id,
             "status": a.status.value,
-            "is_online": _is_agent_online(a),
+            "is_online": AgentRegistry.is_agent_online(a, timeout),
         }
         for a in agents
     ]

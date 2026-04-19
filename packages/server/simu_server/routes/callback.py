@@ -110,19 +110,38 @@ async def _verify_agent(agent_id: str, token: str) -> None:
 
 
 async def _broadcast_agent_status(agent_id: str, is_online: bool) -> None:
-    """Broadcast agent online/offline status to all frontend WebSocket clients."""
+    """Broadcast agent online/offline status to all frontend WebSocket clients.
+
+    Also updates the shared ``_online_agents`` set so the periodic heartbeat
+    checker in app.py stays in sync and avoids duplicate broadcasts.
+    """
     ws_mgr = _get("ws_manager")
     if ws_mgr is None:
         return
-    registry = _get("agent_registry")
-    agent = await registry.get(agent_id) if registry else None
-    display_name = agent.display_name if agent else agent_id
+
+    # Keep _online_agents in sync with callback-driven transitions
+    online_set: set[str] | None = _get("online_agents")
+    if online_set is not None:
+        if is_online:
+            online_set.add(agent_id)
+        else:
+            online_set.discard(agent_id)
+
+    try:
+        registry = _get("agent_registry")
+        agent = await registry.get(agent_id) if registry else None
+        display_name = agent.display_name if agent else agent_id
+        status = agent.status.value if agent else "unknown"
+    except Exception:
+        display_name = agent_id
+        status = "unknown"
+
     await ws_mgr.broadcast({
         "kind": "agent_status",
         "data": {
             "agent_id": agent_id,
             "agent_name": display_name or agent_id,
-            "status": agent.status.value if agent else "unknown",
+            "status": status,
             "is_online": is_online,
         },
     })
@@ -178,7 +197,8 @@ async def report_status(
     new_status = status_map.get(req.status)
     if new_status:
         await _get("agent_registry").update_status(x_agent_id, new_status)
-        await _broadcast_agent_status(x_agent_id, is_online=False)
+        is_online = new_status in (AgentStatus.RUNNING, AgentStatus.STARTING)
+        await _broadcast_agent_status(x_agent_id, is_online=is_online)
     return {"status": "ok"}
 
 
