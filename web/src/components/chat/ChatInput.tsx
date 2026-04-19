@@ -44,9 +44,9 @@ export function ChatInput({ isValidSession, onSend, onSendToGroup }: ChatInputPr
         : '输入消息，Enter 发送...';
 
   return (
-    <div className="border-t border-slate-200 p-4">
+    <div className="p-4" style={{ borderTopWidth: 1, borderTopColor: 'var(--color-border)', borderTopStyle: 'solid' }}>
       {currentGroupId && (
-        <div className="mb-2 flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-1.5 text-sm text-purple-700">
+        <div className="mb-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm" style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-accent-text)' }}>
           <Users className="h-4 w-4" />
           <span>群聊模式：消息将发送给所有成员</span>
         </div>
@@ -58,15 +58,24 @@ export function ChatInput({ isValidSession, onSend, onSendToGroup }: ChatInputPr
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={sending || (!currentGroupId && !isValidSession)}
-          className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-300 disabled:opacity-60"
+          className="flex-1 rounded-xl px-3 py-2 text-sm outline-none disabled:opacity-60"
+          style={{
+            borderWidth: 1,
+            borderColor: 'var(--color-border)',
+            borderStyle: 'solid',
+            backgroundColor: 'var(--color-surface-alt)',
+            color: 'var(--color-text)',
+          }}
         />
         <button
           type="button"
           onClick={handleClick}
           disabled={sending || !inputText.trim() || (!currentGroupId && !isValidSession)}
-          className={`rounded-xl px-3 py-2 text-white hover:opacity-90 disabled:opacity-60 ${
-            currentGroupId ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
-          }`}
+          className="rounded-xl px-3 py-2 hover:opacity-90 disabled:opacity-60"
+          style={{
+            backgroundColor: currentGroupId ? 'var(--color-accent)' : 'var(--color-primary)',
+            color: 'var(--color-text-inverse)',
+          }}
         >
           <Send className="h-4 w-4" />
         </button>

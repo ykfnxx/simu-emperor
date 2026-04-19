@@ -28,17 +28,17 @@ export function SystemNoticeBar({ event }: SystemNoticeBarProps) {
     }
 
     return (
-      <div className="flex items-center justify-center gap-3 rounded-lg bg-amber-50 px-4 py-2 text-xs text-amber-700">
-        <span className="text-amber-500">---</span>
+      <div className="flex items-center justify-center gap-3 rounded-lg px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-warning-soft)', color: 'var(--color-warning-text)' }}>
+        <span style={{ color: 'var(--color-warning-icon)' }}>---</span>
         <span>{parts.length > 0 ? parts.join(' | ') : '回合结算'}</span>
-        <span className="text-amber-500">---</span>
+        <span style={{ color: 'var(--color-warning-icon)' }}>---</span>
       </div>
     );
   }
 
   if (type === 'shutdown') {
     return (
-      <div className="flex items-center justify-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-xs text-red-600">
+      <div className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}>
         <span>---</span>
         <span>Agent 已关闭</span>
         <span>---</span>
@@ -48,7 +48,7 @@ export function SystemNoticeBar({ event }: SystemNoticeBarProps) {
 
   if (type === 'reload_config') {
     return (
-      <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-4 py-2 text-xs text-blue-600">
+      <div className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-info-soft)', color: 'var(--color-info-text)' }}>
         <span>---</span>
         <span>配置已重新加载</span>
         <span>---</span>
@@ -56,13 +56,12 @@ export function SystemNoticeBar({ event }: SystemNoticeBarProps) {
     );
   }
 
-  // Generic system event
   const text = typeof payload.content === 'string' ? payload.content
     : typeof payload.message === 'string' ? payload.message
     : event.type;
 
   return (
-    <div className="flex items-center justify-center gap-2 rounded-lg bg-slate-50 px-4 py-2 text-xs text-slate-500">
+    <div className="flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)' }}>
       <span>---</span>
       <span>{text}</span>
       <span>---</span>

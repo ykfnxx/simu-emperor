@@ -67,29 +67,31 @@ export function LeftSidebar({
 
   return (
     <>
-      <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[320px]">
+      <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl lg:w-[320px]" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
         {/* Agent sessions */}
         <div className="flex flex-col min-h-0" style={{ height: `${leftPanelSplit}%` }}>
-          <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold">百官行述</h2>
+          <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: 'var(--color-border)', borderBottomStyle: 'solid' }}>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>百官行述</h2>
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={() => setShowAgentMenu((prev) => !prev)}
-                className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
+                className="rounded-md p-1 hover:opacity-80"
+                style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
                 title="官员管理"
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
               {showAgentMenu && (
-                <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="absolute right-0 top-full z-10 mt-1 w-32 rounded-lg shadow-lg" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
                   <button
                     type="button"
                     onClick={() => {
                       setShowAgentMenu(false);
                       setShowAddAgentDialog(true);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:opacity-80"
+                    style={{ color: 'var(--color-text)' }}
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     新增官员
@@ -97,7 +99,8 @@ export function LeftSidebar({
                   <button
                     type="button"
                     disabled
-                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 disabled:opacity-50"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs disabled:opacity-50"
+                    style={{ color: 'var(--color-text-muted)' }}
                     title="功能开发中"
                   >
                     调任官员
@@ -109,17 +112,17 @@ export function LeftSidebar({
           <div className="flex-1 overflow-y-auto px-3 py-2">
             <div className="space-y-2">
               {agentSessions.map((group) => (
-                <div key={group.agent_id} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <div key={group.agent_id} className="rounded-lg p-2" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface-alt)' }}>
                   <div className="mb-1 flex items-center justify-between gap-2 px-1">
                     <button
                       type="button"
                       onClick={() => toggleAgent(group.agent_id)}
-                      className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left hover:bg-slate-100"
+                      className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left hover:opacity-80"
                     >
                       {expandedAgents[group.agent_id] ? (
-                        <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                        <ChevronDown className="h-3.5 w-3.5" style={{ color: 'var(--color-text-secondary)' }} />
                       ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+                        <ChevronRight className="h-3.5 w-3.5" style={{ color: 'var(--color-text-secondary)' }} />
                       )}
                       <span
                         className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${
@@ -129,10 +132,10 @@ export function LeftSidebar({
                         }`}
                         title={agentStatuses[group.agent_id] ? '在线' : '离线'}
                       />
-                      <p className="truncate text-xs font-semibold text-slate-700">
+                      <p className="truncate text-xs font-semibold" style={{ color: 'var(--color-text)' }}>
                         {group.agent_name}
                       </p>
-                      <span className="rounded-md bg-slate-200 px-1 py-0.5 text-[10px] text-slate-600">
+                      <span className="rounded-md px-1 py-0.5 text-[10px]" style={{ backgroundColor: 'var(--color-surface-active)', color: 'var(--color-text-secondary)' }}>
                         {group.sessions.length}
                       </span>
                     </button>
@@ -140,7 +143,8 @@ export function LeftSidebar({
                       type="button"
                       onClick={() => onCreateSession(group.agent_id)}
                       disabled={creatingAgentId === group.agent_id}
-                      className="rounded-md border border-slate-200 bg-white p-0.5 hover:bg-slate-100 disabled:opacity-60"
+                      className="rounded-md p-0.5 disabled:opacity-60 hover:opacity-80"
+                      style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
                       title={`为 ${group.agent_name} 新建会话`}
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -148,32 +152,38 @@ export function LeftSidebar({
                   </div>
 
                   {expandedAgents[group.agent_id] && (
-                    <div className="ml-2 border-l border-slate-300 pl-2">
+                    <div className="ml-2 pl-2" style={{ borderLeftWidth: 1, borderLeftColor: 'var(--color-border-strong)', borderLeftStyle: 'solid' }}>
                       <div className="space-y-1">
-                        {group.sessions.map((session) => (
-                          <button
-                            key={`${group.agent_id}-${session.session_id}`}
-                            type="button"
-                            onClick={() => onSelectSession(group.agent_id, session.session_id)}
-                            className={`w-full rounded-lg border px-2 py-1.5 text-left text-xs ${
-                              group.agent_id === currentAgentId &&
-                              session.session_id === currentSessionId
-                                ? 'border-blue-300 bg-blue-50'
-                                : 'border-slate-200 bg-white hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <MessageSquare className="h-3 w-3 text-slate-400" />
-                              <p className="truncate font-medium">{session.title}</p>
-                            </div>
-                            <p className="mt-0.5 text-[10px] text-slate-500">
-                              {session.event_count} 条
-                            </p>
-                          </button>
-                        ))}
+                        {group.sessions.map((session) => {
+                          const isActive =
+                            group.agent_id === currentAgentId &&
+                            session.session_id === currentSessionId;
+                          return (
+                            <button
+                              key={`${group.agent_id}-${session.session_id}`}
+                              type="button"
+                              onClick={() => onSelectSession(group.agent_id, session.session_id)}
+                              className="w-full rounded-lg px-2 py-1.5 text-left text-xs"
+                              style={{
+                                borderWidth: 1,
+                                borderStyle: 'solid',
+                                borderColor: isActive ? 'var(--color-primary-border)' : 'var(--color-border)',
+                                backgroundColor: isActive ? 'var(--color-primary-soft)' : 'var(--color-surface)',
+                              }}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <MessageSquare className="h-3 w-3" style={{ color: 'var(--color-text-muted)' }} />
+                                <p className="truncate font-medium" style={{ color: 'var(--color-text)' }}>{session.title}</p>
+                              </div>
+                              <p className="mt-0.5 text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                                {session.event_count} 条
+                              </p>
+                            </button>
+                          );
+                        })}
                       </div>
                       {group.sessions.length === 0 && (
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-2 py-1.5 text-[10px] text-slate-500">
+                        <div className="rounded-lg px-2 py-1.5 text-[10px]" style={{ borderWidth: 1, borderColor: 'var(--color-border-strong)', borderStyle: 'dashed', backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
                           暂无会话
                         </div>
                       )}
@@ -184,7 +194,7 @@ export function LeftSidebar({
             </div>
 
             {agentSessions.length === 0 && (
-              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-lg px-3 py-2 text-xs" style={{ borderWidth: 1, borderColor: 'var(--color-border-strong)', borderStyle: 'dashed', color: 'var(--color-text-secondary)' }}>
                 暂无可用 agent 会话
               </div>
             )}
@@ -204,12 +214,13 @@ export function LeftSidebar({
           className="flex flex-col min-h-0 -mt-2"
           style={{ height: `${100 - leftPanelSplit}%` }}
         >
-          <div className="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold">群聊</h2>
+          <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottomWidth: 1, borderBottomColor: 'var(--color-border)', borderBottomStyle: 'solid' }}>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>群聊</h2>
             <button
               type="button"
               onClick={() => setShowCreateGroupDialog(true)}
-              className="rounded-md border border-slate-200 bg-white p-1 hover:bg-slate-100"
+              className="rounded-md p-1 hover:opacity-80"
+              style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
               title="创建群聊"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -218,33 +229,39 @@ export function LeftSidebar({
           <div className="flex-1 overflow-y-auto px-3 py-2">
             {groupChats.length > 0 ? (
               <div className="space-y-2">
-                {groupChats.map((group) => (
-                  <button
-                    key={group.group_id}
-                    type="button"
-                    onClick={() => onSelectGroup(group)}
-                    className={`w-full rounded-lg border px-2 py-2 text-left text-xs ${
-                      currentGroupId === group.group_id
-                        ? 'border-purple-300 bg-purple-50'
-                        : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <Users className="h-3 w-3 text-purple-400" />
-                      <p className="truncate font-medium">{group.name}</p>
-                    </div>
-                    <p className="mt-0.5 text-[10px] text-slate-500">
-                      {group.agent_ids.length} 成员 · {group.message_count} 消息
-                    </p>
-                  </button>
-                ))}
+                {groupChats.map((group) => {
+                  const isActive = currentGroupId === group.group_id;
+                  return (
+                    <button
+                      key={group.group_id}
+                      type="button"
+                      onClick={() => onSelectGroup(group)}
+                      className="w-full rounded-lg px-2 py-2 text-left text-xs"
+                      style={{
+                        borderWidth: 1,
+                        borderStyle: 'solid',
+                        borderColor: isActive ? 'var(--color-accent-border)' : 'var(--color-border)',
+                        backgroundColor: isActive ? 'var(--color-accent-soft)' : 'var(--color-surface)',
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Users className="h-3 w-3" style={{ color: 'var(--color-accent-muted)' }} />
+                        <p className="truncate font-medium" style={{ color: 'var(--color-text)' }}>{group.name}</p>
+                      </div>
+                      <p className="mt-0.5 text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                        {group.agent_ids.length} 成员 · {group.message_count} 消息
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="flex h-full items-center justify-center">
                 <button
                   type="button"
                   onClick={() => setShowCreateGroupDialog(true)}
-                  className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-xs text-slate-500 hover:bg-slate-100"
+                  className="w-full rounded-lg px-3 py-4 text-xs hover:opacity-80"
+                  style={{ borderWidth: 1, borderColor: 'var(--color-border-strong)', borderStyle: 'dashed', backgroundColor: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)' }}
                 >
                   <div className="flex flex-col items-center gap-2">
                     <Users className="h-5 w-5" />

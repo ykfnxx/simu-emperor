@@ -1,7 +1,8 @@
 import { CheckCircle2 } from 'lucide-react';
 
 import type { TapeEvent } from '../../api/types';
-import { getAgentToken } from '../../theme/agent-tokens';
+import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
+import { useThemeStore } from '../../theme/useTheme';
 import { JsonTable } from './shared/JsonTable';
 import { CollapsibleSection } from './shared/CollapsibleSection';
 
@@ -22,7 +23,6 @@ function tryParseJson(value: string): Record<string, unknown> | null {
 function renderResult(tool: string, result: string, compact: boolean) {
   const parsed = tryParseJson(result);
 
-  // Structured rendering for known tools
   if (tool === 'query_state' && parsed) {
     return <JsonTable data={parsed} />;
   }
@@ -33,14 +33,14 @@ function renderResult(tool: string, result: string, compact: boolean) {
 
   if (tool === 'search_memory' && parsed) {
     const results = Array.isArray(parsed.results) ? parsed.results : [];
-    if (results.length === 0) return <p className="text-xs text-slate-500">无相关记忆</p>;
+    if (results.length === 0) return <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>无相关记忆</p>;
     return (
       <div className="space-y-1">
         {results.map((r: { title?: string; content?: string }, i: number) => (
-          <div key={i} className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
-            {r.title && <p className="text-xs font-medium text-slate-700">{r.title}</p>}
+          <div key={i} className="rounded px-2 py-1" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface-alt)' }}>
+            {r.title && <p className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{r.title}</p>}
             {r.content && !compact && (
-              <p className="text-xs text-slate-500 line-clamp-2">{r.content}</p>
+              <p className="text-xs line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>{r.content}</p>
             )}
           </div>
         ))}
@@ -48,21 +48,19 @@ function renderResult(tool: string, result: string, compact: boolean) {
     );
   }
 
-  // JSON result — show as table
   if (parsed) {
     return <JsonTable data={parsed} />;
   }
 
-  // Plain text result
   if (compact && result.length > 100) {
-    return <p className="text-xs text-slate-600 line-clamp-2">{result}</p>;
+    return <p className="text-xs line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>{result}</p>;
   }
-  return <p className="whitespace-pre-wrap text-xs text-slate-600">{result}</p>;
+  return <p className="whitespace-pre-wrap text-xs" style={{ color: 'var(--color-text-secondary)' }}>{result}</p>;
 }
 
 export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps) {
+  const theme = useThemeStore((s) => s.theme);
   const payload = event.payload ?? {};
-  // Backend uses tool_name/output (react.py:185-186), old format uses tool/result
   const tool = typeof payload.tool_name === 'string' ? payload.tool_name
     : typeof payload.tool === 'string' ? payload.tool : '';
   const args = payload.arguments as Record<string, unknown> | undefined;
@@ -72,19 +70,20 @@ export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps
 
   const agentId = event.src.replace('agent:', '');
   const token = getAgentToken(agentId);
+  const colors = getActiveColors(token, theme);
 
   return (
     <div
       className="rounded-xl border px-3 py-2"
-      style={{ borderColor: `${token.color}40`, backgroundColor: `${token.bgColor}80` }}
+      style={{ borderColor: `${colors.color}40`, backgroundColor: `${colors.bgColor}80` }}
     >
       <div className="mb-1 flex items-center gap-2">
-        <CheckCircle2 className="h-3.5 w-3.5" style={{ color: token.color }} />
-        <span className="text-xs font-semibold" style={{ color: token.color }}>
+        <CheckCircle2 className="h-3.5 w-3.5" style={{ color: colors.color }} />
+        <span className="text-xs font-semibold" style={{ color: colors.color }}>
           {tool || '工具结果'}
         </span>
         {endsLoop && (
-          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700">
+          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: 'var(--color-success-badge-bg)', color: 'var(--color-success-text)' }}>
             结束循环
           </span>
         )}
@@ -97,7 +96,7 @@ export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps
       )}
 
       {result && (
-        <div className="mt-1 rounded-lg border border-slate-100 bg-white p-2">
+        <div className="mt-1 rounded-lg p-2" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
           {renderResult(tool, result, compact)}
         </div>
       )}

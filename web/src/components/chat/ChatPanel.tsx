@@ -46,15 +46,17 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
       : (currentSession?.title ?? `${currentAgentId} - 对话`);
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+    <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
+      <div className="flex items-center justify-between px-5 py-4" style={{ borderBottomWidth: 1, borderBottomColor: 'var(--color-border)', borderBottomStyle: 'solid' }}>
         <div className="min-w-0">
-          <p className="truncate text-xl font-semibold">{headerTitle}</p>
+          <p className="truncate text-xl font-semibold" style={{ color: 'var(--color-text)' }}>{headerTitle}</p>
         </div>
         <div
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            isValidSession ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-          }`}
+          className="rounded-full px-3 py-1 text-xs font-semibold"
+          style={{
+            backgroundColor: isValidSession ? 'var(--color-success-badge-bg)' : 'var(--color-warning-badge-bg)',
+            color: isValidSession ? 'var(--color-success-text)' : 'var(--color-warning-text)',
+          }}
         >
           {isValidSession ? 'Online' : '未选择会话'}
         </div>
@@ -63,17 +65,17 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
       <div className="flex-1 overflow-y-auto p-5">
         {!isValidSession ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
-              <MessageSquare className="mx-auto mb-4 h-12 w-12 text-amber-500" />
-              <h3 className="mb-2 text-lg font-semibold text-amber-800">请先选择或创建会话</h3>
-              <p className="text-sm text-amber-700">
+            <div className="rounded-2xl p-8 text-center" style={{ borderWidth: 1, borderColor: 'var(--color-warning-border)', borderStyle: 'solid', backgroundColor: 'var(--color-warning-soft)' }}>
+              <MessageSquare className="mx-auto mb-4 h-12 w-12" style={{ color: 'var(--color-warning-icon)' }} />
+              <h3 className="mb-2 text-lg font-semibold" style={{ color: 'var(--color-warning-strong)' }}>请先选择或创建会话</h3>
+              <p className="text-sm" style={{ color: 'var(--color-warning-text)' }}>
                 在左侧列表中选择一个现有会话，或点击{' '}
                 <Plus className="inline h-4 w-4" /> 按钮创建新会话。
               </p>
             </div>
           </div>
         ) : chatMessages.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+          <div className="rounded-2xl p-6 text-sm" style={{ borderWidth: 1, borderColor: 'var(--color-border-strong)', borderStyle: 'dashed', backgroundColor: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)' }}>
             {pendingSession
               ? '输入内容即可创建新会话并开始对话。'
               : '当前会话暂无消息，输入内容即可开始对话。'}
@@ -90,12 +92,12 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
 
             {responseTimeoutError && (
               <div className="flex justify-center">
-                <div className="max-w-[80%] rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+                <div className="max-w-[80%] rounded-2xl px-4 py-3" style={{ borderWidth: 1, borderColor: 'var(--color-danger-border)', borderStyle: 'solid', backgroundColor: 'var(--color-danger-soft)', color: 'var(--color-danger-text)' }}>
                   <div className="flex items-start gap-2">
                     <span className="text-lg">⚠️</span>
                     <div>
                       <p className="text-sm font-medium">Agent 响应超时</p>
-                      <p className="mt-1 text-xs text-red-600">{responseTimeoutError}</p>
+                      <p className="mt-1 text-xs" style={{ color: 'var(--color-danger)' }}>{responseTimeoutError}</p>
                     </div>
                   </div>
                 </div>

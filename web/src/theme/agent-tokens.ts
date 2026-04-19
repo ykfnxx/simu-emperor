@@ -1,6 +1,7 @@
 /**
  * Agent visual identity tokens for the imperial court simulator.
  * Maps agent IDs to colors, icons, and display names.
+ * Provides both light and dark mode color variants.
  */
 
 export interface AgentToken {
@@ -10,15 +11,63 @@ export interface AgentToken {
   bgColor: string;
   borderColor: string;
   icon: string;
+  /** Dark-mode overrides (defaults to light values if absent). */
+  dark?: {
+    color: string;
+    bgColor: string;
+    borderColor: string;
+  };
 }
 
-const FALLBACK_SCHEMES: Array<{ color: string; bgColor: string; borderColor: string; icon: string }> = [
-  { color: '#6A5ACD', bgColor: '#EDE9FE', borderColor: '#6A5ACD', icon: '🏯' },
-  { color: '#2E8B57', bgColor: '#E6F4EA', borderColor: '#2E8B57', icon: '🎋' },
-  { color: '#CD853F', bgColor: '#FFF4E6', borderColor: '#CD853F', icon: '📜' },
-  { color: '#708090', bgColor: '#F0F2F5', borderColor: '#708090', icon: '⚔️' },
-  { color: '#8B4513', bgColor: '#FAF0E6', borderColor: '#8B4513', icon: '🏛️' },
-  { color: '#4682B4', bgColor: '#E8F0FE', borderColor: '#4682B4', icon: '🌊' },
+const FALLBACK_SCHEMES: Array<{
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  icon: string;
+  dark: { color: string; bgColor: string; borderColor: string };
+}> = [
+  {
+    color: '#6A5ACD',
+    bgColor: '#EDE9FE',
+    borderColor: '#6A5ACD',
+    icon: '🏯',
+    dark: { color: '#A78BFA', bgColor: '#2E1065', borderColor: '#7C3AED' },
+  },
+  {
+    color: '#2E8B57',
+    bgColor: '#E6F4EA',
+    borderColor: '#2E8B57',
+    icon: '🎋',
+    dark: { color: '#6EE7B7', bgColor: '#064E3B', borderColor: '#059669' },
+  },
+  {
+    color: '#CD853F',
+    bgColor: '#FFF4E6',
+    borderColor: '#CD853F',
+    icon: '📜',
+    dark: { color: '#FBBF24', bgColor: '#451A03', borderColor: '#B45309' },
+  },
+  {
+    color: '#708090',
+    bgColor: '#F0F2F5',
+    borderColor: '#708090',
+    icon: '⚔️',
+    dark: { color: '#94A3B8', bgColor: '#1E293B', borderColor: '#64748B' },
+  },
+  {
+    color: '#8B4513',
+    bgColor: '#FAF0E6',
+    borderColor: '#8B4513',
+    icon: '🏛️',
+    dark: { color: '#D97706', bgColor: '#431407', borderColor: '#92400E' },
+  },
+  {
+    color: '#4682B4',
+    bgColor: '#E8F0FE',
+    borderColor: '#4682B4',
+    icon: '🌊',
+    dark: { color: '#60A5FA', bgColor: '#1E3A5F', borderColor: '#2563EB' },
+  },
 ];
 
 export const KNOWN_AGENTS: Record<string, AgentToken> = {
@@ -29,6 +78,7 @@ export const KNOWN_AGENTS: Record<string, AgentToken> = {
     bgColor: '#E8F5EC',
     borderColor: '#2D8B56',
     icon: '🌿',
+    dark: { color: '#6EE7B7', bgColor: '#064E3B', borderColor: '#059669' },
   },
   governor_zhili: {
     id: 'governor_zhili',
@@ -37,6 +87,7 @@ export const KNOWN_AGENTS: Record<string, AgentToken> = {
     bgColor: '#FFF8E1',
     borderColor: '#B8860B',
     icon: '🏰',
+    dark: { color: '#FCD34D', bgColor: '#451A03', borderColor: '#B45309' },
   },
   minister_of_revenue: {
     id: 'minister_of_revenue',
@@ -45,6 +96,7 @@ export const KNOWN_AGENTS: Record<string, AgentToken> = {
     bgColor: '#FDE8E4',
     borderColor: '#C23B22',
     icon: '💰',
+    dark: { color: '#FCA5A5', bgColor: '#450A0A', borderColor: '#991B1B' },
   },
   player: {
     id: 'player',
@@ -53,6 +105,7 @@ export const KNOWN_AGENTS: Record<string, AgentToken> = {
     bgColor: '#FFF3CD',
     borderColor: '#DAA520',
     icon: '👑',
+    dark: { color: '#FDE68A', bgColor: '#422006', borderColor: '#B45309' },
   },
 };
 
@@ -95,7 +148,26 @@ export function getAgentToken(agentId: string): AgentToken {
     bgColor: scheme.bgColor,
     borderColor: scheme.borderColor,
     icon: scheme.icon,
+    dark: scheme.dark,
   };
   tokenCache.set(agentId, token);
   return token;
+}
+
+/**
+ * Returns the active colors for the given theme.
+ * Pass the theme value from `useThemeStore` to ensure reactivity on toggle.
+ */
+export function getActiveColors(
+  token: AgentToken,
+  theme: 'light' | 'dark' = 'light',
+): {
+  color: string;
+  bgColor: string;
+  borderColor: string;
+} {
+  if (theme === 'dark' && token.dark) {
+    return token.dark;
+  }
+  return { color: token.color, bgColor: token.bgColor, borderColor: token.borderColor };
 }

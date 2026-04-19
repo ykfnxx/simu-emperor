@@ -28,9 +28,8 @@ export function VerticalResizeHandle({ onDrag }: VerticalResizeHandleProps) {
 
   return (
     <div
-      className={`flex items-center justify-center gap-1.5 py-1 cursor-row-resize select-none group relative z-10 ${
-        isDragging ? 'bg-slate-100' : ''
-      }`}
+      className="flex items-center justify-center gap-1.5 py-1 cursor-row-resize select-none group relative z-10"
+      style={isDragging ? { backgroundColor: 'var(--color-surface-hover)' } : undefined}
       onMouseDown={(e) => {
         e.preventDefault();
         setIsDragging(true);
@@ -39,9 +38,10 @@ export function VerticalResizeHandle({ onDrag }: VerticalResizeHandleProps) {
       {[0, 1, 2, 3, 4].map((i) => (
         <span
           key={i}
-          className={`w-1 h-1 rounded-full transition-all ${
-            isDragging ? 'bg-blue-500' : 'bg-slate-300 group-hover:bg-blue-400'
-          }`}
+          className="w-1 h-1 rounded-full transition-all"
+          style={{
+            backgroundColor: isDragging ? 'var(--color-dot-active)' : 'var(--color-dot)',
+          }}
         />
       ))}
     </div>

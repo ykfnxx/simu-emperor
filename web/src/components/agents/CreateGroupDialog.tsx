@@ -19,24 +19,25 @@ export function CreateGroupDialog({ onClose, onCreateGroup }: CreateGroupDialogP
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-        <h3 className="mb-4 text-lg font-semibold">创建群聊</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'var(--color-overlay)' }}>
+      <div className="w-full max-w-md rounded-xl p-6 shadow-xl" style={{ backgroundColor: 'var(--color-surface)' }}>
+        <h3 className="mb-4 text-lg font-semibold" style={{ color: 'var(--color-text)' }}>创建群聊</h3>
         <div className="mb-4">
-          <label className="mb-1 block text-sm font-medium text-slate-700">群聊名称</label>
+          <label className="mb-1 block text-sm font-medium" style={{ color: 'var(--color-text)' }}>群聊名称</label>
           <input
             type="text"
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
             placeholder="输入群聊名称"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:outline-none"
+            className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none"
+            style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)' }}
           />
         </div>
         <div className="mb-4">
-          <label className="mb-2 block text-sm font-medium text-slate-700">选择成员</label>
+          <label className="mb-2 block text-sm font-medium" style={{ color: 'var(--color-text)' }}>选择成员</label>
           <div className="max-h-48 space-y-2 overflow-y-auto">
             {agentSessions.map((group) => (
-              <div key={group.agent_id} className="rounded-lg border border-slate-200 p-2">
+              <div key={group.agent_id} className="rounded-lg p-2" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid' }}>
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -52,15 +53,15 @@ export function CreateGroupDialog({ onClose, onCreateGroup }: CreateGroupDialogP
                         });
                       }
                     }}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded"
                   />
-                  <span className="text-sm text-slate-700">{group.agent_name}</span>
+                  <span className="text-sm" style={{ color: 'var(--color-text)' }}>{group.agent_name}</span>
                 </label>
               </div>
             ))}
           </div>
           {selectedAgents.size > 0 && (
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               已选择: {Array.from(selectedAgents).join(', ')}
             </div>
           )}
@@ -69,7 +70,8 @@ export function CreateGroupDialog({ onClose, onCreateGroup }: CreateGroupDialogP
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            className="rounded-lg px-4 py-2 text-sm hover:opacity-80"
+            style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', color: 'var(--color-text)' }}
           >
             取消
           </button>
@@ -77,7 +79,8 @@ export function CreateGroupDialog({ onClose, onCreateGroup }: CreateGroupDialogP
             type="button"
             onClick={handleCreate}
             disabled={!newGroupName.trim() || selectedAgents.size === 0}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg px-4 py-2 text-sm disabled:opacity-50"
+            style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-inverse)' }}
           >
             创建
           </button>

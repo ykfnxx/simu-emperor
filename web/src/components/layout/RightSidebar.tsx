@@ -65,20 +65,26 @@ export function RightSidebar({
 
   const [tapeContextHeight, setTapeContextHeight] = useState(300);
 
+  const tabClass = (active: boolean) => ({
+    backgroundColor: active ? 'var(--color-primary-soft)' : 'var(--color-surface-hover)',
+    color: active ? 'var(--color-primary-text)' : 'var(--color-text-secondary)',
+  });
+
   return (
     <>
-      <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white lg:w-[360px]">
+      <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-2xl lg:w-[360px]" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
         {/* Header with turn info and tabs */}
-        <div className="border-b border-slate-200 px-4 py-4">
+        <div className="px-4 py-4" style={{ borderBottomWidth: 1, borderBottomColor: 'var(--color-border)', borderBottomStyle: 'solid' }}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">{formatTurn(overview.turn)}</h3>
+              <h3 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>{formatTurn(overview.turn)}</h3>
             </div>
             <button
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+              className="rounded-lg p-1.5 disabled:opacity-60 hover:opacity-80"
+              style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', color: 'var(--color-text-secondary)' }}
               title="刷新"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -88,11 +94,8 @@ export function RightSidebar({
             <button
               type="button"
               onClick={() => setCurrentPanelTab('overview')}
-              className={`rounded-md px-2 py-1 font-medium ${
-                currentPanelTab === 'overview'
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
+              className="rounded-md px-2 py-1 font-medium"
+              style={tabClass(currentPanelTab === 'overview')}
             >
               帝国概况
             </button>
@@ -102,15 +105,12 @@ export function RightSidebar({
                 setCurrentPanelTab('incidents');
                 onFetchIncidents();
               }}
-              className={`rounded-md px-2 py-1 font-medium ${
-                currentPanelTab === 'incidents'
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
+              className="rounded-md px-2 py-1 font-medium"
+              style={tabClass(currentPanelTab === 'incidents')}
             >
               天下大事
               {incidents.length > 0 && (
-                <span className="ml-1 rounded-full bg-red-500 px-1.5 py-0.5 text-xs text-white">
+                <span className="ml-1 rounded-full px-1.5 py-0.5 text-xs" style={{ backgroundColor: 'var(--color-danger)', color: 'var(--color-text-inverse)' }}>
                   {incidents.length}
                 </span>
               )}
@@ -121,11 +121,8 @@ export function RightSidebar({
                 setCurrentPanelTab('province');
                 onFetchFullState();
               }}
-              className={`rounded-md px-2 py-1 font-medium ${
-                currentPanelTab === 'province'
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}
+              className="rounded-md px-2 py-1 font-medium"
+              style={tabClass(currentPanelTab === 'province')}
             >
               省份概况
             </button>
@@ -139,7 +136,6 @@ export function RightSidebar({
           {currentPanelTab === 'province' && <ProvincePanel />}
         </div>
 
-        {/* Tape context drag handle — reuse VerticalResizeHandle */}
         <VerticalResizeHandle
           onDrag={(deltaY) => {
             const aside = document.querySelectorAll('aside')[1];
@@ -157,15 +153,15 @@ export function RightSidebar({
           style={{ height: tapeContextHeight }}
         >
           <div className="mb-3 flex items-center justify-between">
-            <h4 className="text-base font-semibold">TAPE CONTEXT</h4>
-            <span className="text-xs text-slate-500">{tapeContextEvents.length} 条</span>
+            <h4 className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>TAPE CONTEXT</h4>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{tapeContextEvents.length} 条</span>
           </div>
 
           {/* Agent selector / info */}
-          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+          <div className="mb-3 rounded-lg px-3 py-2 text-sm" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface-alt)' }}>
             {currentGroupId ? (
               <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-purple-500" />
+                <Users className="h-4 w-4" style={{ color: 'var(--color-accent-muted)' }} />
                 <select
                   value={selectedGroupAgentId || currentAgentId}
                   onChange={(e) => {
@@ -176,7 +172,8 @@ export function RightSidebar({
                       selectedViewSessionId || currentSessionId,
                     );
                   }}
-                  className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-sm outline-none focus:border-purple-300"
+                  className="flex-1 rounded px-2 py-1 text-sm outline-none"
+                  style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)', color: 'var(--color-text)' }}
                 >
                   {(() => {
                     const group = groupChats.find((g) => g.group_id === currentGroupId);
@@ -195,11 +192,11 @@ export function RightSidebar({
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-slate-500" />
-                <span className="truncate">{viewAgentId}</span>
+                <CalendarClock className="h-4 w-4" style={{ color: 'var(--color-text-secondary)' }} />
+                <span className="truncate" style={{ color: 'var(--color-text)' }}>{viewAgentId}</span>
               </div>
             )}
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               <span>·</span>
               <span className="truncate">
                 {viewTape.session_id
@@ -210,7 +207,7 @@ export function RightSidebar({
           </div>
 
           {/* Sub-session selector */}
-          <div className="mb-3 rounded-lg border border-slate-200 bg-white">
+          <div className="mb-3 rounded-lg" style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}>
             <button
               type="button"
               onClick={() => {
@@ -219,73 +216,83 @@ export function RightSidebar({
                 }
                 setShowSubSessions(!showSubSessions);
               }}
-              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50"
+              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:opacity-80"
             >
-              <span className="font-medium text-slate-700">切换Session</span>
+              <span className="font-medium" style={{ color: 'var(--color-text)' }}>切换Session</span>
               {selectedViewSessionId &&
                 selectedViewSessionId !== currentSessionId && (
-                  <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                  <span className="rounded-md px-2 py-0.5 text-xs" style={{ backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary-text)' }}>
                     已切换
                   </span>
                 )}
               {showSubSessions ? (
-                <ChevronDown className="h-4 w-4 text-slate-500" />
+                <ChevronDown className="h-4 w-4" style={{ color: 'var(--color-text-secondary)' }} />
               ) : (
-                <ChevronRight className="h-4 w-4 text-slate-500" />
+                <ChevronRight className="h-4 w-4" style={{ color: 'var(--color-text-secondary)' }} />
               )}
             </button>
 
             {showSubSessions && (
-              <div className="border-t border-slate-200 p-3">
+              <div className="p-3" style={{ borderTopWidth: 1, borderTopColor: 'var(--color-border)', borderTopStyle: 'solid' }}>
                 {loadingSubSessions ? (
-                  <div className="py-2 text-center text-sm text-slate-500">加载中...</div>
+                  <div className="py-2 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>加载中...</div>
                 ) : (
                   <div className="space-y-1">
-                    <span className="text-xs text-slate-500">选择要查看的Session</span>
+                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>选择要查看的Session</span>
                     <div className="max-h-40 space-y-1 overflow-y-auto mt-2">
-                      <button
-                        type="button"
-                        onClick={() => onSwitchViewSession(currentSessionId)}
-                        className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm text-left ${
-                          selectedViewSessionId === currentSessionId ||
-                          !selectedViewSessionId
-                            ? 'border-blue-300 bg-blue-50'
-                            : 'border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className="flex-1 truncate text-slate-700">
-                          主会话 ({currentSessionId.slice(-12)})
-                        </span>
-                        {(selectedViewSessionId === currentSessionId ||
-                          !selectedViewSessionId) && (
-                          <span className="text-xs text-blue-600">● 当前</span>
-                        )}
-                      </button>
+                      {(() => {
+                        const isMainActive = selectedViewSessionId === currentSessionId || !selectedViewSessionId;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => onSwitchViewSession(currentSessionId)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left"
+                            style={{
+                              borderWidth: 1,
+                              borderStyle: 'solid',
+                              borderColor: isMainActive ? 'var(--color-primary-border)' : 'var(--color-border)',
+                              backgroundColor: isMainActive ? 'var(--color-primary-soft)' : 'transparent',
+                            }}
+                          >
+                            <span className="flex-1 truncate" style={{ color: 'var(--color-text)' }}>
+                              主会话 ({currentSessionId.slice(-12)})
+                            </span>
+                            {isMainActive && (
+                              <span className="text-xs" style={{ color: 'var(--color-primary)' }}>● 当前</span>
+                            )}
+                          </button>
+                        );
+                      })()}
                       {subSessions.length === 0 ? (
-                        <div className="py-2 text-center text-sm text-slate-500">
+                        <div className="py-2 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                           暂无子Session
                         </div>
                       ) : (
-                        subSessions.map((sub) => (
-                          <button
-                            key={sub.session_id}
-                            type="button"
-                            onClick={() => onSwitchViewSession(sub.session_id)}
-                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-sm text-left ${
-                              selectedViewSessionId === sub.session_id
-                                ? 'border-blue-300 bg-blue-50'
-                                : 'border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="flex-1 truncate text-slate-700">
-                              {sub.session_id.slice(-20)}
-                            </span>
-                            <span className="text-xs text-slate-400">{sub.event_count} 事件</span>
-                            {selectedViewSessionId === sub.session_id && (
-                              <span className="text-xs text-blue-600">● 当前</span>
-                            )}
-                          </button>
-                        ))
+                        subSessions.map((sub) => {
+                          const isActive = selectedViewSessionId === sub.session_id;
+                          return (
+                            <button
+                              key={sub.session_id}
+                              type="button"
+                              onClick={() => onSwitchViewSession(sub.session_id)}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left"
+                              style={{
+                                borderWidth: 1,
+                                borderStyle: 'solid',
+                                borderColor: isActive ? 'var(--color-primary-border)' : 'var(--color-border)',
+                                backgroundColor: isActive ? 'var(--color-primary-soft)' : 'transparent',
+                              }}
+                            >
+                              <span className="flex-1 truncate" style={{ color: 'var(--color-text)' }}>
+                                {sub.session_id.slice(-20)}
+                              </span>
+                              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{sub.event_count} 事件</span>
+                              {isActive && (
+                                <span className="text-xs" style={{ color: 'var(--color-primary)' }}>● 当前</span>
+                              )}
+                            </button>
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -297,7 +304,7 @@ export function RightSidebar({
           {/* Tape event list */}
           <div className="min-h-0 flex-1 overflow-y-auto space-y-2">
             {tapeContextEvents.length === 0 && (
-              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
+              <div className="rounded-xl px-3 py-4 text-sm" style={{ borderWidth: 1, borderColor: 'var(--color-border-strong)', borderStyle: 'dashed', color: 'var(--color-text-secondary)' }}>
                 当前 session 暂无 tape 事件。
               </div>
             )}
@@ -321,7 +328,7 @@ export function RightSidebar({
                       {event.type}
                     </span>
                   </div>
-                  <p className="text-sm text-slate-700">{extractEventText(event)}</p>
+                  <p className="text-sm" style={{ color: 'var(--color-text)' }}>{extractEventText(event)}</p>
                 </div>
               );
             })}
