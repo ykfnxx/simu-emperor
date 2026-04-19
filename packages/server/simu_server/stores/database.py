@@ -94,6 +94,7 @@ class Database:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = await aiosqlite.connect(str(self._db_path))
         await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.executescript(_SCHEMA)
         await self._migrate(self._conn)
         await self._conn.commit()

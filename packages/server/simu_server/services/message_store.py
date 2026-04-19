@@ -5,6 +5,7 @@ Dual-write: SQLite (primary) + data/memory/ JSONL (debug convenience).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -41,7 +42,10 @@ class MessageStore:
             ),
         )
         await self._db.conn.commit()
-        self._write_to_memory(msg)
+        if self._memory_dir is not None:
+            asyncio.get_event_loop().run_in_executor(
+                None, self._write_to_memory, msg,
+            )
 
     def _write_to_memory(self, msg: RoutedMessage) -> None:
         """Append message as JSONL to data/memory/ for debugging."""

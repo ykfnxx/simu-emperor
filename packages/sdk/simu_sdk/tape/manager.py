@@ -74,6 +74,7 @@ class TapeManager:
         """Open the SQLite database and ensure schema exists."""
         self._db = await aiosqlite.connect(str(self._db_path))
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._db.execute(_CREATE_TABLE)
         await self._db.execute(_CREATE_INDEX)
         await self._db.commit()
@@ -85,9 +86,11 @@ class TapeManager:
 
     async def append(self, event: TapeEvent) -> None:
         """Append an event to both JSONL and SQLite, plus debug mirror."""
-        await self._append_jsonl(event)
-        await self._append_sqlite(event)
-        self._append_memory_mirror(event)
+        await asyncio.gather(
+            self._append_jsonl(event),
+            self._append_sqlite(event),
+            self._append_memory_mirror(event),
+        )
 
         # Fire callback on first event per session (non-blocking — title
         # generation calls LLM and should not delay the react loop).
@@ -203,10 +206,10 @@ class TapeManager:
                 event.invocation_id,
             ),
         )
-        await self._db.commit()
 
-    def _append_memory_mirror(self, event: TapeEvent) -> None:
-        """Write event to shared data/memory/ for debugging (synchronous)."""
+
+    async def _append_memory_mirror(self, event: TapeEvent) -> None:
+        """Write event to shared data/memory/ for debugging."""
         if not self._memory_dir or not self._agent_id:
             return
         try:
@@ -215,8 +218,8 @@ class TapeManager:
             )
             mirror_dir.mkdir(parents=True, exist_ok=True)
             line = event.model_dump_json() + "\n"
-            with open(mirror_dir / "tape.jsonl", "a", encoding="utf-8") as f:
-                f.write(line)
+            async with aiofiles.open(mirror_dir / "tape.jsonl", "a") as f:
+                await f.write(line)
         except Exception:
             logger.warning("Failed to write memory mirror", exc_info=True)
 

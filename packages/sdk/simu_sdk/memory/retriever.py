@@ -6,6 +6,7 @@ L2: View-level — vector search within matched sessions for precise results.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from simu_sdk.memory.metadata import TapeMetadataManager
@@ -86,9 +87,13 @@ class MemoryRetriever:
 
         if not view_hits:
             # Fall back to session summaries if no views exist yet
+            # Parallel metadata fetch (skip views — only need title/summary)
+            metas = await asyncio.gather(
+                *(self._metadata.get_metadata(sid, load_views=False)
+                  for sid, _ in ranked_sessions)
+            )
             results: list[MemoryResult] = []
-            for session_id, score in ranked_sessions:
-                meta = await self._metadata.get_metadata(session_id)
+            for (session_id, score), meta in zip(ranked_sessions, metas):
                 if meta and meta.summary:
                     results.append(
                         MemoryResult(
@@ -101,18 +106,23 @@ class MemoryRetriever:
             return results[:max_views]
 
         # Build results from view hits, enriching with session title
-        results = []
-        # Cache session titles
-        title_cache: dict[str, str] = {}
-        for view in view_hits:
-            if view.session_id not in title_cache:
-                meta = await self._metadata.get_metadata(view.session_id)
-                title_cache[view.session_id] = meta.title if meta else ""
+        # Parallel metadata fetch for all unique sessions (skip views)
+        unique_sids = list({v.session_id for v in view_hits})
+        metas = await asyncio.gather(
+            *(self._metadata.get_metadata(sid, load_views=False)
+              for sid in unique_sids)
+        )
+        title_cache = {
+            sid: (meta.title if meta else "")
+            for sid, meta in zip(unique_sids, metas)
+        }
 
+        results = []
+        for view in view_hits:
             results.append(
                 MemoryResult(
                     session_id=view.session_id,
-                    session_title=title_cache[view.session_id],
+                    session_title=title_cache.get(view.session_id, ""),
                     view_summary=view.summary,
                     relevance_score=view.score,
                 )
