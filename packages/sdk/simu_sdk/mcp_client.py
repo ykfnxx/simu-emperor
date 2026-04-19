@@ -74,7 +74,7 @@ class _MCPSession:
         for cm in reversed(self._contexts):
             try:
                 await cm.__aexit__(None, None, None)
-            except Exception:
+            except BaseException:
                 pass
         self._contexts.clear()
         self._session = None
@@ -297,11 +297,14 @@ class MCPServerClient:
         """Report an unhandled error back to the Server."""
         logger.exception("Error processing event %s", event.event_id)
         if event.invocation_id:
-            await self.complete_invocation(
-                event.invocation_id,
-                status="failed",
-                error=str(error),
-            )
+            try:
+                await self.complete_invocation(
+                    event.invocation_id,
+                    status="failed",
+                    error=str(error),
+                )
+            except (Exception, asyncio.CancelledError):
+                logger.warning("Failed to report error for %s", event.event_id)
 
     # ------------------------------------------------------------------
     # Role queries (role-mcp)
