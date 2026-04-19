@@ -473,12 +473,12 @@ export default function App() {
       agentStore.getState().setAgentStatus(data.agent_id, data.is_online);
     });
 
-    // Refresh task panel tape when new events arrive for open task session
+    // Append task panel events incrementally instead of re-fetching entire tape
     const offEvent = client.current.on<TapeEvent>('event', (data) => {
       if (!data) return;
       const openSessionId = taskPanelStore.getState().openTaskSessionId;
       if (openSessionId && data.session_id === openSessionId) {
-        void loadTaskTape(openSessionId);
+        taskPanelStore.getState().appendTaskEvent(data);
       }
       // Also refresh main chat tape when task lifecycle events arrive
       const etype = typeof data.type === 'string' ? data.type.toLowerCase() : '';

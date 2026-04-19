@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 
 import { useChatStore } from '../../stores/chatStore';
 import { useAgentStore } from '../../stores/agentStore';
-import { toChatMessages, extractEventText, normalizeEventType, isPlayerMessage, isAgentReplyEvent } from '../../utils/tape';
+import { toChatMessages, normalizeEventType } from '../../utils/tape';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 import { ChatInput } from './ChatInput';

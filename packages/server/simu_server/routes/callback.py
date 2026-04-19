@@ -360,6 +360,7 @@ async def push_tape_event(
                     "dst": req.dst,
                     "type": req.event_type,
                     "payload": req.payload,
+                    "timestamp": req.timestamp,
                 },
             })
 
