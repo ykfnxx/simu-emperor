@@ -68,16 +68,22 @@ class MCPClientPlugin:
             and not session_id.startswith("task:")
             and ended_by_tool is None
         ):
-            await self._mcp.post_message(
-                recipients=["player"],
-                message=model_output,
-                session_id=session_id,
-            )
+            try:
+                await self._mcp.post_message(
+                    recipients=["player"],
+                    message=model_output,
+                    session_id=session_id,
+                )
+            except (Exception, asyncio.CancelledError):
+                logger.warning("Failed to post message for session %s", session_id)
 
         # Complete invocation
         invocation_id = getattr(event, "invocation_id", None)
         if invocation_id:
-            await self._mcp.complete_invocation(invocation_id)
+            try:
+                await self._mcp.complete_invocation(invocation_id)
+            except (Exception, asyncio.CancelledError):
+                logger.warning("Failed to complete invocation %s", invocation_id)
 
     async def _update_summary(self, session_id: str) -> None:
         try:
