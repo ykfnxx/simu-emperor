@@ -313,8 +313,6 @@ class SimuAgent:
         from simu_sdk.framework.plugins.context_plugin import SimuContextPlugin
         from simu_sdk.framework.plugins.react_plugin import SimuReActPlugin
         from simu_sdk.framework.plugins.mcp_plugin import MCPClientPlugin
-        from simu_sdk.framework.plugins.memory_plugin import SimuMemoryPlugin
-
         pm = self._framework._plugin_manager
         pm.register(SimuTapePlugin(self.tape), name="SimuTapePlugin")
         pm.register(SimuContextPlugin(
@@ -323,7 +321,6 @@ class SimuAgent:
             data_scope=self.data_scope,
             session_state=self.session_state,
         ), name="SimuContextPlugin")
-        pm.register(SimuMemoryPlugin(self.memory_retriever), name="SimuMemoryPlugin")
         pm.register(SimuReActPlugin(
             llm=self.llm,
             tools=self.tools,
