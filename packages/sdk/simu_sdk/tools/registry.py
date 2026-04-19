@@ -22,6 +22,7 @@ class ToolMeta:
     description: str
     parameters: dict[str, Any]
     category: str = "action"
+    required: tuple[str, ...] = ()
 
 
 @dataclass
@@ -82,6 +83,11 @@ class ToolRegistry:
                 self._tools[meta.name] = meta
                 self._handlers[meta.name] = method
 
+    def register_tool(self, meta: ToolMeta, handler: Callable) -> None:
+        """Register a single tool with its handler directly."""
+        self._tools[meta.name] = meta
+        self._handlers[meta.name] = handler
+
     def get(self, name: str) -> ToolMeta | None:
         return self._tools.get(name)
 
@@ -95,16 +101,19 @@ class ToolRegistry:
         """Convert registered tools to OpenAI-compatible function definitions."""
         definitions: list[dict[str, Any]] = []
         for meta in self._tools.values():
+            params: dict[str, Any] = {
+                "type": "object",
+                "properties": meta.parameters,
+            }
+            if meta.required:
+                params["required"] = list(meta.required)
             definitions.append(
                 {
                     "type": "function",
                     "function": {
                         "name": meta.name,
                         "description": meta.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": meta.parameters,
-                        },
+                        "parameters": params,
                     },
                 }
             )

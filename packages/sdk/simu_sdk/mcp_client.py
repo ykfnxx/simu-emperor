@@ -128,6 +128,27 @@ class MCPServerClient:
         self._simu = _MCPSession(f"{base_url}/mcp/simu", headers)
         self._role = _MCPSession(f"{base_url}/mcp/role", headers)
 
+    # ------------------------------------------------------------------
+    # Dynamic tool discovery
+    # ------------------------------------------------------------------
+
+    async def list_tools(self) -> tuple[list, list]:
+        """Discover tools from both MCP sessions via ``list_tools()``.
+
+        Returns ``(simu_tools, role_tools)`` — lists of MCP ``Tool`` objects.
+        """
+        simu_result = await self._simu._session.list_tools()
+        role_result = await self._role._session.list_tools()
+        return simu_result.tools, role_result.tools
+
+    def get_session(self, name: str) -> _MCPSession:
+        """Get an MCP session by name (``'simu'`` or ``'role'``)."""
+        if name == "simu":
+            return self._simu
+        if name == "role":
+            return self._role
+        raise ValueError(f"Unknown MCP session: {name}")
+
     async def connect(self) -> None:
         """Establish MCP sessions to both simu and role servers."""
         try:
