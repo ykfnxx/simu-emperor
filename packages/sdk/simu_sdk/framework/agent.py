@@ -37,9 +37,10 @@ from simu_sdk.memory.retriever import MemoryRetriever
 from simu_sdk.memory.store import MemoryStore
 from simu_sdk.tape.context import ContextManager
 from simu_sdk.tape.manager import TapeManager
+from simu_sdk.tools.mcp_adapter import MCPToolAdapter
 from simu_sdk.tools.memory import MemoryTools
 from simu_sdk.tools.registry import ToolRegistry
-from simu_sdk.tools.standard import SessionStateManager, StandardTools
+from simu_sdk.tools.standard import SessionStateManager
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class SimuAgent:
         # MCP client (all game interaction — replaces HTTP callbacks)
         self.mcp = MCPServerClient(config.server_url, config.agent_id, config.agent_token)
 
-        # Session state (used by StandardTools, bridged to state machine)
+        # Session state (used by MCPToolAdapter hooks, bridged to state machine)
         self.session_state = SessionStateManager()
 
         # LLM
@@ -136,17 +137,12 @@ class SimuAgent:
             agent_id=config.agent_id,
         )
 
-        # Tools
+        # Tools — local tools registered here; MCP tools discovered at start()
         self.tools = ToolRegistry()
-        self._standard_tools = StandardTools(
-            self.mcp,
-            session_state=self.session_state,
-            agent_id=config.agent_id,
-        )
-        self.tools.register_provider(self._standard_tools)
         self._memory_tools = MemoryTools(self.memory_retriever)
         self.tools.register_provider(self._memory_tools)
         self.tools.register_provider(self)  # auto-register @tool methods on subclasses
+        self._mcp_adapter: MCPToolAdapter | None = None
 
         # Personality
         self.soul: str = ""
@@ -344,8 +340,15 @@ class SimuAgent:
             context_manager=self.context_manager,
         ), name="MCPClientPlugin")
 
-        await self.server.register(capabilities=self.tools.list_names())
         await self.mcp.connect()
+
+        # Discover MCP tools dynamically via list_tools()
+        self._mcp_adapter = MCPToolAdapter(
+            self.mcp, self.session_state, self.agent_id,
+        )
+        await self._mcp_adapter.discover_and_register(self.tools)
+
+        await self.server.register(capabilities=self.tools.list_names())
         logger.info("Agent %s registered with Server (V6 framework, MCP)", self.agent_id)
 
         self._running = True

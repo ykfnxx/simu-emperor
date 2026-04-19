@@ -116,7 +116,7 @@ class SimuContextPlugin:
 - 必须先用 `query_role_map` 查到 agent_id，不要猜测。
 - 与其他官员沟通时始终使用 `await_reply=true`。
 - `create_task_session` 的 goal 必须包含玩家指令中的**所有具体数值和细节**，不得遗漏或概括。
-- `create_task_session`、`finish_task_session`、`fail_task_session` 调用后会话会自动切换，无需额外操作。
+- `create_task_session`、`finish_task_session` 调用后会话会自动切换，无需额外操作。
 - `send_message(await_reply=true)` 发送后当前会话自动暂停，等待回复后继续。
 - 向其他 agent 传达指令时，必须**原样传达玩家的具体数值和要求**，不得自行修改或概括。"""
 
@@ -187,5 +187,5 @@ class SimuContextPlugin:
 
 如果你在一个 task session 中收到消息，但你**不是**这个 task 的创建者（即消息是别人发来的询问），那么：
 - 你是任务**参与者**，不是创建者
-- **禁止调用 `finish_task_session` 或 `fail_task_session`** — 只有创建者有权结束任务
+- **禁止调用 `finish_task_session`** — 只有创建者有权结束任务
 - 直接输出文字回复即可，系统会自动发送给对方"""
