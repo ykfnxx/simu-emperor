@@ -363,6 +363,11 @@ async def finish_task_session(
     new_status = SessionStatus.COMPLETED if status == "completed" else SessionStatus.FAILED
     await sm.update_status(task_session_id, new_status)
 
+    # Retrieve task metadata for enriched summary
+    task_session = await sm.get(task_session_id)
+    task_meta = task_session.metadata if task_session else {}
+    goal = task_meta.get("goal", "")
+
     event_type = EventType.TASK_FINISHED if status == "completed" else EventType.TASK_FAILED
     finish_msg = RoutedMessage(
         session_id=parent_session_id,
@@ -382,6 +387,7 @@ async def finish_task_session(
                 "content": result,
                 "task_session_id": task_session_id,
                 "status": status,
+                "goal": goal,
             },
             session_id=parent_session_id,
         )

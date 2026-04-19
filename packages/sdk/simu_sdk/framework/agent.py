@@ -245,13 +245,14 @@ class SimuAgent:
 
     async def _run_pipeline(self, event: TapeEvent) -> None:
         """Run the Bub pipeline for a single event."""
-        prev_active = self.session_state.get_active_session()
         await self._framework.process_inbound(event)
 
-        # Detect if a tool created a new task session during the pipeline
-        new_active = self.session_state.get_active_session()
-        if new_active and new_active != prev_active:
-            await self._enter_task_session(event, new_active)
+        # Check if create_task_session signaled a new task to enter.
+        # Only create_task_session sets pending_enter; finish/fail do NOT,
+        # so backward switches (returning to parent) are correctly ignored.
+        pending_task = self.session_state.consume_pending_enter()
+        if pending_task:
+            await self._enter_task_session(event, pending_task)
 
     async def _drain_queue(self, session: SessionState) -> None:
         """Process queued messages one by one while session stays idle."""
