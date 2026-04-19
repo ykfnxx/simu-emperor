@@ -28,6 +28,8 @@ import { LeftSidebar } from './components/layout/LeftSidebar';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { RightSidebar } from './components/layout/RightSidebar';
 import { ThemeToggle } from './components/layout/ThemeToggle';
+import { TaskDetailPanel } from './components/task/TaskDetailPanel';
+import { useTaskPanelStore } from './stores/taskPanelStore';
 
 export default function App() {
   const client = useRef(
@@ -181,6 +183,38 @@ export default function App() {
       }
     },
     [],
+  );
+
+  // ── Task panel tape loading ────────────────────────────────────────
+  const taskPanelStore = useTaskPanelStore;
+
+  const loadTaskTape = useCallback(
+    async (sessionId: string) => {
+      taskPanelStore.getState().setLoading(true);
+      try {
+        const agentId = currentAgentRef.current;
+        const tapeData = await client.current.getCurrentTape(200, agentId, sessionId, undefined);
+        const seenIds = new Set<string>();
+        const events = tapeData.events.filter((e) => {
+          if (seenIds.has(e.event_id)) return false;
+          seenIds.add(e.event_id);
+          return true;
+        });
+        taskPanelStore.getState().setTaskTape(events);
+      } catch (err) {
+        console.error('Failed to load task tape:', err);
+        taskPanelStore.getState().setTaskTape([]);
+      }
+    },
+    [],
+  );
+
+  const handleNavigateChild = useCallback(
+    (sessionId: string, goal: string) => {
+      taskPanelStore.getState().pushNavigation(sessionId, goal);
+      void loadTaskTape(sessionId);
+    },
+    [loadTaskTape],
   );
 
   const refreshData = useCallback(async () => {
@@ -439,13 +473,46 @@ export default function App() {
       agentStore.getState().setAgentStatus(data.agent_id, data.is_online);
     });
 
+    // Refresh task panel tape when new events arrive for open task session
+    const offEvent = client.current.on<TapeEvent>('event', (data) => {
+      if (!data) return;
+      const openSessionId = taskPanelStore.getState().openTaskSessionId;
+      if (openSessionId && data.session_id === openSessionId) {
+        void loadTaskTape(openSessionId);
+      }
+      // Also refresh main chat tape when task lifecycle events arrive
+      const etype = typeof data.type === 'string' ? data.type.toLowerCase() : '';
+      if (etype === 'task_created' || etype === 'task_finished' || etype === 'task_failed' || etype === 'task_timeout') {
+        void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
+      }
+    });
+
+    // Handle task_finished WebSocket events
+    const offTaskFinished = client.current.on<{
+      task_session_id: string;
+      parent_session_id: string;
+      status: string;
+      result: string;
+    }>('task_finished', (data) => {
+      if (!data) return;
+      // Refresh main chat tape to update task card status
+      void refreshChatTape(currentAgentRef.current, currentSessionRef.current);
+      // Refresh task panel if viewing the finished task
+      const openSessionId = taskPanelStore.getState().openTaskSessionId;
+      if (openSessionId === data.task_session_id) {
+        void loadTaskTape(openSessionId);
+      }
+    });
+
     return () => {
       offChat();
       offState();
       offSessionState();
       offAgentStatus();
+      offEvent();
+      offTaskFinished();
     };
-  }, [refreshChatTape, refreshViewTape]);
+  }, [refreshChatTape, refreshViewTape, loadTaskTape]);
 
   // ── Action handlers ────────────────────────────────────────────────
   const handleCreateSession = async (agentId: string) => {
@@ -713,6 +780,11 @@ export default function App() {
       </div>
 
       <ThemeToggle />
+
+      <TaskDetailPanel
+        onLoadTape={loadTaskTape}
+        onNavigateChild={handleNavigateChild}
+      />
 
       {loading && (
         <div className="pointer-events-none fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-toast-bg)', color: 'var(--color-toast-text)' }}>

@@ -3,10 +3,12 @@ import { useMemo } from 'react';
 
 import { useChatStore } from '../../stores/chatStore';
 import { useAgentStore } from '../../stores/agentStore';
-import { toChatMessages } from '../../utils/tape';
+import { toChatMessages, extractEventText, normalizeEventType, isPlayerMessage, isAgentReplyEvent } from '../../utils/tape';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
 import { ChatInput } from './ChatInput';
+import { TaskCard } from '../task/TaskCard';
+import type { TapeEvent } from '../../api/types';
 
 interface ChatPanelProps {
   onSend: () => void;
@@ -32,6 +34,29 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
   const isValidSession =
     currentSession !== undefined || pendingSession !== null || currentGroupId !== null;
   const chatMessages = useMemo(() => toChatMessages(chatTape.events), [chatTape.events]);
+
+  // Build timeline: chat messages + task cards interspersed in chronological order
+  const timelineItems = useMemo(() => {
+    const items: { type: 'message' | 'task'; event: TapeEvent }[] = [];
+    const taskCreatedEvents = chatTape.events.filter(
+      (e) => normalizeEventType(e.type) === 'task_created',
+    );
+    // Merge chat messages and task cards by timestamp
+    let mi = 0;
+    let ti = 0;
+    while (mi < chatMessages.length || ti < taskCreatedEvents.length) {
+      const msg = chatMessages[mi];
+      const task = taskCreatedEvents[ti];
+      if (msg && (!task || msg.timestamp <= task.timestamp)) {
+        items.push({ type: 'message', event: msg });
+        mi++;
+      } else if (task) {
+        items.push({ type: 'task', event: task });
+        ti++;
+      }
+    }
+    return items;
+  }, [chatMessages, chatTape.events]);
 
   const currentAgentName = useAgentStore((s) => {
     const group = s.agentSessions.find((g) => g.agent_id === s.currentAgentId);
@@ -84,9 +109,13 @@ export function ChatPanel({ onSend, onSendToGroup }: ChatPanelProps) {
 
         {isValidSession && (
           <div className="space-y-3">
-            {chatMessages.map((event) => (
-              <MessageBubble key={event.event_id} event={event} />
-            ))}
+            {timelineItems.map((item) =>
+              item.type === 'task' ? (
+                <TaskCard key={item.event.event_id} event={item.event} allEvents={chatTape.events} />
+              ) : (
+                <MessageBubble key={item.event.event_id} event={item.event} />
+              ),
+            )}
 
             {agentTyping && <TypingIndicator agentName={currentAgentName} />}
 

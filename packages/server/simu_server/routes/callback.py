@@ -347,6 +347,22 @@ async def push_tape_event(
     )
     await msg_store.store(msg)
 
+    # Broadcast tape events for task sessions so frontend panel can update in real-time
+    if req.session_id.startswith("task:"):
+        ws_mgr = _get("ws_manager")
+        if ws_mgr:
+            await ws_mgr.broadcast({
+                "kind": "event",
+                "data": {
+                    "event_id": req.event_id,
+                    "session_id": req.session_id,
+                    "src": req.src,
+                    "dst": req.dst,
+                    "type": req.event_type,
+                    "payload": req.payload,
+                },
+            })
+
     # Route RESPONSE events to destination agents when requested
     if req.route and req.event_type == EventType.RESPONSE:
         queue = _get("queue_controller")
