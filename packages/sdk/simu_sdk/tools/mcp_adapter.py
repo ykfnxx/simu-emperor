@@ -110,8 +110,15 @@ class MCPToolAdapter:
     def _to_tool_meta(tool: Any) -> ToolMeta:
         """Convert an MCP ``Tool`` object to a ``ToolMeta``."""
         schema = tool.inputSchema or {}
+        defs = schema.get("$defs", schema.get("definitions", {}))
         properties = dict(schema.get("properties", {}))
         required = list(schema.get("required", []))
+
+        # Resolve $ref pointers so the schema is self-contained
+        if defs:
+            properties = {
+                k: _resolve_refs(v, defs) for k, v in properties.items()
+            }
 
         # Remove auto-injected parameters from LLM-visible schema
         injected = _INJECTED_PARAMS.get(tool.name, set())
@@ -299,6 +306,22 @@ class MCPToolAdapter:
             output=f"Task {action}. Returning to parent session {parent_id}.",
             ends_loop=True,
         )
+
+
+def _resolve_refs(node: Any, defs: dict[str, Any]) -> Any:
+    """Recursively replace ``$ref`` pointers with the referenced definition."""
+    if isinstance(node, dict):
+        if "$ref" in node and len(node) == 1:
+            # e.g. {"$ref": "#/$defs/EffectParam"}
+            ref_path = node["$ref"]
+            ref_name = ref_path.rsplit("/", 1)[-1]
+            if ref_name in defs:
+                return _resolve_refs(defs[ref_name], defs)
+            return node  # unresolvable ref — keep as-is
+        return {k: _resolve_refs(v, defs) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_resolve_refs(item, defs) for item in node]
+    return node
 
 
 def _extract_text(result: Any) -> str:
