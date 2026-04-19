@@ -86,6 +86,20 @@ class AgentRegistry:
         await self._db.conn.commit()
 
     @staticmethod
+    def is_agent_online(agent: AgentRegistration, timeout: int) -> bool:
+        """Determine if an agent is online based on status and heartbeat recency."""
+        if agent.status not in (AgentStatus.RUNNING, AgentStatus.STARTING):
+            return False
+        hb = agent.last_heartbeat
+        if hb is None:
+            return False
+        if isinstance(hb, str):
+            hb = datetime.fromisoformat(hb)
+        if hb.tzinfo is None:
+            hb = hb.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - hb).total_seconds() < timeout
+
+    @staticmethod
     def _row_to_reg(row: tuple) -> AgentRegistration:
         return AgentRegistration(
             agent_id=row[0],

@@ -44,6 +44,7 @@ export function LeftSidebar({
   const creatingAgentId = useAgentStore((s) => s.creatingAgentId);
   const groupChats = useAgentStore((s) => s.groupChats);
   const currentGroupId = useAgentStore((s) => s.currentGroupId);
+  const agentStatuses = useAgentStore((s) => s.agentStatuses);
   const toggleAgent = useAgentStore((s) => s.toggleAgent);
 
   const [leftPanelSplit, setLeftPanelSplit] = useState(50);
@@ -120,6 +121,14 @@ export function LeftSidebar({
                       ) : (
                         <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                       )}
+                      <span
+                        className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${
+                          agentStatuses[group.agent_id]
+                            ? 'bg-emerald-500'
+                            : 'bg-slate-300'
+                        }`}
+                        title={agentStatuses[group.agent_id] ? '在线' : '离线'}
+                      />
                       <p className="truncate text-xs font-semibold text-slate-700">
                         {group.agent_name}
                       </p>

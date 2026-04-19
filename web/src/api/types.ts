@@ -2,7 +2,7 @@
  * WebSocket 消息类型定义
  */
 
-export type WSMessageKind = 'chat' | 'state' | 'event' | 'error' | 'session_state';
+export type WSMessageKind = 'chat' | 'state' | 'event' | 'error' | 'session_state' | 'agent_status';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -86,6 +86,15 @@ export interface HealthResponse {
 export interface AgentInfo {
   agent_id: string;
   agent_name: string;
+  status?: string;
+  is_online?: boolean;
+}
+
+export interface AgentStatusData {
+  agent_id: string;
+  agent_name: string;
+  status: string;
+  is_online: boolean;
 }
 
 export type AgentsResponse = AgentInfo[];
