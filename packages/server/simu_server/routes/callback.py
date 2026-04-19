@@ -109,6 +109,25 @@ async def _verify_agent(agent_id: str, token: str) -> None:
         raise HTTPException(status_code=403, detail="Invalid callback token")
 
 
+async def _broadcast_agent_status(agent_id: str, is_online: bool) -> None:
+    """Broadcast agent online/offline status to all frontend WebSocket clients."""
+    ws_mgr = _get("ws_manager")
+    if ws_mgr is None:
+        return
+    registry = _get("agent_registry")
+    agent = await registry.get(agent_id) if registry else None
+    display_name = agent.display_name if agent else agent_id
+    await ws_mgr.broadcast({
+        "kind": "agent_status",
+        "data": {
+            "agent_id": agent_id,
+            "agent_name": display_name or agent_id,
+            "status": agent.status.value if agent else "unknown",
+            "is_online": is_online,
+        },
+    })
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -130,6 +149,7 @@ async def register_agent(
     await registry.update_capabilities(x_agent_id, req.capabilities)
     await registry.update_heartbeat(x_agent_id)
     logger.info("Agent %s registered with capabilities: %s", x_agent_id, req.capabilities)
+    await _broadcast_agent_status(x_agent_id, is_online=True)
     return {"status": "ok"}
 
 
@@ -158,6 +178,7 @@ async def report_status(
     new_status = status_map.get(req.status)
     if new_status:
         await _get("agent_registry").update_status(x_agent_id, new_status)
+        await _broadcast_agent_status(x_agent_id, is_online=False)
     return {"status": "ok"}
 
 

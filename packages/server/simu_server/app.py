@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI
@@ -176,10 +178,62 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception:
                 logger.warning("Failed to spawn agent %s", agent.agent_id, exc_info=True)
 
+    # Background task: detect agents that missed heartbeat and broadcast offline
+    _online_agents: set[str] = set()
+
+    async def _heartbeat_checker() -> None:
+        timeout = settings.agent_heartbeat_timeout
+        while True:
+            await asyncio.sleep(15)
+            try:
+                agents = await agent_registry.list_all()
+                now = datetime.now(UTC)
+                for agent in agents:
+                    hb = agent.last_heartbeat
+                    if isinstance(hb, str):
+                        hb = datetime.fromisoformat(hb)
+                    if hb and hb.tzinfo is None:
+                        hb = hb.replace(tzinfo=UTC)
+
+                    is_online = (
+                        agent.status in (AgentStatus.RUNNING, AgentStatus.STARTING)
+                        and hb is not None
+                        and (now - hb).total_seconds() < timeout
+                    )
+
+                    was_online = agent.agent_id in _online_agents
+                    if is_online and not was_online:
+                        _online_agents.add(agent.agent_id)
+                        await ws_manager.broadcast({
+                            "kind": "agent_status",
+                            "data": {
+                                "agent_id": agent.agent_id,
+                                "agent_name": agent.display_name or agent.agent_id,
+                                "status": agent.status.value,
+                                "is_online": True,
+                            },
+                        })
+                    elif not is_online and was_online:
+                        _online_agents.discard(agent.agent_id)
+                        await ws_manager.broadcast({
+                            "kind": "agent_status",
+                            "data": {
+                                "agent_id": agent.agent_id,
+                                "agent_name": agent.display_name or agent.agent_id,
+                                "status": agent.status.value,
+                                "is_online": False,
+                            },
+                        })
+            except Exception:
+                logger.debug("Heartbeat checker iteration failed", exc_info=True)
+
+    heartbeat_task = asyncio.create_task(_heartbeat_checker())
+
     logger.info("Server started on %s:%d", settings.host, settings.port)
     yield
 
     # Shutdown
+    heartbeat_task.cancel()
     await process_manager.shutdown_all()
     await db.close()
     logger.info("Server shut down")

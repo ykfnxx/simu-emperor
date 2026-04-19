@@ -54,7 +54,7 @@ export class GameClient {
     this.messageHandlers = new Map();
     this.connectionStateListeners = new Set();
 
-    const messageKinds: WSMessageKind[] = ['chat', 'state', 'event', 'error', 'session_state'];
+    const messageKinds: WSMessageKind[] = ['chat', 'state', 'event', 'error', 'session_state', 'agent_status'];
     messageKinds.forEach((kind) => {
       this.messageHandlers.set(kind, new Set());
     });
