@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { createGameClient } from './api/client';
 import type {
+  AgentStatusData,
   ChatData,
   CurrentTapeResponse,
   GroupChat,
@@ -212,6 +213,14 @@ export default function App() {
       }
 
       const agents = await client.current.getAgents().catch(() => []);
+
+      // Extract agent online statuses from REST response
+      const statuses: Record<string, boolean> = {};
+      for (const a of agents) {
+        statuses[a.agent_id] = a.is_online ?? false;
+      }
+      agentStore.getState().setAgentStatuses(statuses);
+
       let groupedSessions = sessionsData.agent_sessions || [];
       if (groupedSessions.length === 0) {
         groupedSessions = buildGroupsFromFlatSessions(sessionsData.sessions || []);
@@ -425,10 +434,16 @@ export default function App() {
       );
     });
 
+    const offAgentStatus = client.current.on<AgentStatusData>('agent_status', (data) => {
+      if (!data || !data.agent_id) return;
+      agentStore.getState().setAgentStatus(data.agent_id, data.is_online);
+    });
+
     return () => {
       offChat();
       offState();
       offSessionState();
+      offAgentStatus();
     };
   }, [refreshChatTape, refreshViewTape]);
 

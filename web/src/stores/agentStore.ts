@@ -20,10 +20,13 @@ interface AgentState {
   selectedViewSessionId: string | null;
   showSubSessions: boolean;
   loadingSubSessions: boolean;
+  agentStatuses: Record<string, boolean>;
   creatingAgentId: string | null;
   loading: boolean;
   error: string | null;
 
+  setAgentStatus: (agentId: string, isOnline: boolean) => void;
+  setAgentStatuses: (statuses: Record<string, boolean>) => void;
   setAgentSessions: (agentSessions: AgentSessionGroup[]) => void;
   setSessions: (sessions: SessionInfo[]) => void;
   setCurrentAgentId: (id: string) => void;
@@ -58,10 +61,16 @@ export const useAgentStore = create<AgentState>((set) => ({
   selectedViewSessionId: null,
   showSubSessions: false,
   loadingSubSessions: false,
+  agentStatuses: {},
   creatingAgentId: null,
   loading: false,
   error: null,
 
+  setAgentStatus: (agentId, isOnline) =>
+    set((state) => ({
+      agentStatuses: { ...state.agentStatuses, [agentId]: isOnline },
+    })),
+  setAgentStatuses: (statuses) => set({ agentStatuses: statuses }),
   setAgentSessions: (agentSessions) => set({ agentSessions }),
   setSessions: (sessions) => set({ sessions }),
   setCurrentAgentId: (currentAgentId) => set({ currentAgentId }),
