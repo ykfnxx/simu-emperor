@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import aiofiles
+
 from simu_shared.constants import EventType
 from simu_shared.models import ContextConfig, MemoryConfig, TapeEvent
 from simu_sdk.memory.models import ViewSegment
@@ -151,7 +153,7 @@ class ContextManager:
             await self._store.upsert_view(view)
 
         # Mirror to debug file
-        self._mirror_view(view)
+        await self._mirror_view(view)
 
         logger.info(
             "Compressed %d events [%d:%d] for session %s",
@@ -272,7 +274,7 @@ class ContextManager:
             )
 
         # Mirror to debug file (overwrite)
-        self._mirror_summary(session_id, new_summary, title=meta.title if meta else "")
+        await self._mirror_summary(session_id, new_summary, title=meta.title if meta else "")
 
         logger.debug("Updated session summary for %s", session_id)
         return new_summary
@@ -320,7 +322,7 @@ class ContextManager:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _mirror_view(self, view: ViewSegment) -> None:
+    async def _mirror_view(self, view: ViewSegment) -> None:
         """Append a ViewSegment to views.jsonl for debugging."""
         mirror_dir = self._get_mirror_dir()
         if not mirror_dir:
@@ -337,12 +339,12 @@ class ContextManager:
                 },
                 ensure_ascii=False,
             )
-            with open(mirror_dir / "views.jsonl", "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+            async with aiofiles.open(mirror_dir / "views.jsonl", "a") as f:
+                await f.write(line + "\n")
         except Exception:
             logger.warning("Failed to mirror view", exc_info=True)
 
-    def _mirror_summary(self, session_id: str, summary: str, *, title: str = "") -> None:
+    async def _mirror_summary(self, session_id: str, summary: str, *, title: str = "") -> None:
         """Overwrite summaries.jsonl with current session summaries.
 
         Unlike views.jsonl (append), this file is rewritten each time
@@ -357,7 +359,9 @@ class ContextManager:
             # Read existing entries (one JSON object per line)
             existing: dict[str, dict] = {}
             if path.exists():
-                for raw_line in path.read_text(encoding="utf-8").splitlines():
+                async with aiofiles.open(path, "r") as f:
+                    content = await f.read()
+                for raw_line in content.splitlines():
                     raw_line = raw_line.strip()
                     if raw_line:
                         obj = json.loads(raw_line)
@@ -371,8 +375,8 @@ class ContextManager:
             }
 
             # Rewrite file
-            with open(path, "w", encoding="utf-8") as f:
+            async with aiofiles.open(path, "w") as f:
                 for obj in existing.values():
-                    f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                    await f.write(json.dumps(obj, ensure_ascii=False) + "\n")
         except Exception:
             logger.warning("Failed to mirror summary", exc_info=True)

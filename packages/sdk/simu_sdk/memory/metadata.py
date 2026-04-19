@@ -54,6 +54,7 @@ class TapeMetadataManager:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(str(self._db_path))
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._db.executescript(_SCHEMA)
         await self._db.commit()
 
@@ -84,7 +85,9 @@ class TapeMetadataManager:
         await self._db.commit()
         return TapeMetadata(session_id=session_id, title=title)
 
-    async def get_metadata(self, session_id: str) -> TapeMetadata | None:
+    async def get_metadata(
+        self, session_id: str, *, load_views: bool = True,
+    ) -> TapeMetadata | None:
         assert self._db is not None
         cursor = await self._db.execute(
             "SELECT session_id, title, created_at, event_count, window_offset, summary "
@@ -95,8 +98,7 @@ class TapeMetadataManager:
         if not row:
             return None
 
-        # Load associated views
-        views = await self._get_views(session_id)
+        views = await self._get_views(session_id) if load_views else []
         return TapeMetadata(
             session_id=row[0],
             title=row[1],
@@ -200,6 +202,15 @@ class TapeMetadataManager:
         cursor = await self._db.execute("SELECT session_id, title, summary FROM tape_metadata")
         rows = await cursor.fetchall()
 
+        # Batch load ALL view summaries in a single query (avoids N+1)
+        view_cursor = await self._db.execute(
+            "SELECT session_id, summary FROM view_segments"
+        )
+        view_rows = await view_cursor.fetchall()
+        views_by_session: dict[str, list[str]] = {}
+        for sid, vsummary in view_rows:
+            views_by_session.setdefault(sid, []).append(vsummary)
+
         results: list[tuple[str, float]] = []
         for session_id, title, summary in rows:
             if exclude_session and session_id == exclude_session:
@@ -215,13 +226,13 @@ class TapeMetadataManager:
                 if term in summary_lower:
                     score += 0.4
 
-            # Check view summaries
-            views = await self._get_views(session_id)
-            for view in views:
-                view_lower = view.summary.lower()
+            # Check view summaries (already loaded)
+            session_views = views_by_session.get(session_id, [])
+            for view_summary in session_views:
+                view_lower = view_summary.lower()
                 for term in terms:
                     if term in view_lower:
-                        score += 0.2 / max(len(views), 1)
+                        score += 0.2 / max(len(session_views), 1)
 
             if score > 0:
                 results.append((session_id, score))
