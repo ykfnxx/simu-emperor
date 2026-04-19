@@ -49,7 +49,7 @@ def _get(name: str) -> Any:
 # FastMCP server instance
 # ---------------------------------------------------------------------------
 
-simu_mcp = FastMCP("simu-mcp")
+simu_mcp = FastMCP("simu-mcp", streamable_http_path="/")
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +451,7 @@ async def push_tape_event(
         content=content,
         event_type=event_type,
         origin_event_id=parent_event_id,
+        payload_json=json.dumps(payload, ensure_ascii=False, default=str),
     )
     await msg_store.store(msg)
 

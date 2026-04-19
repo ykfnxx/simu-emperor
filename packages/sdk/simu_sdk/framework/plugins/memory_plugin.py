@@ -32,7 +32,7 @@ class SimuMemoryPlugin:
             return {}
 
         try:
-            memories = await self._retriever.search(content, max_results=5)
+            memories = await self._retriever.search(content, session_id, max_views=5)
             return {"relevant_memories": memories}
         except Exception:
             logger.warning("Memory retrieval failed", exc_info=True)

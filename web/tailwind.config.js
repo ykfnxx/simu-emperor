@@ -4,6 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -19,6 +20,33 @@ export default {
           800: '#075985',
           900: '#0c4a6e',
         },
+        // Semantic tokens mapped from CSS custom properties
+        surface: {
+          DEFAULT: 'var(--color-surface)',
+          alt: 'var(--color-surface-alt)',
+          hover: 'var(--color-surface-hover)',
+          active: 'var(--color-surface-active)',
+          inset: 'var(--color-surface-inset)',
+        },
+        'app-bg': 'var(--color-app-bg)',
+        'app-shell': 'var(--color-app-shell)',
+      },
+      textColor: {
+        skin: {
+          DEFAULT: 'var(--color-text)',
+          secondary: 'var(--color-text-secondary)',
+          muted: 'var(--color-text-muted)',
+          inverse: 'var(--color-text-inverse)',
+        },
+      },
+      borderColor: {
+        skin: {
+          DEFAULT: 'var(--color-border)',
+          strong: 'var(--color-border-strong)',
+        },
+      },
+      backgroundColor: {
+        overlay: 'var(--color-overlay)',
       },
     },
   },

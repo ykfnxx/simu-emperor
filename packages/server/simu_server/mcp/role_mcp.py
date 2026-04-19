@@ -39,7 +39,7 @@ def _get(name: str) -> Any:
 # FastMCP server instance
 # ---------------------------------------------------------------------------
 
-role_mcp = FastMCP("role-mcp")
+role_mcp = FastMCP("role-mcp", streamable_http_path="/")
 
 
 # ---------------------------------------------------------------------------

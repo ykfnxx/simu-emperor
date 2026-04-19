@@ -5,6 +5,7 @@ Preserves all V4 Web API functionality per design constraint.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from typing import Any
 
@@ -19,6 +20,8 @@ from simu_shared.models import (
     RoutedMessage,
     TapeEvent,
 )
+from simu_server.agents.registry import AgentRegistry
+from simu_server.config import settings
 
 router = APIRouter(prefix="/api")
 
@@ -329,14 +332,17 @@ async def manual_tick() -> dict[str, Any]:
 
 @router.get("/agents")
 async def list_agents() -> list[dict[str, Any]]:
-    registry = _get("agent_registry")
+    registry: AgentRegistry | None = _get("agent_registry")
     if registry is None:
         return []
     agents = await registry.list_all()
+    timeout = settings.agent_heartbeat_timeout
     return [
         {
             "agent_id": a.agent_id,
             "agent_name": a.display_name or a.agent_id,
+            "status": a.status.value,
+            "is_online": AgentRegistry.is_agent_online(a, timeout),
         }
         for a in agents
     ]
@@ -542,7 +548,7 @@ async def get_current_tape(
             "src": m.src,
             "dst": m.dst,
             "type": m.event_type,
-            "payload": {"content": m.content},
+            "payload": json.loads(m.payload_json) if m.payload_json else {"content": m.content},
             "timestamp": m.timestamp.isoformat() if m.timestamp else "",
             "session_id": m.session_id,
             "agent_id": agent_id,
