@@ -43,7 +43,8 @@ class MessageStore:
         )
         await self._db.conn.commit()
         if self._memory_dir is not None:
-            asyncio.get_event_loop().run_in_executor(
+            # Fire-and-forget: debug mirror write, errors logged internally
+            asyncio.get_running_loop().run_in_executor(
                 None, self._write_to_memory, msg,
             )
 
