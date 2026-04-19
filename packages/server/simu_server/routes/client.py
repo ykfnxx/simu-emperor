@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import yaml
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from simu_shared.constants import EventType
@@ -346,6 +348,43 @@ async def list_agents() -> list[dict[str, Any]]:
         }
         for a in agents
     ]
+
+
+@router.get("/agents/{agent_id}")
+async def get_agent_detail(agent_id: str) -> dict[str, Any]:
+    registry: AgentRegistry | None = _get("agent_registry")
+    if registry is None:
+        raise HTTPException(status_code=503, detail="agent_registry not available")
+    agent: AgentRegistration | None = await registry.get(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    timeout = settings.agent_heartbeat_timeout
+
+    # Read soul.md
+    soul_content = ""
+    for base in (settings.default_agents_dir, settings.agents_dir):
+        soul_path: Path = base / agent_id / "soul.md"
+        if soul_path.exists():
+            soul_content = soul_path.read_text(encoding="utf-8")
+            break
+
+    # Read data_scope.yaml
+    data_scope: dict[str, Any] = {}
+    for base in (settings.default_agents_dir, settings.agents_dir):
+        scope_path: Path = base / agent_id / "data_scope.yaml"
+        if scope_path.exists():
+            data_scope = yaml.safe_load(scope_path.read_text(encoding="utf-8")) or {}
+            break
+
+    return {
+        "agent_id": agent.agent_id,
+        "agent_name": agent.display_name or agent.agent_id,
+        "status": agent.status.value,
+        "is_online": AgentRegistry.is_agent_online(agent, timeout),
+        "soul": soul_content,
+        "data_scope": data_scope,
+    }
 
 
 @router.post("/agents/generate")

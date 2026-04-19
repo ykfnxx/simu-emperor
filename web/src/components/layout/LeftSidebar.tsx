@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Info,
   MessageSquare,
   MoreVertical,
   Plus,
@@ -10,10 +11,11 @@ import {
 import { useEffect, useRef, useState } from 'react';
 
 import { useAgentStore } from '../../stores/agentStore';
-import type { GroupChat } from '../../api/types';
+import type { AgentDetail, GroupChat } from '../../api/types';
 import { VerticalResizeHandle } from './VerticalResizeHandle';
 import { CreateGroupDialog } from '../agents/CreateGroupDialog';
 import { AddAgentDialog } from '../agents/AddAgentDialog';
+import { AgentDetailDialog } from '../agents/AgentDetailDialog';
 
 interface LeftSidebarProps {
   onCreateSession: (agentId: string) => void;
@@ -28,6 +30,7 @@ interface LeftSidebarProps {
     personality: string;
     province: string;
   }) => Promise<void>;
+  onFetchAgentDetail: (agentId: string) => Promise<AgentDetail>;
 }
 
 export function LeftSidebar({
@@ -36,6 +39,7 @@ export function LeftSidebar({
   onSelectGroup,
   onCreateGroup,
   onAddAgent,
+  onFetchAgentDetail,
 }: LeftSidebarProps) {
   const agentSessions = useAgentStore((s) => s.agentSessions);
   const currentAgentId = useAgentStore((s) => s.currentAgentId);
@@ -51,6 +55,7 @@ export function LeftSidebar({
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [showAddAgentDialog, setShowAddAgentDialog] = useState(false);
   const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false);
+  const [agentDetailTarget, setAgentDetailTarget] = useState<{ agentId: string; agentName: string } | null>(null);
 
   // Outside-click to close agent menu
   const menuRef = useRef<HTMLDivElement>(null);
@@ -139,16 +144,27 @@ export function LeftSidebar({
                         {group.sessions.length}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onCreateSession(group.agent_id)}
-                      disabled={creatingAgentId === group.agent_id}
-                      className="rounded-md p-0.5 disabled:opacity-60 hover:opacity-80"
-                      style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
-                      title={`为 ${group.agent_name} 新建会话`}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setAgentDetailTarget({ agentId: group.agent_id, agentName: group.agent_name })}
+                        className="rounded-md p-0.5 hover:opacity-80"
+                        style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
+                        title={`查看 ${group.agent_name} 详情`}
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onCreateSession(group.agent_id)}
+                        disabled={creatingAgentId === group.agent_id}
+                        className="rounded-md p-0.5 disabled:opacity-60 hover:opacity-80"
+                        style={{ borderWidth: 1, borderColor: 'var(--color-border)', borderStyle: 'solid', backgroundColor: 'var(--color-surface)' }}
+                        title={`为 ${group.agent_name} 新建会话`}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {expandedAgents[group.agent_id] && (
@@ -285,6 +301,15 @@ export function LeftSidebar({
         <AddAgentDialog
           onClose={() => setShowAddAgentDialog(false)}
           onAddAgent={onAddAgent}
+        />
+      )}
+
+      {agentDetailTarget && (
+        <AgentDetailDialog
+          agentId={agentDetailTarget.agentId}
+          agentName={agentDetailTarget.agentName}
+          fetchDetail={onFetchAgentDetail}
+          onClose={() => setAgentDetailTarget(null)}
         />
       )}
     </>
