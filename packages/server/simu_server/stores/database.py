@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS incidents (
     remaining_ticks INTEGER NOT NULL,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Tick history (per-tick snapshots for data visualization)
+CREATE TABLE IF NOT EXISTS tick_history (
+    turn      INTEGER PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    snapshot  TEXT NOT NULL
+);
 """
 
 

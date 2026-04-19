@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+import type { GameClient } from '../../api/client';
 import { useEmpireStore } from '../../stores/empireStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -18,9 +20,11 @@ import { OverviewPanel } from '../empire/OverviewPanel';
 import { IncidentPanel } from '../empire/IncidentPanel';
 import { ProvincePanel } from '../empire/ProvincePanel';
 import { IncidentDetailDialog } from '../empire/IncidentDetailDialog';
+import { DataPanel } from '../charts/DataPanel';
 import { VerticalResizeHandle } from './VerticalResizeHandle';
 
 interface RightSidebarProps {
+  client: GameClient;
   onRefresh: () => void;
   onFetchIncidents: () => void;
   onFetchFullState: () => void;
@@ -30,6 +34,7 @@ interface RightSidebarProps {
 }
 
 export function RightSidebar({
+  client,
   onRefresh,
   onFetchIncidents,
   onFetchFullState,
@@ -126,6 +131,15 @@ export function RightSidebar({
             >
               省份概况
             </button>
+            <button
+              type="button"
+              onClick={() => setCurrentPanelTab('data')}
+              className="flex items-center gap-1 rounded-md px-2 py-1 font-medium"
+              style={tabClass(currentPanelTab === 'data')}
+            >
+              <BarChart3 className="h-3 w-3" />
+              数据
+            </button>
           </div>
         </div>
 
@@ -134,6 +148,11 @@ export function RightSidebar({
           {currentPanelTab === 'overview' && <OverviewPanel />}
           {currentPanelTab === 'incidents' && <IncidentPanel />}
           {currentPanelTab === 'province' && <ProvincePanel />}
+          {currentPanelTab === 'data' && (
+            <div className="h-full overflow-y-auto px-4 py-3">
+              <DataPanel client={client} />
+            </div>
+          )}
         </div>
 
         <VerticalResizeHandle

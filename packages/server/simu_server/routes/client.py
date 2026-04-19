@@ -22,6 +22,7 @@ from simu_shared.models import (
 )
 from simu_server.agents.registry import AgentRegistry
 from simu_server.config import settings
+from simu_server.stores.tick_history import TickHistoryStore
 
 router = APIRouter(prefix="/api")
 
@@ -593,6 +594,82 @@ async def get_subsessions(
             "goal": s.metadata.get("goal", ""),
         })
     return result
+
+
+# ---------------------------------------------------------------------------
+# History — tick snapshots for data visualization
+# ---------------------------------------------------------------------------
+
+
+@router.get("/history/ticks")
+async def get_tick_history(limit: int = 50) -> dict[str, Any]:
+    engine = _get("engine")
+    if engine is None:
+        return {"ticks": []}
+    history: TickHistoryStore = engine.tick_history
+    ticks = await history.get_nation_ticks(limit=limit)
+    # Enrich with active incident count from current incidents
+    incident_counts: dict[int, int] = {}
+    for row in ticks:
+        incident_counts[row["turn"]] = 0
+    # We only have current incidents; for historical counts we'd need more data.
+    # For now, set the latest turn's count from the engine.
+    if ticks:
+        active = engine.incidents.active
+        ticks[-1]["active_incident_count"] = len(active)
+    return {"ticks": ticks}
+
+
+@router.get("/history/provinces")
+async def get_province_history(province_id: str, limit: int = 50) -> dict[str, Any]:
+    engine = _get("engine")
+    if engine is None:
+        return {"province_id": province_id, "province_name": province_id, "ticks": []}
+    history: TickHistoryStore = engine.tick_history
+    return await history.get_province_ticks(province_id=province_id, limit=limit)
+
+
+@router.get("/history/comparison")
+async def get_comparison(metric: str = "population", turn: int | None = None) -> dict[str, Any]:
+    engine = _get("engine")
+    if engine is None:
+        return {"turn": 0, "metric": metric, "provinces": []}
+    history: TickHistoryStore = engine.tick_history
+    return await history.get_comparison(metric=metric, turn=turn)
+
+
+@router.get("/history/events")
+async def get_event_history(limit: int = 20) -> dict[str, Any]:
+    """Return incident creation events with their effects for timeline display."""
+    engine = _get("engine")
+    if engine is None:
+        return {"events": []}
+    db = engine.state._db
+    cursor = await db.conn.execute(
+        "SELECT incident_id, data, remaining_ticks, created_at FROM incidents ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
+    rows = await cursor.fetchall()
+    events: list[dict[str, Any]] = []
+    for incident_id, data_json, remaining_ticks, created_at in reversed(rows):
+        inc = json.loads(data_json)
+        effects = []
+        for eff in inc.get("effects", []):
+            effects.append({
+                "target_path": eff.get("target_path", ""),
+                "add": str(eff["add"]) if eff.get("add") is not None else None,
+                "factor": str(eff["factor"]) if eff.get("factor") is not None else None,
+            })
+        events.append({
+            "incident_id": incident_id,
+            "title": inc.get("title", ""),
+            "source": inc.get("source", "system"),
+            "effects": effects,
+            "duration_ticks": inc.get("remaining_ticks", 0),
+            "remaining_ticks": remaining_ticks,
+            "created_at": created_at,
+        })
+    return {"events": events}
 
 
 # ---------------------------------------------------------------------------

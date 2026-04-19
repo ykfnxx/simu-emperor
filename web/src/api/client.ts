@@ -21,6 +21,10 @@ import type {
   SessionStateData,
   GroupChat,
   Incident,
+  TickHistoryResponse,
+  ProvinceHistoryResponse,
+  ComparisonResponse,
+  EventHistoryResponse,
 } from './types';
 
 export interface GameClientConfig {
@@ -345,6 +349,28 @@ export class GameClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // History API — data visualization
+  // ---------------------------------------------------------------------------
+
+  async getTickHistory(limit: number = 50): Promise<TickHistoryResponse> {
+    return this.request<TickHistoryResponse>(`/history/ticks?limit=${limit}`);
+  }
+
+  async getProvinceHistory(provinceId: string, limit: number = 50): Promise<ProvinceHistoryResponse> {
+    return this.request<ProvinceHistoryResponse>(`/history/provinces?province_id=${provinceId}&limit=${limit}`);
+  }
+
+  async getComparison(metric: string = 'population', turn?: number): Promise<ComparisonResponse> {
+    const params = new URLSearchParams({ metric });
+    if (turn !== undefined) params.set('turn', String(turn));
+    return this.request<ComparisonResponse>(`/history/comparison?${params.toString()}`);
+  }
+
+  async getEventHistory(limit: number = 20): Promise<EventHistoryResponse> {
+    return this.request<EventHistoryResponse>(`/history/events?limit=${limit}`);
   }
 
   async getAgentJobStatus(taskId: string): Promise<{
