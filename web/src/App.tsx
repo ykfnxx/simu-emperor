@@ -26,6 +26,7 @@ import { buildGroupsFromFlatSessions, mergeAgentGroups } from './utils/sessions'
 import { LeftSidebar } from './components/layout/LeftSidebar';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { RightSidebar } from './components/layout/RightSidebar';
+import { ThemeToggle } from './components/layout/ThemeToggle';
 
 export default function App() {
   const client = useRef(
@@ -673,8 +674,8 @@ export default function App() {
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#ededf0] p-3 text-slate-800">
-      <div className="flex h-[calc(100vh-1.5rem)] flex-col gap-3 overflow-hidden rounded-3xl bg-[#e4e5e9] p-3 lg:flex-row">
+    <div className="min-h-screen p-3" style={{ backgroundColor: 'var(--color-app-bg)', color: 'var(--color-text)' }}>
+      <div className="flex h-[calc(100vh-1.5rem)] flex-col gap-3 overflow-hidden rounded-3xl p-3 lg:flex-row" style={{ backgroundColor: 'var(--color-app-shell)' }}>
         <LeftSidebar
           onCreateSession={handleCreateSession}
           onSelectSession={handleSelectSession}
@@ -695,14 +696,16 @@ export default function App() {
         />
       </div>
 
+      <ThemeToggle />
+
       {loading && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full bg-slate-800 px-4 py-2 text-xs text-white">
+        <div className="pointer-events-none fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full px-4 py-2 text-xs" style={{ backgroundColor: 'var(--color-toast-bg)', color: 'var(--color-toast-text)' }}>
           正在加载界面数据...
         </div>
       )}
 
       {error && (
-        <div className="fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full bg-red-600 px-4 py-2 text-xs text-white shadow-lg">
+        <div className="fixed inset-x-0 bottom-5 mx-auto w-fit rounded-full px-4 py-2 text-xs shadow-lg" style={{ backgroundColor: 'var(--color-toast-error-bg)', color: 'var(--color-toast-text)' }}>
           {error}
         </div>
       )}

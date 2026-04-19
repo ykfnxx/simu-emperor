@@ -22,7 +22,7 @@ export function DeltaValue({ value, delta, format = true }: DeltaValueProps) {
     const formattedDelta = format ? formatNumber(Math.round(deltaNum)) : String(deltaNum);
     return (
       <span>
-        {displayValue} <span className="text-green-600">(+{formattedDelta})</span>
+        {displayValue} <span style={{ color: 'var(--color-delta-positive)' }}>(+{formattedDelta})</span>
       </span>
     );
   }
@@ -32,7 +32,7 @@ export function DeltaValue({ value, delta, format = true }: DeltaValueProps) {
     : String(Math.abs(deltaNum));
   return (
     <span>
-      {displayValue} <span className="text-red-600">(-{formattedDelta})</span>
+      {displayValue} <span style={{ color: 'var(--color-delta-negative)' }}>(-{formattedDelta})</span>
     </span>
   );
 }

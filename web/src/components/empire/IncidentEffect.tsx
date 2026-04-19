@@ -15,14 +15,14 @@ export function IncidentEffect({ value, incidentEffect }: IncidentEffectProps) {
   if (effectValue > 0) {
     return (
       <span>
-        {value.toFixed(2)}% <span className="text-green-600">+{absEffect.toFixed(2)}%</span>
+        {value.toFixed(2)}% <span style={{ color: 'var(--color-delta-positive)' }}>+{absEffect.toFixed(2)}%</span>
       </span>
     );
   }
 
   return (
     <span>
-      {value.toFixed(2)}% <span className="text-red-600">-{absEffect.toFixed(2)}%</span>
+      {value.toFixed(2)}% <span style={{ color: 'var(--color-delta-negative)' }}>-{absEffect.toFixed(2)}%</span>
     </span>
   );
 }

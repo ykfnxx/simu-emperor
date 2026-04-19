@@ -1,7 +1,7 @@
 import { MessageCircle } from 'lucide-react';
 
 import type { TapeEvent } from '../../api/types';
-import { getAgentToken } from '../../theme/agent-tokens';
+import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
 import { extractEventText } from '../../utils/tape';
 import { renderMarkdown } from '../../utils/render';
 import { formatDate } from '../../utils/format';
@@ -14,6 +14,7 @@ interface AgentMessageBlockProps {
 export function AgentMessageBlock({ event, compact = false }: AgentMessageBlockProps) {
   const srcId = event.src.replace('agent:', '');
   const srcToken = getAgentToken(srcId);
+  const srcColors = getActiveColors(srcToken);
   const dstNames = event.dst
     .map((d) => {
       const id = d.replace('agent:', '');
@@ -25,22 +26,22 @@ export function AgentMessageBlock({ event, compact = false }: AgentMessageBlockP
 
   return (
     <div
-      className="rounded-xl border border-dashed px-3 py-2"
-      style={{ borderColor: `${srcToken.color}60`, backgroundColor: `${srcToken.bgColor}50` }}
+      className="rounded-xl border-dashed px-3 py-2"
+      style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: `${srcColors.color}60`, backgroundColor: `${srcColors.bgColor}50` }}
     >
       <div className="mb-1 flex items-center gap-2">
-        <MessageCircle className="h-3.5 w-3.5" style={{ color: srcToken.color }} />
-        <span className="text-xs font-semibold" style={{ color: srcToken.color }}>
+        <MessageCircle className="h-3.5 w-3.5" style={{ color: srcColors.color }} />
+        <span className="text-xs font-semibold" style={{ color: srcColors.color }}>
           {srcToken.icon} {srcToken.displayName}
         </span>
-        <span className="text-xs text-slate-400">{'>'}</span>
-        <span className="text-xs text-slate-600">{dstNames}</span>
-        <span className="ml-auto text-[10px] text-slate-400">{formatDate(event.timestamp)}</span>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{'>'}</span>
+        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{dstNames}</span>
+        <span className="ml-auto text-[10px]" style={{ color: 'var(--color-text-muted)' }}>{formatDate(event.timestamp)}</span>
       </div>
 
       {text && (
         compact ? (
-          <p className="text-xs text-slate-600 line-clamp-2">{text}</p>
+          <p className="text-xs line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>{text}</p>
         ) : (
           renderMarkdown(text, false)
         )

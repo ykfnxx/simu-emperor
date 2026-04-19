@@ -12,7 +12,6 @@ const PATH_LABELS: Record<string, string> = {
 function resolvePathLabel(path: string): string {
   if (PATH_LABELS[path]) return PATH_LABELS[path];
 
-  // Try to resolve province-specific paths
   const match = path.match(/^provinces\.(\w+)\.(\w+)$/);
   if (match) {
     const [, province, field] = match;
@@ -67,19 +66,19 @@ export function IncidentBlock({ event, compact = false }: IncidentBlockProps) {
   const effects = Array.isArray(payload.effects) ? payload.effects as { target_path: string; add?: string | null; factor?: string | null }[] : [];
 
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2">
+    <div className="rounded-xl px-3 py-2" style={{ borderWidth: 1, borderColor: 'var(--color-warning-border)', borderStyle: 'solid', backgroundColor: 'var(--color-warning-soft)' }}>
       <div className="mb-1 flex items-center gap-2">
-        <Zap className="h-3.5 w-3.5 text-amber-600" />
-        <span className="text-xs font-semibold text-amber-800">{title}</span>
+        <Zap className="h-3.5 w-3.5" style={{ color: 'var(--color-warning)' }} />
+        <span className="text-xs font-semibold" style={{ color: 'var(--color-warning-strong)' }}>{title}</span>
         {remainingTicks !== null && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ backgroundColor: 'var(--color-warning-badge-bg)', color: 'var(--color-warning-text)' }}>
             {remainingTicks} tick
           </span>
         )}
       </div>
 
       {source && (
-        <p className="mb-1 text-[10px] text-amber-600">来源: {source}</p>
+        <p className="mb-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>来源: {source}</p>
       )}
 
       {effects.length > 0 && (
@@ -87,9 +86,9 @@ export function IncidentBlock({ event, compact = false }: IncidentBlockProps) {
           {effects.map((effect, i) => {
             const formatted = formatEffect(effect);
             return (
-              <div key={i} className="flex items-center justify-between rounded bg-white/60 px-2 py-1 text-xs">
-                <span className="text-slate-700">{formatted.label}</span>
-                <span className={formatted.isNegative ? 'font-medium text-red-600' : 'font-medium text-emerald-600'}>
+              <div key={i} className="flex items-center justify-between rounded px-2 py-1 text-xs" style={{ backgroundColor: 'var(--color-surface)' }}>
+                <span style={{ color: 'var(--color-text)' }}>{formatted.label}</span>
+                <span className="font-medium" style={{ color: formatted.isNegative ? 'var(--color-delta-negative)' : 'var(--color-delta-positive)' }}>
                   {formatted.value}
                 </span>
               </div>
@@ -99,7 +98,7 @@ export function IncidentBlock({ event, compact = false }: IncidentBlockProps) {
       )}
 
       {description && !compact && (
-        <p className="mt-1 text-xs text-amber-700">{description}</p>
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-warning-text)' }}>{description}</p>
       )}
     </div>
   );

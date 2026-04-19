@@ -21,7 +21,8 @@ export function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+        className="flex w-full items-center gap-1 text-xs hover:opacity-80"
+        style={{ color: 'var(--color-text-secondary)' }}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         <span>{title}</span>
