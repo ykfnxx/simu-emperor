@@ -49,7 +49,7 @@ def _get(name: str) -> Any:
 # FastMCP server instance
 # ---------------------------------------------------------------------------
 
-simu_mcp = FastMCP("simu-mcp")
+simu_mcp = FastMCP("simu-mcp", streamable_http_path="/")
 
 
 # ---------------------------------------------------------------------------

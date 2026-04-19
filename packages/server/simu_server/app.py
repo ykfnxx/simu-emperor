@@ -221,8 +221,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     heartbeat_task = asyncio.create_task(_heartbeat_checker())
 
-    logger.info("Server started on %s:%d", settings.host, settings.port)
-    yield
+    # Start MCP session managers (their lifespans are not invoked by
+    # Starlette when mounted as sub-apps, so we run them manually).
+    simu_sm = simu_mcp.session_manager
+    role_sm = role_mcp.session_manager
+    async with simu_sm.run(), role_sm.run():
+        logger.info("Server started on %s:%d", settings.host, settings.port)
+        yield
 
     # Shutdown
     heartbeat_task.cancel()
