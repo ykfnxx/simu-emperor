@@ -2,6 +2,7 @@ import { CheckCircle2 } from 'lucide-react';
 
 import type { TapeEvent } from '../../api/types';
 import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
+import { useThemeStore } from '../../theme/useTheme';
 import { JsonTable } from './shared/JsonTable';
 import { CollapsibleSection } from './shared/CollapsibleSection';
 
@@ -58,6 +59,7 @@ function renderResult(tool: string, result: string, compact: boolean) {
 }
 
 export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps) {
+  const theme = useThemeStore((s) => s.theme);
   const payload = event.payload ?? {};
   const tool = typeof payload.tool_name === 'string' ? payload.tool_name
     : typeof payload.tool === 'string' ? payload.tool : '';
@@ -68,7 +70,7 @@ export function ToolResultBlock({ event, compact = false }: ToolResultBlockProps
 
   const agentId = event.src.replace('agent:', '');
   const token = getAgentToken(agentId);
-  const colors = getActiveColors(token);
+  const colors = getActiveColors(token, theme);
 
   return (
     <div

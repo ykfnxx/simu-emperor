@@ -3,16 +3,18 @@ import { formatDate } from '../../utils/format';
 import { renderMarkdown } from '../../utils/render';
 import { extractEventText, isPlayerMessage } from '../../utils/tape';
 import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
+import { useThemeStore } from '../../theme/useTheme';
 
 interface MessageBubbleProps {
   event: TapeEvent;
 }
 
 export function MessageBubble({ event }: MessageBubbleProps) {
+  const theme = useThemeStore((s) => s.theme);
   const isPlayer = isPlayerMessage(event.src);
   const agentId = event.src.replace('agent:', '');
   const token = getAgentToken(isPlayer ? 'player' : agentId);
-  const colors = getActiveColors(token);
+  const colors = getActiveColors(token, theme);
 
   if (isPlayer) {
     return (

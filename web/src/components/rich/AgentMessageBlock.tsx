@@ -2,6 +2,7 @@ import { MessageCircle } from 'lucide-react';
 
 import type { TapeEvent } from '../../api/types';
 import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
+import { useThemeStore } from '../../theme/useTheme';
 import { extractEventText } from '../../utils/tape';
 import { renderMarkdown } from '../../utils/render';
 import { formatDate } from '../../utils/format';
@@ -12,9 +13,10 @@ interface AgentMessageBlockProps {
 }
 
 export function AgentMessageBlock({ event, compact = false }: AgentMessageBlockProps) {
+  const theme = useThemeStore((s) => s.theme);
   const srcId = event.src.replace('agent:', '');
   const srcToken = getAgentToken(srcId);
-  const srcColors = getActiveColors(srcToken);
+  const srcColors = getActiveColors(srcToken, theme);
   const dstNames = event.dst
     .map((d) => {
       const id = d.replace('agent:', '');

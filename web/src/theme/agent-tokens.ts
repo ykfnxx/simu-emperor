@@ -155,18 +155,18 @@ export function getAgentToken(agentId: string): AgentToken {
 }
 
 /**
- * Returns the active colors for the current theme.
- * Checks for `.dark` class on `<html>`.
+ * Returns the active colors for the given theme.
+ * Pass the theme value from `useThemeStore` to ensure reactivity on toggle.
  */
-export function getActiveColors(token: AgentToken): {
+export function getActiveColors(
+  token: AgentToken,
+  theme: 'light' | 'dark' = 'light',
+): {
   color: string;
   bgColor: string;
   borderColor: string;
 } {
-  const isDark =
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-  if (isDark && token.dark) {
+  if (theme === 'dark' && token.dark) {
     return token.dark;
   }
   return { color: token.color, bgColor: token.bgColor, borderColor: token.borderColor };

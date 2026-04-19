@@ -2,6 +2,7 @@ import { Wrench } from 'lucide-react';
 
 import type { TapeEvent } from '../../api/types';
 import { getAgentToken, getActiveColors } from '../../theme/agent-tokens';
+import { useThemeStore } from '../../theme/useTheme';
 import { CollapsibleSection } from './shared/CollapsibleSection';
 import { JsonTable } from './shared/JsonTable';
 
@@ -11,13 +12,14 @@ interface ToolCallBlockProps {
 }
 
 export function ToolCallBlock({ event, compact = false }: ToolCallBlockProps) {
+  const theme = useThemeStore((s) => s.theme);
   const payload = event.payload ?? {};
   const reasoning = typeof payload.reasoning === 'string' ? payload.reasoning : '';
   const toolCalls = Array.isArray(payload.tool_calls) ? payload.tool_calls as { name: string; arguments: Record<string, unknown> }[] : [];
 
   const agentId = event.src.replace('agent:', '');
   const token = getAgentToken(agentId);
-  const colors = getActiveColors(token);
+  const colors = getActiveColors(token, theme);
 
   if (toolCalls.length === 0) return null;
 
