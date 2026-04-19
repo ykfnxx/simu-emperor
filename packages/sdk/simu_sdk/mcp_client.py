@@ -10,6 +10,7 @@ Lifecycle operations (register, heartbeat, SSE) remain on ServerClient.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -60,7 +61,7 @@ class _MCPSession:
 
     async def open(self) -> None:
         """Establish the MCP session."""
-        transport_cm = streamablehttp_client(self._url, headers=self._headers)
+        transport_cm = streamablehttp_client(self._url, headers=self._headers, timeout=120)
         read, write, _ = await transport_cm.__aenter__()
         self._contexts.append(transport_cm)
         session_cm = ClientSession(read, write)
@@ -92,6 +93,14 @@ class _MCPSession:
 
             try:
                 return await self._session.call_tool(tool, args)
+            except asyncio.CancelledError:
+                # CancelledError (BaseException) can escape from anyio cancel
+                # scopes inside the MCP transport when the HTTP request times
+                # out.  Treat it as a connection failure and try to reconnect.
+                logger.warning("MCP call cancelled for %s, reconnecting...", tool)
+                await self.close()
+                if attempt == _MAX_RECONNECT_ATTEMPTS - 1:
+                    raise
             except Exception:
                 logger.warning("MCP call failed for %s, reconnecting...", tool)
                 await self.close()
@@ -185,7 +194,7 @@ class MCPServerClient:
                 "parent_event_id": event.parent_event_id,
                 "route": route,
             })
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             logger.warning("Failed to push tape event via MCP", exc_info=True)
 
     async def create_task_session(

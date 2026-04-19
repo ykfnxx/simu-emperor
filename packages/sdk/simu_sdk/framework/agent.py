@@ -380,6 +380,9 @@ class SimuAgent:
                 break
             try:
                 await self.on_event(event)
+            except asyncio.CancelledError:
+                logger.warning("Event processing cancelled for %s", event.event_id)
+                await self.mcp.report_error(event, RuntimeError("event processing cancelled"))
             except Exception as exc:
                 logger.exception("Error handling event %s", event.event_id)
                 await self.mcp.report_error(event, exc)
