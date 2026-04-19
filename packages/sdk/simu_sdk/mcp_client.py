@@ -85,7 +85,7 @@ class _MCPSession:
             if not self.connected:
                 try:
                     await self.open()
-                except Exception:
+                except (Exception, asyncio.CancelledError):
                     if attempt == _MAX_RECONNECT_ATTEMPTS - 1:
                         raise
                     logger.warning("MCP reconnect attempt %d failed for %s", attempt + 1, self._url)

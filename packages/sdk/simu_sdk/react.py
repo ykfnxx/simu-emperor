@@ -10,6 +10,7 @@ Iteration and tool-call limits prevent runaway loops.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -316,6 +317,9 @@ class ReActLoop:
             if isinstance(output, ToolResult):
                 return output
             return ToolResult(output=str(output))
+        except asyncio.CancelledError:
+            logger.error("Tool %s cancelled by async runtime", tc.name)
+            return ToolResult(output=f"Tool error: {tc.name} was cancelled", success=False)
         except Exception as exc:
             logger.exception("Tool %s failed", tc.name)
             return ToolResult(output=f"Tool error: {exc}", success=False)
