@@ -13,7 +13,7 @@ interface EmpireState {
   fullState: GameStateResponse | null;
   incidents: Incident[];
   selectedProvinceId: string;
-  currentPanelTab: 'overview' | 'incidents' | 'province';
+  currentPanelTab: 'overview' | 'incidents' | 'province' | 'data';
   selectedIncident: Incident | null;
   refreshing: boolean;
 
@@ -22,7 +22,7 @@ interface EmpireState {
   setFullState: (state: GameStateResponse | null) => void;
   setIncidents: (incidents: Incident[]) => void;
   setSelectedProvinceId: (id: string) => void;
-  setCurrentPanelTab: (tab: 'overview' | 'incidents' | 'province') => void;
+  setCurrentPanelTab: (tab: 'overview' | 'incidents' | 'province' | 'data') => void;
   setSelectedIncident: (incident: Incident | null) => void;
   setRefreshing: (refreshing: boolean) => void;
 }

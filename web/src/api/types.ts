@@ -239,3 +239,70 @@ export interface IncidentEffect {
   add: string | null;
   factor: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// History API — data visualization
+// ---------------------------------------------------------------------------
+
+export interface NationTickData {
+  turn: number;
+  timestamp: string;
+  imperial_treasury: number;
+  base_tax_rate: number;
+  tribute_rate: number;
+  fixed_expenditure: number;
+  total_population: number;
+  total_production: number;
+  total_stockpile: number;
+  province_count: number;
+  active_incident_count: number;
+}
+
+export interface TickHistoryResponse {
+  ticks: NationTickData[];
+}
+
+export interface ProvinceTickData {
+  turn: number;
+  timestamp: string;
+  production_value: number;
+  population: number;
+  stockpile: number;
+  fixed_expenditure: number;
+  tax_modifier: number;
+  base_production_growth: number;
+  base_population_growth: number;
+  actual_tax_rate: number;
+}
+
+export interface ProvinceHistoryResponse {
+  province_id: string;
+  province_name: string;
+  ticks: ProvinceTickData[];
+}
+
+export interface ComparisonProvince {
+  province_id: string;
+  name: string;
+  value: number;
+}
+
+export interface ComparisonResponse {
+  turn: number;
+  metric: string;
+  provinces: ComparisonProvince[];
+}
+
+export interface HistoryEvent {
+  incident_id: string;
+  title: string;
+  source: string;
+  effects: IncidentEffect[];
+  duration_ticks: number;
+  remaining_ticks: number;
+  created_at: string;
+}
+
+export interface EventHistoryResponse {
+  events: HistoryEvent[];
+}

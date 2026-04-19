@@ -702,6 +702,7 @@ export default function App() {
         <ChatPanel onSend={handleSend} onSendToGroup={handleSendToGroup} />
 
         <RightSidebar
+          client={client.current}
           onRefresh={() => void refreshData()}
           onFetchIncidents={fetchIncidents}
           onFetchFullState={fetchFullState}

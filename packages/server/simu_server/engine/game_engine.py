@@ -11,6 +11,7 @@ from simu_server.engine.incidents import IncidentSystem
 from simu_server.engine.state import GameState
 from simu_server.engine.tick import TickCoordinator
 from simu_server.stores.database import Database
+from simu_server.stores.tick_history import TickHistoryStore
 
 
 class GameEngine:
@@ -23,6 +24,7 @@ class GameEngine:
     def __init__(self, db: Database) -> None:
         self.state = GameState(db)
         self.incidents = IncidentSystem(db)
+        self.tick_history = TickHistoryStore(db)
         self.tick_coordinator = TickCoordinator(self.state, self.incidents)
         self._lock = asyncio.Lock()
 
@@ -32,7 +34,9 @@ class GameEngine:
 
     async def tick(self, session_id: str) -> TapeEvent:
         async with self._lock:
-            return await self.tick_coordinator.tick(session_id)
+            event = await self.tick_coordinator.tick(session_id)
+            await self.tick_history.save_snapshot(self.state.nation)
+            return event
 
     def query_state(self, path: str = "") -> dict[str, Any]:
         return self.state.query(path)
