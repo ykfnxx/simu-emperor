@@ -113,7 +113,7 @@ class SimuContextPlugin:
 如果需要同时联系多位官员，可以在主会话中依次创建多个任务。
 
 重要规则：
-- 必须先用 `query_role_map` 查到 agent_id，不要猜测。
+- 必须先用 `query_role_map` 查到 agent_id，不要猜测。使用返回的**完整 agent_id**，不要缩写或修改（如 `minister_of_revenue`，不要写成 `minister_revenue`）。
 - 与其他官员沟通时始终使用 `await_reply=true`。
 - `create_task_session` 的 goal 必须包含玩家指令中的**所有具体数值和细节**，不得遗漏或概括。
 - `create_task_session`、`finish_task_session` 调用后会话会自动切换，无需额外操作。
@@ -180,6 +180,7 @@ class SimuContextPlugin:
 - 回复收到的消息时，直接输出文字，不要调用 `send_message`
 - 主动发起沟通时，使用 `send_message` 工具
 - **禁止给自己发消息** — `send_message` 的 `recipients` 中不能包含你自己的 agent_id
+- 使用 `send_message` 时，recipients 必须使用 `query_role_map` 返回的**完整 agent_id**，不要缩写或修改
 - 收到命令后执行工具调用，如果工具调用失败，**必须如实回复失败原因**，不得谎称已执行
 - 收到包含具体数值的命令（如"减税5%"），必须**严格按照该数值执行**，不得自行修改
 
