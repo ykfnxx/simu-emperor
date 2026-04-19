@@ -266,6 +266,7 @@ class StandardTools:
 
         # Switch context to the new task session
         self._session_state.set_active_session(task_session_id)
+        self._session_state.set_pending_enter(task_session_id)
 
         logger.info(
             "Created task session %s (parent=%s, depth=%d, goal=%s)",
@@ -394,6 +395,7 @@ class SessionStateManager:
         self._depths: dict[str, int] = {}  # session_id → depth (0 for root)
         self._goals: dict[str, str] = {}  # task_session_id → goal description
         self._active_session: str | None = None
+        self._pending_enter: str | None = None  # task session to enter after pipeline
 
     def is_blocked(self, session_id: str) -> bool:
         """Check if a session is blocked (has pending tasks or replies)."""
@@ -475,3 +477,15 @@ class SessionStateManager:
 
     def get_active_session(self) -> str | None:
         return self._active_session
+
+    # -- Pending task entry (set by create_task_session, consumed by _run_pipeline) --
+
+    def set_pending_enter(self, task_session_id: str) -> None:
+        """Signal that a new task session should be entered after pipeline completes."""
+        self._pending_enter = task_session_id
+
+    def consume_pending_enter(self) -> str | None:
+        """Return and clear the pending task session ID, if any."""
+        task_id = getattr(self, "_pending_enter", None)
+        self._pending_enter = None
+        return task_id
