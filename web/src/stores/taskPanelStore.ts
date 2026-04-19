@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import type { TapeEvent } from '../api/types';
 
-export type TaskStatus = 'creating' | 'active' | 'completed' | 'failed';
-
 interface TaskPanelState {
   /** Currently opened task session ID in the detail panel */
   openTaskSessionId: string | null;

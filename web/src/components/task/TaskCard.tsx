@@ -11,7 +11,7 @@ interface TaskCardProps {
   allEvents: TapeEvent[];
 }
 
-type DerivedStatus = 'creating' | 'active' | 'completed' | 'failed' | 'timeout';
+type DerivedStatus = 'active' | 'completed' | 'failed' | 'timeout';
 
 interface StatusStyle {
   borderColor: string;
@@ -24,14 +24,6 @@ interface StatusStyle {
 
 function getStatusStyle(status: DerivedStatus): StatusStyle {
   const styles: Record<DerivedStatus, StatusStyle> = {
-    creating: {
-      borderColor: 'var(--color-primary-border)',
-      bgColor: 'var(--color-primary-soft)',
-      iconColor: 'var(--color-primary)',
-      labelColor: 'var(--color-primary-text)',
-      badgeBg: 'var(--color-primary-soft)',
-      badgeText: 'var(--color-primary-text)',
-    },
     active: {
       borderColor: 'var(--color-primary-border)',
       bgColor: 'var(--color-primary-soft)',
@@ -70,7 +62,6 @@ function getStatusStyle(status: DerivedStatus): StatusStyle {
 
 function StatusIcon({ status }: { status: DerivedStatus }) {
   switch (status) {
-    case 'creating':
     case 'active':
       return <Loader2 className="h-4 w-4 animate-spin" />;
     case 'completed':
@@ -84,7 +75,6 @@ function StatusIcon({ status }: { status: DerivedStatus }) {
 
 function statusLabel(status: DerivedStatus): string {
   switch (status) {
-    case 'creating': return '创建中';
     case 'active': return '进行中';
     case 'completed': return '已完成';
     case 'failed': return '失败';
