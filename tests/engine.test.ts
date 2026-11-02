@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WAN } from '../src/contracts/index.ts';
 import { DomainError } from '../src/engine/errors.ts';
@@ -499,5 +502,73 @@ describe('Simu-Emperor Weekly Simulation Engine & Accounting (v2.1)', () => {
     );
 
     store.close();
+  });
+
+  it('persists weekly ledger, frozen snapshots, and chat receipts across file-backed SQLite close and reopen', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'simu-emperor-sqlite-'));
+    const dbPath = join(tempDir, 'game.db');
+
+    try {
+      const store1 = new GameStore({ dbPath, initialWeek: 2 });
+      submitWeek2StandardProposals(store1);
+
+      const msg = store1.postCourtMessage({
+        conversation_id: 'conv_state_b',
+        content: '核验持久化消息与回执游标',
+      });
+      store1.recordOfficerReceipt('officer_b', {
+        conversation_id: 'conv_state_b',
+        up_to_seq: msg.seq,
+        outcome: 'accepted',
+      });
+
+      store1.lockWeek({ target_week: 2 });
+      store1.settleWeek({
+        target_week: 2,
+        decisions: {
+          state_a: { project_central_silver: 'APPROVED' },
+          state_b: { relief_central_grain: 'REJECTED' },
+          state_c: {
+            project_central_silver: 'APPROVED',
+            relief_central_grain: 'APPROVED',
+          },
+        },
+      });
+      store1.close();
+
+      // Reopen from disk without re-seeding
+      const store2 = new GameStore({ dbPath });
+      expect(store2.getCurrentActiveWeek()).toEqual({
+        week_number: 3,
+        week_phase: 'OPEN',
+      });
+
+      const archivedWeek2 = store2.getDebugTruth(2);
+      expect(archivedWeek2.week_phase).toBe('ARCHIVED');
+      expect(archivedWeek2.central_truth.ending_silver).toBe(5_000);
+      expect(
+        archivedWeek2.states.find((s) => s.state_id === 'state_b')!.settlement
+          ?.unmet_relief_demand_grain,
+      ).toBe(20_000);
+
+      const week2Court = store2.getCourtView(2);
+      expect(week2Court.viewed_week).toEqual({
+        week_number: 2,
+        week_phase: 'ARCHIVED',
+        is_history_view: true,
+      });
+      expect(
+        week2Court.states.find((s) => s.state_id === 'state_b')!.report?.summary,
+      ).toBe('乙州洪灾告急，需赈粮三万石。');
+
+      const inboxB = store2.getOfficerInbox('officer_b');
+      const convB = inboxB.conversations.find((c) => c.conversation_id === 'conv_state_b')!;
+      expect(convB.seen_seq).toBe(msg.seq);
+      expect(convB.unread_messages).toHaveLength(0);
+
+      store2.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
