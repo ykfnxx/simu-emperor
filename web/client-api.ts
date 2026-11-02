@@ -39,6 +39,50 @@ export class NetworkUncertainError extends Error {
   }
 }
 
+export interface RequestTicket {
+  readonly id: number;
+  readonly signal: AbortSignal;
+  isCurrent(): boolean;
+}
+
+/**
+ * Local request generation + AbortController guard so stale responses,
+ * errors, URL normalizations, or loading resets from superseded requests
+ * never overwrite the latest user-selected view or credential intent.
+ */
+export class LatestRequestController {
+  private seq = 0;
+  private activeController: AbortController | null = null;
+
+  public begin(): RequestTicket {
+    this.seq += 1;
+    if (this.activeController) {
+      this.activeController.abort();
+    }
+    const controller = new AbortController();
+    this.activeController = controller;
+    const id = this.seq;
+    return {
+      id,
+      signal: controller.signal,
+      isCurrent: () => this.seq === id && !controller.signal.aborted,
+    };
+  }
+
+  public invalidate(): number {
+    this.seq += 1;
+    if (this.activeController) {
+      this.activeController.abort();
+      this.activeController = null;
+    }
+    return this.seq;
+  }
+
+  public get currentId(): number {
+    return this.seq;
+  }
+}
+
 function getSessionStorage(): Storage | null {
   try {
     return typeof window !== 'undefined' ? window.sessionStorage : null;
@@ -260,9 +304,10 @@ async function requestJson<T>(
 export async function fetchCourtView(
   token: string,
   weekNumber?: number,
+  signal?: AbortSignal,
 ): Promise<CourtViewResponse> {
   const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
-  return requestJson<CourtViewResponse>(`/api/court/view${query}`, token);
+  return requestJson<CourtViewResponse>(`/api/court/view${query}`, token, { signal });
 }
 
 export async function postLockWeek(
@@ -289,11 +334,13 @@ export async function fetchConversationMessages(
   token: string,
   conversationId: string,
   weekNumber?: number,
+  signal?: AbortSignal,
 ): Promise<{ conversation_id: string; messages: ChatMessageView[] }> {
   const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
   return requestJson<{ conversation_id: string; messages: ChatMessageView[] }>(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
     token,
+    { signal },
   );
 }
 
@@ -310,7 +357,8 @@ export async function postCourtMessage(
 export async function fetchDebugTruth(
   debugToken: string,
   weekNumber?: number,
+  signal?: AbortSignal,
 ): Promise<DebugTruthResponse> {
   const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
-  return requestJson<DebugTruthResponse>(`/api/debug/truth${query}`, debugToken);
+  return requestJson<DebugTruthResponse>(`/api/debug/truth${query}`, debugToken, { signal });
 }

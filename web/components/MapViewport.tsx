@@ -84,6 +84,21 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     originPanY: 0,
   });
 
+  const wheelStateRef = useRef<{
+    camera: MapCameraState;
+    viewportWidth: number;
+    onChangeCamera: (next: MapCameraState) => void;
+  }>({
+    camera,
+    viewportWidth,
+    onChangeCamera,
+  });
+  wheelStateRef.current = {
+    camera,
+    viewportWidth,
+    onChangeCamera,
+  };
+
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
@@ -102,6 +117,46 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     return () => {
       window.removeEventListener('resize', updateSize);
       observer?.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.map-layer-capsule') || target?.closest('.map-camera-controls')) {
+        return;
+      }
+      e.preventDefault();
+      const {
+        camera: currCam,
+        viewportWidth: currVw,
+        onChangeCamera: emitCamera,
+      } = wheelStateRef.current;
+      const rect = el.getBoundingClientRect();
+      const cursorX = rect ? e.clientX - rect.left : currVw / 2;
+      const cursorY = rect ? e.clientY - rect.top : 354;
+
+      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
+      const nextZoom = Math.min(2.4, Math.max(0.65, Number((currCam.zoom * zoomFactor).toFixed(3))));
+      if (nextZoom === currCam.zoom) return;
+
+      const scaleRatio = nextZoom / currCam.zoom;
+      const nextPanX = Math.round((cursorX - (cursorX - currCam.panX) * scaleRatio) * 100) / 100;
+      const nextPanY = Math.round((cursorY - (cursorY - currCam.panY) * scaleRatio) * 100) / 100;
+
+      emitCamera({
+        panX: nextPanX,
+        panY: nextPanY,
+        zoom: nextZoom,
+      });
+    };
+
+    el.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleNativeWheel);
     };
   }, []);
 
@@ -147,31 +202,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     setTimeout(() => {
       dragRef.current.moved = false;
     }, 0);
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('.map-layer-capsule') || target.closest('.map-camera-controls')) {
-      return;
-    }
-    e.preventDefault();
-    const rect = containerRef.current?.getBoundingClientRect();
-    const cursorX = rect ? e.clientX - rect.left : viewportWidth / 2;
-    const cursorY = rect ? e.clientY - rect.top : 354;
-
-    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
-    const nextZoom = Math.min(2.4, Math.max(0.65, Number((camera.zoom * zoomFactor).toFixed(3))));
-    if (nextZoom === camera.zoom) return;
-
-    const scaleRatio = nextZoom / camera.zoom;
-    const nextPanX = Math.round((cursorX - (cursorX - camera.panX) * scaleRatio) * 100) / 100;
-    const nextPanY = Math.round((cursorY - (cursorY - camera.panY) * scaleRatio) * 100) / 100;
-
-    onChangeCamera({
-      panX: nextPanX,
-      panY: nextPanY,
-      zoom: nextZoom,
-    });
   };
 
   const adjustZoom = (delta: number) => {
@@ -221,7 +251,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
-      onWheel={handleWheel}
     >
       <div
         className="map-camera-stage"
@@ -235,7 +264,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           viewBox={`0 0 ${MAP_VIEWBOX_WIDTH} ${MAP_VIEWBOX_HEIGHT}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label="江山與州郡與奏报與图"
+          aria-label="江山州郡奏报舆图"
         >
           <defs>
             {/* Diagonal hatch pattern for playable states with UNKNOWN report status */}

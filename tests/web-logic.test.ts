@@ -7,6 +7,7 @@ import {
   APPROVAL_DRAFT_KEY_PREFIX,
   clearStaleApprovalDrafts,
   evaluateApprovalDraftCompleteness,
+  LatestRequestController,
   loadWeekApprovalDraft,
   saveWeekApprovalDraft,
 } from '../web/client-api.ts';
@@ -302,5 +303,53 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft Stat
       expect(content).not.toContain('officer-b-token');
       expect(content).not.toContain('officer-c-token');
     }
+  });
+
+  it('guards against current/history out-of-order request races so slow current-week responses never overwrite selected history view', async () => {
+    const store = new GameStore({ initialWeek: 2 });
+    store.lockWeek({ target_week: 2 });
+    store.settleWeek({ target_week: 2, decisions: {} });
+
+    const week3ActiveView = store.getCourtView();
+    const week2HistoryView = store.getCourtView(2);
+    expect(week3ActiveView.viewed_week.week_number).toBe(3);
+    expect(week3ActiveView.viewed_week.week_phase).toBe('OPEN');
+    expect(week2HistoryView.viewed_week.week_number).toBe(2);
+    expect(week2HistoryView.viewed_week.is_history_view).toBe(true);
+
+    const guard = new LatestRequestController();
+    let appliedView = week3ActiveView;
+    let loading = false;
+
+    // 1. User clicks Sync on current Week 3 (slow response)
+    const slowSyncTicket = guard.begin();
+    loading = true;
+
+    // 2. User immediately selects archived Week 2 (fast response)
+    guard.invalidate();
+    const fastHistoryTicket = guard.begin();
+    expect(slowSyncTicket.signal.aborted).toBe(true);
+    expect(slowSyncTicket.isCurrent()).toBe(false);
+    expect(fastHistoryTicket.isCurrent()).toBe(true);
+
+    // 3. Fast history Week 2 response arrives first
+    if (fastHistoryTicket.isCurrent()) {
+      appliedView = week2HistoryView;
+      loading = false;
+    }
+    expect(appliedView.viewed_week.week_number).toBe(2);
+    expect(appliedView.viewed_week.is_history_view).toBe(true);
+
+    // 4. Slow current Week 3 response arrives late — guard rejects it
+    if (slowSyncTicket.isCurrent()) {
+      appliedView = week3ActiveView;
+      loading = false;
+    }
+    expect(appliedView.viewed_week.week_number).toBe(2);
+    expect(appliedView.viewed_week.week_phase).toBe('ARCHIVED');
+    expect(appliedView.viewed_week.is_history_view).toBe(true);
+    expect(loading).toBe(false);
+
+    store.close();
   });
 });

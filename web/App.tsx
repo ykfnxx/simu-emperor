@@ -20,6 +20,7 @@ import {
   getStoredDebugToken,
   getStoredMonarchToken,
   HttpApiError,
+  LatestRequestController,
   loadWeekApprovalDraft,
   NetworkUncertainError,
   postCourtMessage,
@@ -123,6 +124,16 @@ export const App: React.FC = () => {
   const [debugTokenInput, setDebugTokenInput] = useState<string>(() => getStoredDebugToken());
   const [debugError, setDebugError] = useState<string | null>(null);
 
+  // Local request generation + AbortController guards against stale async responses
+  const courtReqGuardRef = useRef<LatestRequestController>(new LatestRequestController());
+  const msgReqGuardRef = useRef<LatestRequestController>(new LatestRequestController());
+  const debugReqGuardRef = useRef<LatestRequestController>(new LatestRequestController());
+  const latestCourtIntentRef = useRef<{ token: string; week: number | undefined }>({
+    token: monarchToken,
+    week: requestedHistoryWeek,
+  });
+  const skipNextCourtEffectRef = useRef<boolean>(false);
+
   const applyLoadedCourtView = useCallback((view: CourtViewResponse) => {
     setCourtView(view);
     clearStaleApprovalDrafts(
@@ -151,14 +162,27 @@ export const App: React.FC = () => {
   const loadCourtData = useCallback(
     async (tokenToUse: string, weekQuery?: number) => {
       if (!tokenToUse) {
+        courtReqGuardRef.current.invalidate();
+        setLoadingCourt(false);
         setShowCredentialModal(true);
         return null;
       }
+      latestCourtIntentRef.current = { token: tokenToUse, week: weekQuery };
+      const ticket = courtReqGuardRef.current.begin();
+      const isStale = () =>
+        !ticket.isCurrent() ||
+        latestCourtIntentRef.current.token !== tokenToUse ||
+        latestCourtIntentRef.current.week !== weekQuery;
+
       setLoadingCourt(true);
       try {
-        const view = await fetchCourtView(tokenToUse, weekQuery);
-        // If requested week equals active week, normalize URL to current week view
+        const view = await fetchCourtView(tokenToUse, weekQuery, ticket.signal);
+        if (isStale()) return null;
+
+        // If requested week equals active week, normalize URL and state to current week view
         if (weekQuery !== undefined && !view.viewed_week.is_history_view) {
+          latestCourtIntentRef.current = { token: tokenToUse, week: undefined };
+          skipNextCourtEffectRef.current = true;
           setRequestedHistoryWeek(undefined);
           syncHistoryWeekToUrl(undefined);
         }
@@ -167,28 +191,47 @@ export const App: React.FC = () => {
         setShowCredentialModal(false);
         return view;
       } catch (err) {
+        if (isStale()) return null;
+
         if (err instanceof HttpApiError && (err.status === 401 || err.status === 403)) {
           setAuthError(err.message);
           setShowCredentialModal(true);
           return null;
         }
         if (err instanceof HttpApiError && err.status === 404 && weekQuery !== undefined) {
+          latestCourtIntentRef.current = { token: tokenToUse, week: undefined };
+          skipNextCourtEffectRef.current = true;
           setRequestedHistoryWeek(undefined);
           syncHistoryWeekToUrl(undefined);
-          const fallbackView = await fetchCourtView(tokenToUse, undefined);
+          const fallbackView = await fetchCourtView(tokenToUse, undefined, ticket.signal);
+          if (
+            !ticket.isCurrent() ||
+            latestCourtIntentRef.current.token !== tokenToUse ||
+            latestCourtIntentRef.current.week !== undefined
+          ) {
+            return null;
+          }
           applyLoadedCourtView(fallbackView);
+          setAuthError(null);
+          setShowCredentialModal(false);
           return fallbackView;
         }
         setActionError(err instanceof Error ? err.message : '加载朝堂视图失败');
         return null;
       } finally {
-        setLoadingCourt(false);
+        if (ticket.isCurrent()) {
+          setLoadingCourt(false);
+        }
       }
     },
     [applyLoadedCourtView],
   );
 
   useEffect(() => {
+    if (skipNextCourtEffectRef.current) {
+      skipNextCourtEffectRef.current = false;
+      return;
+    }
     if (monarchToken) {
       void loadCourtData(monarchToken, requestedHistoryWeek);
     }
@@ -198,9 +241,16 @@ export const App: React.FC = () => {
   const loadConversationMessages = useCallback(
     async (convId: string, weekFilter?: number) => {
       if (!monarchToken || !convId) return;
+      const ticket = msgReqGuardRef.current.begin();
       setMessagesLoading(true);
       try {
-        const res = await fetchConversationMessages(monarchToken, convId, weekFilter);
+        const res = await fetchConversationMessages(
+          monarchToken,
+          convId,
+          weekFilter,
+          ticket.signal,
+        );
+        if (!ticket.isCurrent()) return;
         const cacheKey = `${convId}:${weekFilter ?? 'active'}`;
         setMessagesByConv((prev) => ({
           ...prev,
@@ -208,9 +258,12 @@ export const App: React.FC = () => {
         }));
         setChatError(null);
       } catch (err) {
+        if (!ticket.isCurrent()) return;
         setChatError(err instanceof Error ? err.message : '读取会话消息失败');
       } finally {
-        setMessagesLoading(false);
+        if (ticket.isCurrent()) {
+          setMessagesLoading(false);
+        }
       }
     },
     [monarchToken],
@@ -231,19 +284,20 @@ export const App: React.FC = () => {
     }
     const dbgToken = getStoredDebugToken();
     if (!dbgToken) {
+      debugReqGuardRef.current.invalidate();
       setDebugMode(false);
       setDebugTruth(null);
       return;
     }
-    let cancelled = false;
-    fetchDebugTruth(dbgToken, courtView.viewed_week.week_number)
+    const ticket = debugReqGuardRef.current.begin();
+    fetchDebugTruth(dbgToken, courtView.viewed_week.week_number, ticket.signal)
       .then((truth) => {
-        if (!cancelled) {
+        if (ticket.isCurrent()) {
           setDebugTruth(truth);
         }
       })
       .catch((err) => {
-        if (!cancelled) {
+        if (ticket.isCurrent()) {
           setDebugMode(false);
           setDebugTruth(null);
           setActionError(
@@ -252,7 +306,7 @@ export const App: React.FC = () => {
         }
       });
     return () => {
-      cancelled = true;
+      debugReqGuardRef.current.invalidate();
     };
   }, [debugMode, courtView]);
 
@@ -261,6 +315,7 @@ export const App: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showDebugModal) {
+          debugReqGuardRef.current.invalidate();
           setShowDebugModal(false);
           return;
         }
@@ -330,11 +385,20 @@ export const App: React.FC = () => {
   const handleLockCurrentWeek = async () => {
     if (!courtView || !monarchToken || submittingAction) return;
     const targetWeek = courtView.current_active_week.week_number;
+    const actionGuardId = courtReqGuardRef.current.invalidate();
+    setLoadingCourt(false);
     setSubmittingAction(true);
     setActionError(null);
     setActionInfo(null);
     try {
       const updated = await postLockWeek(monarchToken, { target_week: targetWeek });
+      if (
+        courtReqGuardRef.current.currentId !== actionGuardId ||
+        latestCourtIntentRef.current.token !== monarchToken ||
+        latestCourtIntentRef.current.week !== undefined
+      ) {
+        return;
+      }
       applyLoadedCourtView(updated);
       setActiveTab('approval');
       setDrawerOpen(true);
@@ -342,8 +406,14 @@ export const App: React.FC = () => {
         `第 ${targetWeek} 周已截止征询，各州奏报、中央奏报与正式提案快照已冻结，请勾选批复决定。`,
       );
     } catch (err) {
+      if (
+        courtReqGuardRef.current.currentId !== actionGuardId ||
+        latestCourtIntentRef.current.token !== monarchToken
+      ) {
+        return;
+      }
       setActionError(err instanceof Error ? err.message : '截止本周征询失败');
-      await loadCourtData(monarchToken, requestedHistoryWeek);
+      await loadCourtData(monarchToken, latestCourtIntentRef.current.week);
     } finally {
       setSubmittingAction(false);
     }
@@ -360,6 +430,8 @@ export const App: React.FC = () => {
       return;
     }
 
+    const actionGuardId = courtReqGuardRef.current.invalidate();
+    setLoadingCourt(false);
     setSubmittingAction(true);
     setActionError(null);
     setActionInfo(null);
@@ -370,13 +442,26 @@ export const App: React.FC = () => {
       });
       clearWeekApprovalDraft(targetWeek);
       setSettleUncertainWeek(null);
+      if (
+        courtReqGuardRef.current.currentId !== actionGuardId ||
+        latestCourtIntentRef.current.token !== monarchToken ||
+        latestCourtIntentRef.current.week !== undefined
+      ) {
+        return;
+      }
       applyLoadedCourtView(updated);
       setActionInfo(
         updated.current_active_week.week_phase === 'ARCHIVED'
           ? `第 ${targetWeek} 周已完成结算归档，四周试玩已全部完结。`
-          : `第 ${targetWeek} 周已完成单事务结算归档，已开启第 ${updated.current_active_week.week_number} 周（OPEN）。`,
+          : `第 ${targetWeek} 周已完成结算归档，现已进入第 ${updated.current_active_week.week_number} 周征询阶段。`,
       );
     } catch (err) {
+      if (
+        courtReqGuardRef.current.currentId !== actionGuardId ||
+        latestCourtIntentRef.current.token !== monarchToken
+      ) {
+        return;
+      }
       if (err instanceof NetworkUncertainError) {
         // Section 2.3: Never automatically resend on network uncertainty; keep draft and prompt sync.
         setSettleUncertainWeek(targetWeek);
@@ -386,7 +471,7 @@ export const App: React.FC = () => {
       } else if (err instanceof HttpApiError && err.status === 409 && err.code === 'WEEK_ALREADY_ARCHIVED') {
         clearWeekApprovalDraft(targetWeek);
         setSettleUncertainWeek(null);
-        const synced = await loadCourtData(monarchToken, undefined);
+        const synced = await loadCourtData(monarchToken, latestCourtIntentRef.current.week);
         if (synced) {
           setActionInfo(
             `第 ${targetWeek} 周此前已完成结算归档，已同步至第 ${synced.current_active_week.week_number} 周（未重复扣款）。`,
@@ -404,14 +489,26 @@ export const App: React.FC = () => {
   const handleSyncCurrentWeekState = async () => {
     if (!monarchToken) return;
     const uncertainWeek = settleUncertainWeek;
+    const syncToken = monarchToken;
+    const syncWeekQuery = requestedHistoryWeek;
     setActionError(null);
-    const freshView = await loadCourtData(monarchToken, requestedHistoryWeek);
-    if (!freshView) return;
+    const freshView = await loadCourtData(syncToken, syncWeekQuery);
+    if (
+      !freshView ||
+      latestCourtIntentRef.current.token !== syncToken ||
+      latestCourtIntentRef.current.week !== (freshView.viewed_week.is_history_view ? syncWeekQuery : undefined)
+    ) {
+      return;
+    }
 
+    const guardIdAfterCourt = courtReqGuardRef.current.currentId;
     const weekFilter = freshView.viewed_week.is_history_view
       ? freshView.viewed_week.week_number
       : undefined;
     await loadConversationMessages(activeConversationId, weekFilter);
+    if (courtReqGuardRef.current.currentId !== guardIdAfterCourt) {
+      return;
+    }
 
     if (uncertainWeek !== null) {
       const archivedNow =
@@ -474,7 +571,8 @@ export const App: React.FC = () => {
 
   const handleToggleDebugSwitch = async () => {
     if (debugMode) {
-      // Remove truth immediately on exit
+      // Remove truth immediately on exit and abort any in-flight debug request
+      debugReqGuardRef.current.invalidate();
       setDebugMode(false);
       setDebugTruth(null);
       setDebugError(null);
@@ -489,15 +587,19 @@ export const App: React.FC = () => {
       return;
     }
 
+    const ticket = debugReqGuardRef.current.begin();
     try {
       const truth = await fetchDebugTruth(
         storedDbg,
         courtView?.viewed_week.week_number,
+        ticket.signal,
       );
+      if (!ticket.isCurrent()) return;
       setDebugTruth(truth);
       setDebugMode(true);
       setDebugError(null);
     } catch (err) {
+      if (!ticket.isCurrent()) return;
       setDebugMode(false);
       setDebugTruth(null);
       if (err instanceof HttpApiError && (err.status === 401 || err.code === 'FORBIDDEN_DEBUG_TRUTH')) {
@@ -518,17 +620,21 @@ export const App: React.FC = () => {
       setDebugError('请输入君主调试凭据 MONARCH_DEBUG_TOKEN');
       return;
     }
+    const ticket = debugReqGuardRef.current.begin();
     try {
       const truth = await fetchDebugTruth(
         candidate,
         courtView?.viewed_week.week_number,
+        ticket.signal,
       );
+      if (!ticket.isCurrent()) return;
       setStoredDebugToken(candidate);
       setDebugTruth(truth);
       setDebugMode(true);
       setDebugError(null);
       setShowDebugModal(false);
     } catch (err) {
+      if (!ticket.isCurrent()) return;
       setDebugMode(false);
       setDebugTruth(null);
       setDebugError(
@@ -544,9 +650,16 @@ export const App: React.FC = () => {
       setAuthError('请输入君主访问凭据 MONARCH_TOKEN');
       return;
     }
+    latestCourtIntentRef.current = { token: candidate, week: requestedHistoryWeek };
+    courtReqGuardRef.current.invalidate();
+    msgReqGuardRef.current.invalidate();
+    setLoadingCourt(false);
     setStoredMonarchToken(candidate);
-    setMonarchToken(candidate);
-    await loadCourtData(candidate, requestedHistoryWeek);
+    if (candidate === monarchToken) {
+      await loadCourtData(candidate, requestedHistoryWeek);
+    } else {
+      setMonarchToken(candidate);
+    }
   };
 
   const handleSelectWeekTimeline = (weekNum: number) => {
@@ -554,14 +667,19 @@ export const App: React.FC = () => {
     const activeWeekNum = courtView.current_active_week.week_number;
     if (weekNum > activeWeekNum) return;
 
+    const nextWeekQuery = weekNum === activeWeekNum ? undefined : weekNum;
+    latestCourtIntentRef.current = { token: monarchToken, week: nextWeekQuery };
+    courtReqGuardRef.current.invalidate();
+    setLoadingCourt(false);
+
     setActionError(null);
     setActionInfo(null);
-    if (weekNum === activeWeekNum) {
-      setRequestedHistoryWeek(undefined);
-      syncHistoryWeekToUrl(undefined);
+    syncHistoryWeekToUrl(nextWeekQuery);
+
+    if (requestedHistoryWeek === nextWeekQuery) {
+      void loadCourtData(monarchToken, nextWeekQuery);
     } else {
-      setRequestedHistoryWeek(weekNum);
-      syncHistoryWeekToUrl(weekNum);
+      setRequestedHistoryWeek(nextWeekQuery);
     }
   };
 
@@ -973,6 +1091,7 @@ export const App: React.FC = () => {
                 className="secondary-court-btn"
                 data-testid="cancel-debug-modal-btn"
                 onClick={() => {
+                  debugReqGuardRef.current.invalidate();
                   setShowDebugModal(false);
                   setDebugError(null);
                 }}
