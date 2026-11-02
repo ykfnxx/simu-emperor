@@ -18,6 +18,9 @@ data/runtime/
 .env
 .env.local
 .env.*.local
+.env.officer
+.env.officer.*
+!.env.officer.example
 
 # Logs and coverage
 logs/
