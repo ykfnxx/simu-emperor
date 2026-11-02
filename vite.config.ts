@@ -11,8 +11,11 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: Number(process.env.VITE_DEV_PORT ?? 5173),
+    fs: {
+      allow: [resolve(import.meta.dirname)],
+    },
     proxy: {
-      '/api': {
+      '/api/': {
         target: proxyTarget,
         changeOrigin: true,
       },

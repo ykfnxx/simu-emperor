@@ -16,7 +16,7 @@ import {
   type StateId,
   type WeekPhase,
 } from '../../src/contracts/index.ts';
-import type { ApprovalCompletenessStatus, WeekApprovalDraft } from '../api.ts';
+import type { ApprovalCompletenessStatus, WeekApprovalDraft } from '../client-api.ts';
 import type { MapLayerKind } from '../map-data.ts';
 
 export type DrawerTabKey = 'report' | 'chat' | 'approval';
@@ -273,13 +273,11 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             <div className="reported-card" data-testid="state-report-content">
               <dl className="report-metrics-list">
                 <div className="metric-row metric-row-stacked">
-                  <dt>本地可支配粮</dt>
                   <dd data-testid="report-disposable-grain">
                     {currentState.report.disposable_grain_label}
                   </dd>
                 </div>
                 <div className="metric-row metric-row-stacked">
-                  <dt>本地可支配银</dt>
                   <dd data-testid="report-disposable-silver">
                     {currentState.report.disposable_silver_label}
                   </dd>

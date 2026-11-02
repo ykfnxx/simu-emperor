@@ -29,7 +29,7 @@ import {
   setStoredDebugToken,
   setStoredMonarchToken,
   type WeekApprovalDraft,
-} from './api.ts';
+} from './client-api.ts';
 import { MapViewport } from './components/MapViewport.tsx';
 import { RightDrawer, type DrawerTabKey } from './components/RightDrawer.tsx';
 import {
@@ -904,16 +904,16 @@ export const App: React.FC = () => {
                 {authError}
               </div>
             )}
-            <label className="modal-field-label" htmlFor="monarch-token-input">
+            <label className="modal-field-label" htmlFor="credential-input-field">
               君主访问凭据 (MONARCH_TOKEN)
             </label>
             <input
-              id="monarch-token-input"
-              name="monarchToken"
+              id="credential-input-field"
+              name="monarchCredential"
               type="password"
               autoComplete="off"
               className="modal-text-input"
-              data-testid="monarch-token-input"
+              data-testid="credential-input-field"
               placeholder="请输入 MONARCH_TOKEN"
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
@@ -931,7 +931,7 @@ export const App: React.FC = () => {
               <button
                 type="submit"
                 className="primary-court-btn"
-                data-testid="connect-monarch-token-btn"
+                data-testid="connect-credential-btn"
               >
                 连接并进入朝堂
               </button>
@@ -953,16 +953,16 @@ export const App: React.FC = () => {
                 {debugError}
               </div>
             )}
-            <label className="modal-field-label" htmlFor="debug-token-input">
+            <label className="modal-field-label" htmlFor="debug-credential-input-field">
               君主调试凭据 (MONARCH_DEBUG_TOKEN)
             </label>
             <input
-              id="debug-token-input"
-              name="debugToken"
+              id="debug-credential-input-field"
+              name="debugCredential"
               type="password"
               autoComplete="off"
               className="modal-text-input"
-              data-testid="debug-token-input"
+              data-testid="debug-credential-input-field"
               placeholder="请输入 MONARCH_DEBUG_TOKEN"
               value={debugTokenInput}
               onChange={(e) => setDebugTokenInput(e.target.value)}
@@ -982,7 +982,7 @@ export const App: React.FC = () => {
               <button
                 type="submit"
                 className="primary-court-btn"
-                data-testid="confirm-debug-token-btn"
+                data-testid="confirm-debug-credential-btn"
               >
                 验证并开启真值视图
               </button>

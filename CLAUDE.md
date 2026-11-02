@@ -9,8 +9,8 @@ This file defines the current architecture, coding standards, and development wo
   - [PRODUCT.md](PRODUCT.md) — Product scope, capabilities, constraints, and principles.
   - [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md) — Approved v2.1 interaction, weekly state machine, accounting, and communication specification.
 - **Current Increment Status**:
-  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, and HTTP contracts (`src/contracts/index.ts`).
-  - Next increments (not yet implemented): React/Vite map UI and native OAR (`@botiverse/oar`) caller integration.
+  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, HTTP contracts (`src/contracts/index.ts`), and React/Vite map-first court UI (`web/`).
+  - Next increment (not yet implemented): Native OAR (`@botiverse/oar`) official caller integration.
 
 ## Commands (Node 24+)
 
@@ -23,14 +23,19 @@ npm install
 # Configure required runtime tokens (.env is loaded explicitly on server startup)
 cp .env.example .env
 
-# Typecheck
+# Typecheck (backend + frontend)
 npm run typecheck
 
 # Run tests
 npm test
 
-# Start server in development
+# Build production frontend (dist/web) and serve at backend origin
+npm run build
+npm start
+
+# Start backend and Vite dev server in development
 npm run dev
+npm run dev:web
 ```
 
 ## Architecture & Core Rules

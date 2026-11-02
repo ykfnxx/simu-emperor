@@ -94,7 +94,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     };
     updateSize();
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      observer = new ResizeObserver(() => updateSize());
+      observer.observe(containerRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', updateSize);
+      observer?.disconnect();
+    };
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -136,6 +144,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
   const handlePointerUp = () => {
     dragRef.current.active = false;
+    setTimeout(() => {
+      dragRef.current.moved = false;
+    }, 0);
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -299,49 +310,91 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           <g className="map-terrain-mountains" pointerEvents="none">
             {/* Northwest mountain range */}
             <path
-              d="M 12 138 L 48 68 L 86 112 L 132 42 L 178 106 L 216 58 L 264 128 L 296 92 L 336 144 Z"
+              d="M 8 142 Q 28 96 48 64 Q 68 92 86 112 Q 110 68 134 38 Q 158 78 178 106 Q 198 76 218 54 Q 242 94 264 126 Q 282 104 298 88 Q 318 118 342 146 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.3"
+              stroke="none"
             />
             <path
-              d="M 0 218 L 36 168 L 78 206 L 116 154 L 164 214 Z"
+              d="M 8 142 Q 28 96 48 64 Q 68 92 86 112 Q 110 68 134 38 Q 158 78 178 106 Q 198 76 218 54 Q 242 94 264 126 Q 282 104 298 88 Q 318 118 342 146"
+              fill="none"
+              stroke="#6c6357"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+            <path
+              d="M 0 220 Q 20 186 38 164 Q 58 188 78 206 Q 98 174 118 152 Q 142 184 168 216 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.1"
+              stroke="none"
+            />
+            <path
+              d="M 0 220 Q 20 186 38 164 Q 58 188 78 206 Q 98 174 118 152 Q 142 184 168 216"
+              fill="none"
+              stroke="#756b5e"
+              strokeWidth="1.3"
+              strokeLinecap="round"
             />
             {/* Southwest / South ridges */}
             <path
-              d="M 48 566 L 98 498 L 146 552 L 194 486 L 252 558 L 298 512 L 348 574 Z"
+              d="M 44 570 Q 72 526 98 494 Q 122 528 146 552 Q 170 512 194 482 Q 224 524 252 558 Q 276 530 298 508 Q 324 542 352 574 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.3"
+              stroke="none"
             />
             <path
-              d="M 32 678 L 84 612 L 138 664 L 188 598 L 246 668 L 308 618 L 366 682 Z"
+              d="M 44 570 Q 72 526 98 494 Q 122 528 146 552 Q 170 512 194 482 Q 224 524 252 558 Q 276 530 298 508 Q 324 542 352 574"
+              fill="none"
+              stroke="#6c6357"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+            <path
+              d="M 28 682 Q 56 638 84 608 Q 112 640 138 664 Q 164 624 188 594 Q 218 636 246 668 Q 278 638 308 614 Q 338 648 370 684 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.2"
+              stroke="none"
+            />
+            <path
+              d="M 28 682 Q 56 638 84 608 Q 112 640 138 664 Q 164 624 188 594 Q 218 636 246 668 Q 278 638 308 614 Q 338 648 370 684"
+              fill="none"
+              stroke="#756b5e"
+              strokeWidth="1.4"
+              strokeLinecap="round"
             />
             {/* Southeast grand mountain range */}
             <path
-              d="M 556 648 L 614 562 L 668 626 L 728 538 L 792 618 L 854 554 L 916 638 L 968 584 L 1028 654 Z"
+              d="M 552 652 Q 584 598 614 558 Q 642 596 668 626 Q 698 576 728 534 Q 760 580 792 618 Q 824 580 854 550 Q 886 598 916 638 Q 942 606 968 580 Q 998 618 1032 656 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.4"
+              stroke="none"
             />
             <path
-              d="M 612 706 L 674 624 L 734 686 L 796 604 L 864 688 L 928 622 L 998 706 Z"
+              d="M 552 652 Q 584 598 614 558 Q 642 596 668 626 Q 698 576 728 534 Q 760 580 792 618 Q 824 580 854 550 Q 886 598 916 638 Q 942 606 968 580 Q 998 618 1032 656"
+              fill="none"
+              stroke="#685f53"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+            <path
+              d="M 608 706 Q 642 656 674 620 Q 704 656 734 686 Q 766 638 796 600 Q 830 648 864 688 Q 896 648 928 618 Q 964 662 1002 706 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.3"
+              stroke="none"
+            />
+            <path
+              d="M 608 706 Q 642 656 674 620 Q 704 656 734 686 Q 766 638 796 600 Q 830 648 864 688 Q 896 648 928 618 Q 964 662 1002 706"
+              fill="none"
+              stroke="#73695c"
+              strokeWidth="1.4"
+              strokeLinecap="round"
             />
             {/* Eastern hills */}
             <path
-              d="M 884 362 L 924 316 L 964 356 L 1004 308 L 1052 362 Z"
+              d="M 880 364 Q 902 334 924 312 Q 944 338 964 356 Q 984 328 1004 304 Q 1028 334 1056 364 Z"
               fill="url(#mountain-ink-grad)"
-              stroke="#6c6459"
-              strokeWidth="1.1"
+              stroke="none"
+            />
+            <path
+              d="M 880 364 Q 902 334 924 312 Q 944 338 964 356 Q 984 328 1004 304 Q 1028 334 1056 364"
+              fill="none"
+              stroke="#786e60"
+              strokeWidth="1.2"
+              strokeLinecap="round"
             />
           </g>
 
@@ -449,15 +502,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   {/* Flood wave / Drought emblem above state label */}
                   {presentation.showFloodWaveIcon && (
                     <g
-                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 44})`}
+                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 56})`}
                       pointerEvents="none"
                     >
-                      <circle cx="0" cy="0" r="19" fill="#8f2c22" stroke="#f5dec0" strokeWidth="1.8" />
+                      <circle cx="0" cy="0" r="18" fill="#8f2c22" stroke="#f5dec0" strokeWidth="1.8" />
                       <path
-                        d="M -11 -3 Q -5 -9 0 -3 T 11 -3 M -11 4 Q -5 -2 0 4 T 11 4"
+                        d="M -10 -3 Q -5 -8 0 -3 T 10 -3 M -10 4 Q -5 -1 0 4 T 10 4"
                         fill="none"
                         stroke="#fff6e8"
-                        strokeWidth="2.4"
+                        strokeWidth="2.3"
                         strokeLinecap="round"
                       />
                     </g>
@@ -465,11 +518,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
                   {presentation.showDroughtSunIcon && (
                     <g
-                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 44})`}
+                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 56})`}
                       pointerEvents="none"
                     >
-                      <circle cx="0" cy="0" r="17" fill="#c76e22" stroke="#f5dec0" strokeWidth="1.6" />
-                      <circle cx="0" cy="0" r="7" fill="#fff2d6" />
+                      <circle cx="0" cy="0" r="16" fill="#c76e22" stroke="#f5dec0" strokeWidth="1.6" />
+                      <circle cx="0" cy="0" r="6.5" fill="#fff2d6" />
                     </g>
                   )}
 
