@@ -1,4 +1,8 @@
 export {
+  runCli,
+  summarizeCycleResult,
+} from './cli.ts';
+export {
   type OfficerCallerConfig,
   type OfficerCliOverrides,
   type OfficerRunMode,
