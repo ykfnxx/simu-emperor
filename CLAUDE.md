@@ -13,7 +13,7 @@ This file defines the current architecture, coding standards, and development wo
 
 ## Commands (Node 24+)
 
-Ensure Node 24+ is on `PATH` (on macOS with Homebrew `node@24`: `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`):
+Ensure Node 24+ (`>= 24.0.0`) is active in your shell environment:
 
 ```bash
 # Install dependencies

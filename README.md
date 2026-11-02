@@ -11,7 +11,6 @@
 ## 环境要求
 
 - Node.js `>= 24.0.0`（使用内置 `node:sqlite`、`node:util.parseEnv` 与 `process.loadEnvFile`）
-  - 若 macOS 使用 Homebrew keg-only `node@24`，请先执行：`export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`
 
 ## 快速开始（服务端 + 外部官员调用器）
 
