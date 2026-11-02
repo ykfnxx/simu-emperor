@@ -11,11 +11,14 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "node --experimental-strip-types src/server.ts",
+    "officer": "node --experimental-strip-types src/officers/cli.ts",
+    "run-one-officer": "node --experimental-strip-types src/officers/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@botiverse/oar": "0.84.0",
     "@hono/node-server": "^1.13.8",
     "hono": "^4.7.4",
     "react": "^19.3.1",
