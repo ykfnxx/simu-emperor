@@ -179,6 +179,40 @@ function assertNonNegativeInteger(value: unknown, fieldName: string): number {
   return value;
 }
 
+function validateMentions(
+  rawMentions: unknown,
+  participants: ActorId[],
+  senderId: ActorId,
+): OfficerId[] {
+  if (rawMentions === undefined) {
+    return [];
+  }
+  if (!Array.isArray(rawMentions)) {
+    throw new DomainError(400, 'INVALID_MENTIONS', 'mentions 必须为官员 ID 数组');
+  }
+  const mentions: OfficerId[] = [];
+  for (const m of rawMentions) {
+    if (typeof m !== 'string' || !OFFICER_IDS.includes(m as OfficerId)) {
+      throw new DomainError(400, 'INVALID_MENTION_OFFICER', `无效官员点名: ${String(m)}`);
+    }
+    const officerId = m as OfficerId;
+    if (officerId === senderId) {
+      throw new DomainError(400, 'INVALID_SELF_MENTION', '不可在会话中点名唤醒自己');
+    }
+    if (!participants.includes(officerId)) {
+      throw new DomainError(
+        400,
+        'MENTION_NOT_IN_CONVERSATION',
+        `官员 ${officerId} 不在当前会话中`,
+      );
+    }
+    if (!mentions.includes(officerId)) {
+      mentions.push(officerId);
+    }
+  }
+  return mentions;
+}
+
 function defaultDisasterLabel(type: DisasterType): string {
   switch (type) {
     case 'flood':
@@ -833,7 +867,7 @@ export class GameStore {
       }
 
       if (!weekRow.proposals_snapshot_json) {
-        throw new DomainError(500 as 400, 'MISSING_PROPOSALS_SNAPSHOT', '缺少冻结提案快照');
+        throw new Error(`Missing locked proposals snapshot for week ${targetWeek}`);
       }
       const proposalsSnapshot = JSON.parse(weekRow.proposals_snapshot_json) as Record<
         StateId,
@@ -1062,7 +1096,7 @@ export class GameStore {
           const disposableGrain = grossGrain - MANDATORY_WEEKLY_GRAIN;
 
           if (disposableSilver < 0 || disposableGrain < 0) {
-            throw new DomainError(500 as 400, 'INVALID_NEXT_WEEK_INFLOW', '下周初入库不足必需支出');
+            throw new Error(`Next week ${nextWeekNumber} initial inflow insufficient for mandatory expense`);
           }
 
           insertNextStateTruth.run(
@@ -1116,21 +1150,24 @@ export class GameStore {
         .get(targetWeekNumber) as CentralReportRow | undefined;
       centralReport = this.toCentralReportView(centralRow);
     } else {
-      // LOCKED or ARCHIVED: strictly serve the frozen snapshots.
-      reportsByState = weekRow.state_reports_snapshot_json
-        ? (JSON.parse(weekRow.state_reports_snapshot_json) as Record<
-            StateId,
-            StateFormalReportView | null
-          >)
-        : { state_a: null, state_b: null, state_c: null };
+      // LOCKED or ARCHIVED: strictly serve the frozen snapshots persisted at lock time.
+      if (
+        !weekRow.state_reports_snapshot_json ||
+        !weekRow.proposals_snapshot_json ||
+        !weekRow.central_report_snapshot_json
+      ) {
+        throw new Error(`Missing frozen snapshots for ${weekRow.week_phase} week ${targetWeekNumber}`);
+      }
 
-      proposalsByState = weekRow.proposals_snapshot_json
-        ? (JSON.parse(weekRow.proposals_snapshot_json) as Record<StateId, StateProposalView>)
-        : { state_a: null, state_b: null, state_c: null };
-
-      centralReport = weekRow.central_report_snapshot_json
-        ? (JSON.parse(weekRow.central_report_snapshot_json) as CentralReportView)
-        : this.toCentralReportView(undefined);
+      reportsByState = JSON.parse(weekRow.state_reports_snapshot_json) as Record<
+        StateId,
+        StateFormalReportView | null
+      >;
+      proposalsByState = JSON.parse(weekRow.proposals_snapshot_json) as Record<
+        StateId,
+        StateProposalView
+      >;
+      centralReport = JSON.parse(weekRow.central_report_snapshot_json) as CentralReportView;
     }
 
     const states: CourtStateView[] = STATE_IDS.map((stateId) => {
@@ -1486,27 +1523,7 @@ export class GameStore {
       const conv = this.assertParticipant('monarch', req.conversation_id);
       const activeWeek = this.getCurrentActiveWeek();
 
-      const mentions: OfficerId[] = [];
-      if (req.mentions !== undefined) {
-        if (!Array.isArray(req.mentions)) {
-          throw new DomainError(400, 'INVALID_MENTIONS', 'mentions 必须为官员 ID 数组');
-        }
-        for (const m of req.mentions) {
-          if (!OFFICER_IDS.includes(m)) {
-            throw new DomainError(400, 'INVALID_MENTION_OFFICER', `无效官员点名: ${String(m)}`);
-          }
-          if (!conv.participants.includes(m)) {
-            throw new DomainError(
-              400,
-              'MENTION_NOT_IN_CONVERSATION',
-              `官员 ${m} 不在当前会话中`,
-            );
-          }
-          if (!mentions.includes(m)) {
-            mentions.push(m);
-          }
-        }
-      }
+      const mentions = validateMentions(req.mentions, conv.participants, 'monarch');
 
       let wakeTargets: OfficerId[];
       if (conv.kind === 'monarch_dm') {
@@ -1588,16 +1605,7 @@ export class GameStore {
         sourceWeekRow.week_phase !== 'OPEN' || sourceWeek !== activeWeek.week_number;
       const lateNotice = isLate ? formatLateReplyNotice(sourceWeek) : null;
 
-      const mentions: OfficerId[] = [];
-      if (req.mentions !== undefined) {
-        for (const m of req.mentions) {
-          if (OFFICER_IDS.includes(m) && conv.participants.includes(m) && m !== officerId) {
-            if (!mentions.includes(m)) {
-              mentions.push(m);
-            }
-          }
-        }
-      }
+      const mentions = validateMentions(req.mentions, conv.participants, officerId);
 
       let wakeTargets: OfficerId[];
       if (conv.kind === 'officer_peer') {
@@ -1644,14 +1652,7 @@ export class GameStore {
         insertWake.run(newSeq, conv.conversation_id, targetOfficer, sourceWeek, now);
       }
 
-      this.db
-        .prepare(`
-          UPDATE conversation_participants
-          SET seen_seq = MAX(seen_seq, ?), updated_at = ?
-          WHERE conversation_id = ? AND participant_id = ?
-        `)
-        .run(newSeq, now, conv.conversation_id, officerId);
-
+      // Outgoing official messages never advance the sender's seen_seq; only accepted input receipts do.
       const row = this.db
         .prepare('SELECT * FROM messages WHERE seq = ?')
         .get(newSeq) as unknown as MessageRow;
@@ -1705,9 +1706,9 @@ export class GameStore {
     const conversations = convRows.map((c) => {
       const unreadRows = this.db
         .prepare(
-          'SELECT * FROM messages WHERE conversation_id = ? AND seq > ? ORDER BY seq ASC',
+          'SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND sender_id != ? ORDER BY seq ASC',
         )
-        .all(c.conversation_id, c.seen_seq) as unknown as MessageRow[];
+        .all(c.conversation_id, c.seen_seq, officerId) as unknown as MessageRow[];
       return {
         conversation_id: c.conversation_id,
         title: c.title,
@@ -1986,14 +1987,7 @@ export class GameStore {
         `)
         .run(now, officerId, conv.conversation_id);
 
-      this.db
-        .prepare(`
-          UPDATE conversation_participants
-          SET seen_seq = MAX(seen_seq, ?), updated_at = ?
-          WHERE conversation_id = ? AND participant_id = ?
-        `)
-        .run(newSeq, now, conv.conversation_id, officerId);
-
+      // Outgoing official replies never advance seen_seq; intervening unread messages remain unread until accepted.
       const msgRow = this.db
         .prepare('SELECT * FROM messages WHERE seq = ?')
         .get(newSeq) as unknown as MessageRow;
