@@ -24,7 +24,6 @@ import {
   buildOfficerTurnPrompt,
   type CapturedConversationUnread,
   type CapturedWokenConversation,
-  OfficerModelOutputError,
   type OfficerModelTurnOutput,
   parseAndValidateOfficerTurnOutput,
 } from './model-contract.ts';
@@ -75,6 +74,8 @@ export interface OfficerRunnerHooks {
 export interface OfficerRunnerDependencies {
   runtimeRegistry?: RuntimeRegistry;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+  onCycle?: (result: OfficerCycleResult) => void | Promise<void>;
   hooks?: OfficerRunnerHooks;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
 }
@@ -87,6 +88,15 @@ export type OfficerCycleResult =
       readonly resumed: boolean;
       readonly weekNumber: number;
       readonly weekPhase: WeekPhase;
+    }
+  | {
+      readonly status: 'stopped';
+      readonly officerId: OfficerCallerConfig['officerId'];
+      readonly sessionId: string;
+      readonly resumed: boolean;
+      readonly originatingWeek: number;
+      readonly capturedMaxSeqByConversation: Record<string, number>;
+      readonly receipts: OfficerReceiptResponse[];
     }
   | {
       readonly status: 'acted';
@@ -239,10 +249,12 @@ async function collectRootTextUntilTurnEnd(
   afterSeq: number,
   inputId: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{
   outcome: TurnOutcome;
   text: string;
   timedOut: boolean;
+  stoppedBySignal: boolean;
 }> {
   let text = '';
   let waitingForInput = false;
@@ -272,20 +284,39 @@ async function collectRootTextUntilTurnEnd(
   );
 
   let timedOut = false;
+  let stoppedBySignal = false;
+
   const timer = setTimeout(() => {
     timedOut = true;
     void session.abort().catch(() => {});
   }, timeoutMs);
 
+  const onSignalAbort = () => {
+    stoppedBySignal = true;
+    void session.abort().catch(() => {});
+  };
+
+  if (signal?.aborted) {
+    onSignalAbort();
+  } else {
+    signal?.addEventListener('abort', onSignalAbort, { once: true });
+  }
+
   try {
     const outcome = await awaitTurnEnd(session, afterSeq, inputId);
+    const wasStopped = stoppedBySignal || Boolean(signal?.aborted);
+    if (wasStopped) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
     return {
       outcome,
       text,
       timedOut,
+      stoppedBySignal: wasStopped,
     };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onSignalAbort);
     unsubscribe();
   }
 }
@@ -320,6 +351,7 @@ export async function runOfficerCycle(
     !hasSubmittedCurrentWeekOnServer &&
     currentState.last_submitted_open_week !== activeWeek.week_number;
 
+  // An unmentioned announcement alone does not wake the official.
   if (!needsOpenWeekSubmission && pendingWakes.length === 0) {
     return {
       status: 'idle',
@@ -377,20 +409,20 @@ export async function runOfficerCycle(
     });
   }
 
-  // Compute per-conversation maximum consumed game seq ONLY for wake batches.
+  // Whenever an actual trigger (new OPEN week or pending wakes) prompts the official,
+  // include all captured unread context (including untargeted announcements) and
+  // record their exact captured game seq maxima upon prompt acceptance.
   // Never confuse OAR's record seq with the game's message seq.
   const capturedMaxSeqByConversation = new Map<string, number>();
-  if (wokenConversations.length > 0) {
-    for (const unread of unreadConversations) {
-      capturedMaxSeqByConversation.set(unread.conversation_id, unread.max_unread_seq);
-    }
-    for (const woken of wokenConversations) {
-      const prev = capturedMaxSeqByConversation.get(woken.conversation_id) ?? 0;
-      capturedMaxSeqByConversation.set(
-        woken.conversation_id,
-        Math.max(prev, woken.max_wake_seq),
-      );
-    }
+  for (const unread of unreadConversations) {
+    capturedMaxSeqByConversation.set(unread.conversation_id, unread.max_unread_seq);
+  }
+  for (const woken of wokenConversations) {
+    const prev = capturedMaxSeqByConversation.get(woken.conversation_id) ?? 0;
+    capturedMaxSeqByConversation.set(
+      woken.conversation_id,
+      Math.max(prev, woken.max_wake_seq),
+    );
   }
 
   const inputId = globalThis.crypto.randomUUID();
@@ -398,7 +430,7 @@ export async function runOfficerCycle(
     officerId: config.officerId,
     brief,
     conversations,
-    unreadConversations: wokenConversations.length > 0 ? unreadConversations : [],
+    unreadConversations,
     wokenConversations,
     requireSubmission: needsOpenWeekSubmission,
   });
@@ -414,6 +446,24 @@ export async function runOfficerCycle(
   if (deps.hooks?.onBeforePrompt) {
     await deps.hooks.onBeforePrompt(hookContext);
   }
+
+  if (deps.signal?.aborted) {
+    return {
+      status: 'stopped',
+      officerId: config.officerId,
+      sessionId: session.id,
+      resumed: handle.resumed,
+      originatingWeek: capturedOriginatingWeek,
+      capturedMaxSeqByConversation: Object.fromEntries(capturedMaxSeqByConversation.entries()),
+      receipts: [],
+    };
+  }
+
+  // Forward stop signal to session.abort while session.prompt is in flight as well.
+  const onPromptAbort = () => {
+    void session.abort().catch(() => {});
+  };
+  deps.signal?.addEventListener('abort', onPromptAbort, { once: true });
 
   let promptOutcome: ControlOutcome;
   try {
@@ -433,6 +483,8 @@ export async function runOfficerCycle(
       `OAR session.prompt threw an error for ${config.officerId}: ${reason}`,
       { cause: err },
     );
+  } finally {
+    deps.signal?.removeEventListener('abort', onPromptAbort);
   }
 
   if (promptOutcome.kind === 'rejected') {
@@ -490,12 +542,13 @@ export async function runOfficerCycle(
     });
   }
 
-  // Wait for actual runtime turn end; never turn failure or empty output into no_reply.
+  // Wait for actual runtime turn end; forward stop signal to session.abort.
   const turnResult = await collectRootTextUntilTurnEnd(
     session,
     promptOutcome.seq,
     inputId,
     config.turnTimeoutMs,
+    deps.signal,
   );
 
   const markCapturedWakesFailed = async (reason: string): Promise<void> => {
@@ -508,6 +561,19 @@ export async function runOfficerCycle(
       });
     }
   };
+
+  if (turnResult.stoppedBySignal || deps.signal?.aborted) {
+    await markCapturedWakesFailed('Officer caller stopped before turn completion');
+    return {
+      status: 'stopped',
+      officerId: config.officerId,
+      sessionId: session.id,
+      resumed: handle.resumed,
+      originatingWeek: capturedOriginatingWeek,
+      capturedMaxSeqByConversation: Object.fromEntries(capturedMaxSeqByConversation.entries()),
+      receipts,
+    };
+  }
 
   if (turnResult.timedOut || turnResult.outcome.kind !== 'completed') {
     const reason = turnResult.timedOut
@@ -530,40 +596,6 @@ export async function runOfficerCycle(
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    if (
-      err instanceof OfficerModelOutputError &&
-      wokenConversations.length > 0 &&
-      (err.code === 'EMPTY_MODEL_OUTPUT' || err.code === 'EMPTY_REPLY_CONTENT')
-    ) {
-      const targetConvId =
-        err.offendingConversationId ?? wokenConversations[0]!.conversation_id;
-      const targetSourceWeek =
-        capturedSourceWeekByConversation.get(targetConvId) ?? capturedOriginatingWeek;
-      // Exercise server empty-output failure path so wakes transition to REJECTED.
-      await gameClient
-        .postReply({
-          conversation_id: targetConvId,
-          source_week: targetSourceWeek,
-          content: '',
-        })
-        .catch(() => {});
-    } else if (
-      err instanceof OfficerModelOutputError &&
-      wokenConversations.length > 0 &&
-      err.code === 'INVALID_NO_REPLY_DIRECTIVE'
-    ) {
-      const targetConvId =
-        err.offendingConversationId ?? wokenConversations[0]!.conversation_id;
-      const targetSourceWeek =
-        capturedSourceWeekByConversation.get(targetConvId) ?? capturedOriginatingWeek;
-      await gameClient
-        .postReply({
-          conversation_id: targetConvId,
-          source_week: targetSourceWeek,
-          no_reply: true,
-        })
-        .catch(() => {});
-    }
     await markCapturedWakesFailed(reason);
     throw err;
   }
@@ -573,6 +605,19 @@ export async function runOfficerCycle(
   const postedReplies: OfficerReplyResponse[] = [];
 
   try {
+    if (deps.signal?.aborted) {
+      await markCapturedWakesFailed('Officer caller stopped before publishing game actions');
+      return {
+        status: 'stopped',
+        officerId: config.officerId,
+        sessionId: session.id,
+        resumed: handle.resumed,
+        originatingWeek: capturedOriginatingWeek,
+        capturedMaxSeqByConversation: Object.fromEntries(capturedMaxSeqByConversation.entries()),
+        receipts,
+      };
+    }
+
     if (validatedOutput.submission !== undefined) {
       // Always submit with capturedOriginatingWeek so late proposals are rejected 409, never carried into a new week.
       submissionOutcome = await gameClient.submitPackage({
@@ -594,12 +639,35 @@ export async function runOfficerCycle(
         saveOfficerState(config.dataDir, currentState);
       } else {
         deps.logger?.warn(
-          `[${config.officerId}] Formal submission for week ${capturedOriginatingWeek} rejected with 409 (${submissionOutcome.code}); not carrying over to new week.`,
+          `[${config.officerId}] Formal submission for week ${capturedOriginatingWeek} rejected with 409 (${submissionOutcome.code}): ${submissionOutcome.message}`,
         );
       }
     }
 
     for (const msg of validatedOutput.messages) {
+      if (deps.signal?.aborted) {
+        const repliedConvIds = new Set(postedReplies.map((r) => r.conversation_id));
+        for (const [convId, upToSeq] of capturedMaxSeqByConversation.entries()) {
+          if (!repliedConvIds.has(convId)) {
+            await gameClient.recordReceipt({
+              conversation_id: convId,
+              up_to_seq: upToSeq,
+              outcome: 'failed',
+              error: 'Officer caller stopped before publishing remaining replies',
+            });
+          }
+        }
+        return {
+          status: 'stopped',
+          officerId: config.officerId,
+          sessionId: session.id,
+          resumed: handle.resumed,
+          originatingWeek: capturedOriginatingWeek,
+          capturedMaxSeqByConversation: Object.fromEntries(capturedMaxSeqByConversation.entries()),
+          receipts,
+        };
+      }
+
       const created = await gameClient.postMessage({
         conversation_id: msg.conversation_id,
         content: msg.content,
@@ -610,6 +678,29 @@ export async function runOfficerCycle(
     }
 
     for (const reply of validatedOutput.replies) {
+      if (deps.signal?.aborted) {
+        const repliedConvIds = new Set(postedReplies.map((r) => r.conversation_id));
+        for (const [convId, upToSeq] of capturedMaxSeqByConversation.entries()) {
+          if (!repliedConvIds.has(convId)) {
+            await gameClient.recordReceipt({
+              conversation_id: convId,
+              up_to_seq: upToSeq,
+              outcome: 'failed',
+              error: 'Officer caller stopped before publishing remaining replies',
+            });
+          }
+        }
+        return {
+          status: 'stopped',
+          officerId: config.officerId,
+          sessionId: session.id,
+          resumed: handle.resumed,
+          originatingWeek: capturedOriginatingWeek,
+          capturedMaxSeqByConversation: Object.fromEntries(capturedMaxSeqByConversation.entries()),
+          receipts,
+        };
+      }
+
       const sourceWeek =
         capturedSourceWeekByConversation.get(reply.conversation_id) ??
         capturedOriginatingWeek;
@@ -676,7 +767,11 @@ export async function runOfficerOnce(
 
   const handle = await openOrResumeOfficerSession(config, registry);
   try {
-    return await runOfficerCycle(config, handle, gameClient, deps);
+    const result = await runOfficerCycle(config, handle, gameClient, deps);
+    if (deps.onCycle) {
+      await deps.onCycle(result);
+    }
+    return result;
   } finally {
     await handle.session.dispose();
   }
@@ -701,8 +796,8 @@ function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
 
 export async function runOfficerWatch(
   config: OfficerCallerConfig,
-  deps: OfficerRunnerDependencies & { signal?: AbortSignal } = {},
-): Promise<OfficerCycleResult[]> {
+  deps: OfficerRunnerDependencies = {},
+): Promise<void> {
   const registry = deps.runtimeRegistry ?? defaultRuntimes;
   const gameClient = new OfficerGameClient({
     gameOrigin: config.gameOrigin,
@@ -712,7 +807,6 @@ export async function runOfficerWatch(
   });
 
   const handle = await openOrResumeOfficerSession(config, registry);
-  const results: OfficerCycleResult[] = [];
   let cycles = 0;
 
   try {
@@ -723,20 +817,22 @@ export async function runOfficerWatch(
       if (latestState) {
         (handle as { state: OfficerPersistentState }).state = latestState;
       }
-      results.push(cycleResult);
+
+      if (deps.onCycle) {
+        await deps.onCycle(cycleResult);
+      }
       cycles += 1;
+
+      if (cycleResult.status === 'stopped' || deps.signal?.aborted) {
+        break;
+      }
 
       if (config.maxCycles !== undefined && cycles >= config.maxCycles) {
         break;
       }
 
-      if (deps.signal?.aborted) {
-        break;
-      }
-
       await sleepWithAbort(config.pollIntervalMs, deps.signal);
     }
-    return results;
   } finally {
     await handle.session.dispose();
   }
