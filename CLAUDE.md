@@ -1,267 +1,81 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file defines the current architecture, coding standards, and development workflow for AI coding agents working on `simu-emperor`.
 
-## Commands
+## Project Direction
+
+- **Full-Stack TypeScript Rewrite**: Legacy Python/V5 EventBus/chat-only code has been superseded and removed.
+- **Product & Design Baselines**:
+  - [PRODUCT.md](PRODUCT.md) — Product scope, capabilities, constraints, and principles.
+  - [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md) — Approved v2.1 interaction, weekly state machine, accounting, and communication specification.
+- **Current Increment Status**:
+  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, and HTTP contracts (`src/contracts/index.ts`).
+  - Next increments (not yet implemented): React/Vite map UI and native OAR (`@botiverse/oar`) caller integration.
+
+## Commands (Node 24+)
+
+Use Node 24 (`/opt/homebrew/opt/node@24/bin` on macOS if default `PATH` points to an older version):
 
 ```bash
-# Install dependencies (uv workspace)
-uv sync
+# Install dependencies
+/opt/homebrew/opt/node@24/bin/npm install
+
+# Typecheck
+/opt/homebrew/opt/node@24/bin/npm run typecheck
 
 # Run tests
-uv run pytest tests/                    # All tests
-uv run pytest tests/ -k "not MemoryStore and not MemoryRetriever"  # Skip ChromaDB tests
-uv run pytest tests/unit/               # Unit tests only
+/opt/homebrew/opt/node@24/bin/npm test
 
-# Lint and format
-uv run ruff check .
-uv run ruff format .
-
-# Start server
-uv run python -m simu_server
-
-# Start a single agent (usually done by server's ProcessManager)
-SIMU_SERVER_URL=http://localhost:8000 SIMU_AGENT_ID=governor_zhili \
-  SIMU_AGENT_TOKEN=xxx SIMU_CONFIG_PATH=data/agents/governor_zhili \
-  uv run python -m simu_sdk
+# Start server in development
+/opt/homebrew/opt/node@24/bin/npm run dev
 ```
 
-## Architecture
+## Architecture & Core Rules
 
-**V5: Process-Per-Agent Multi-Agent Architecture**
+### 1. Integer Base Units & Weekly Ledger
+- All monetary and grain values are stored and validated in **integer base units**:
+  - Silver: `1 两` (`WAN = 10_000` represents `1.0 万两`).
+  - Grain: `1 石` (`WAN = 10_000` represents `1.0 万石`).
+- Each playable state (`state_a` 甲州, `state_b` 乙州, `state_c` 丙州) has weekly mandatory expenses (`mandatory_silver = 10_000`, `mandatory_grain = 10_000`) deducted first:
+  $$\text{disposable} = \text{gross} - \text{mandatory}$$
+- Central treasury has no weekly mandatory expense (`disposable === gross`).
 
-Emperor simulation game. The player is the emperor; AI agents play court officials (governors, ministers). Each agent runs as an independent subprocess communicating with the central Server via SSE (events) and HTTP callbacks (actions).
+### 2. Server Authoritative Week Phases (`OPEN -> LOCKED -> ARCHIVED`)
+- `OPEN`: Initial weekly inflow is in the ledger. Officials submit formal state reports and proposals (`POST /api/officer/submission`), overwriting previous submissions for the current `OPEN` week.
+- `LOCKED`: Triggered by `POST /api/court/lock`. Atomically freezes:
+  1. State formal proposals snapshot (unsubmitted states freeze as all-zero default proposals).
+  2. State formal reports snapshot (unsubmitted states freeze as `UNKNOWN`, never `0`).
+  3. Central budget report snapshot from `officer_a` (if unsubmitted, freezes as `UNKNOWN`).
+  Any formal submission targeting a `LOCKED`, `ARCHIVED`, or non-current week is rejected with `409 Conflict` and never carried over to the next week.
+- `ARCHIVED`: Triggered by `POST /api/court/settle` with `target_week` and complete binary decisions (`APPROVED` / `REJECTED`) for all non-zero central requests. Monarch approval toggles prior to settlement are **client draft only** (`sessionStorage`); no server budget is reserved before full settlement.
+- Four-week trial completes when Week 4 is settled into `ARCHIVED` (no 5th week or extra phase is created).
 
-### Core Principles
+### 3. Project & Disaster Relief Settlement Rules
+- **Threshold Canal Project (`修水渠`, full cost `20_000` = `2.0万两`)**:
+  - `project_local_silver + project_central_silver` must be either `0` or `20_000`.
+  - If `project_central_silver > 0` is `REJECTED`, the project is cancelled in full and `project_local_silver` is **retained** in the state treasury (not deducted).
+  - If executed, both local and central portions are deducted, and the state receives `+10_000` (`+1.0万石`) weekly grain inflow starting the following week.
+- **Additive Disaster Relief (`灾害赈济粮`)**:
+  - Must satisfy `relief_local_grain + relief_central_grain <= authoritative_relief_demand_grain` on submission (`400 Bad Request` on overflow; **never silently clamp**).
+  - Lawful `relief_local_grain` is **always deducted and spent** at settlement even if `relief_central_grain` is `REJECTED`.
+  - `unmet_relief_demand_grain = authoritative_relief_demand_grain - actual_relief_grain` (`>= 0`).
 
-| Principle | Description |
-|-----------|-------------|
-| **Process-per-Agent** | Each agent is an independent Python subprocess |
-| **SSE + HTTP Callback** | Server pushes events via SSE; agents call back via HTTP |
-| **Serial Dispatch** | QueueController ensures one invocation at a time per agent |
-| **ReAct Loop** | Agents use reason-act-observe cycles with LLM + tool calls |
-| **File-Driven Personality** | `soul.md` + `data_scope.yaml` define each agent |
-| **Tape-Based History** | Append-only JSONL + SQLite event logs per agent |
+### 4. Visibility & Permission Isolation
+- `GET /api/court/view`: Returns **reports only** (`UNKNOWN` is `null` / `'UNKNOWN'`, never `0` or server truth).
+- `GET /api/officer/brief`: Officials read only their own state's true brief; `officer_a` (兼领度支) additionally reads only the two central aggregate numbers (`gross_silver`, `gross_grain`) and never reads `state_b` or `state_c`.
+- `GET /api/debug/truth`: Requires **both** `ENABLE_DEBUG_TRUTH=1` and `MONARCH_DEBUG_TOKEN`. Any official token or non-debug token receives `403 Forbidden`.
+- Settlement insufficient-central-budget errors are sanitized and must not reveal the true central balance number.
 
-### Package Structure
-
-```
-packages/
-├── shared/         # Pydantic models (TapeEvent, NationData, Effect, etc.)
-│   └── simu_shared/
-│       ├── models.py       # All data models
-│       └── constants.py    # EventType enum
-│
-├── server/         # FastAPI backend — orchestration, state, routing
-│   └── simu_server/
-│       ├── app.py          # Startup, dependency wiring, dispatch function
-│       ├── routes/
-│       │   ├── client.py   # Frontend API (/api/command, /api/state, /ws, etc.)
-│       │   └── callback.py # Agent API (/api/callback/*, SSE, incidents)
-│       ├── services/
-│       │   ├── event_router.py       # Per-agent asyncio.Queue, SSE delivery
-│       │   ├── queue_controller.py   # Per-agent FIFO, serial dispatch
-│       │   ├── process_manager.py    # Subprocess spawn/terminate
-│       │   ├── session_manager.py    # Session CRUD (SQLite)
-│       │   ├── message_store.py      # Message persistence (SQLite + JSONL)
-│       │   ├── invocation_manager.py # Invocation lifecycle tracking
-│       │   └── group_store.py        # Agent groups
-│       ├── engine/
-│       │   ├── game_engine.py  # Facade: GameState + TickCoordinator + IncidentSystem
-│       │   ├── state.py        # NationData + ProvinceData (Decimal precision)
-│       │   ├── tick.py         # Turn advancement, growth, tax calculation
-│       │   └── incidents.py    # Time-limited economic effects (add/factor)
-│       └── stores/
-│           └── database.py     # SQLite + WAL mode
-│
-├── sdk/            # Agent runtime SDK
-│   └── simu_sdk/
-│       ├── agent.py        # BaseAgent: lifecycle, event dispatch, ReAct, prompts
-│       ├── client.py       # ServerClient: HTTP + SSE communication
-│       ├── config.py       # AgentConfig from environment variables
-│       ├── react.py        # ReActLoop: LLM → tool calls → observations
-│       ├── tools/
-│       │   ├── registry.py   # @tool decorator, ToolRegistry
-│       │   ├── standard.py   # send_message, query_state, create_incident, task sessions
-│       │   └── memory.py     # search_memory tool
-│       ├── tape/
-│       │   ├── manager.py    # TapeManager: JSONL + SQLite dual-write
-│       │   └── context.py    # ContextManager: sliding window, summaries, views
-│       ├── memory/
-│       │   ├── store.py      # MemoryStore (ChromaDB vector DB)
-│       │   ├── retriever.py  # MemoryRetriever (L1 session, L2 view search)
-│       │   └── metadata.py   # TapeMetadataManager (SQLite)
-│       └── llm/
-│           ├── base.py       # LLMProvider interface
-│           ├── anthropic.py  # Claude integration
-│           └── openai.py     # OpenAI/compatible integration
-│
-└── agents/         # Concrete agent configs (soul.md + data_scope.yaml per agent)
-
-web/                # React + Vite + TypeScript + Tailwind frontend
-├── src/App.tsx     # Main component, WebSocket, chat UI
-└── src/api/        # GameClient (REST + WebSocket)
-
-data/
-├── default_agents/     # Agent templates (soul.md + data_scope.yaml)
-├── agent_templates/    # For dynamic agent generation
-└── memory/             # Runtime mirror (tape_meta.jsonl, per-agent sessions)
-```
-
-### Communication Flow
-
-**Player → Agent:**
-```
-Frontend POST /api/command
-  → TapeEvent(src=player, type=CHAT)
-  → QueueController.enqueue(agent_id, event)
-  → InvocationManager.create() → EventRouter.route()
-  → Agent receives via SSE /api/callback/events
-  → BaseAgent.on_event() → react(event)
-  → ReActLoop: LLM + tool calls
-  → RESPONSE → push_tape_event → post_message → WebSocket → Frontend
-```
-
-**Agent → Agent:**
-```
-Agent A: send_message(recipients=["agent_b"], await_reply=true)
-  → POST /api/callback/message → QueueController → EventRouter → Agent B SSE
-  → Agent B react() → text output → RESPONSE auto-routed back to A
-  → A's pending reply cleared → A continues processing
-```
-
-**Task Sessions:**
-```
-create_task_session(goal="...") → enters child session
-  → send_message(await_reply=true) → waits
-  → reply arrives → finish_task_session(result="...")
-  → TASK_FINISHED routed to parent session → agent reports to player
-```
-
-### Agent System
-
-Agents are file-driven AI officials. `soul.md` defines personality/behavior, `data_scope.yaml` defines data access permissions.
-
-**Standard Tools:**
-
-| Tool | Category | Description |
-|------|----------|-------------|
-| `send_message` | communication | Send to agents/player, optional `await_reply` |
-| `query_state` | communication | Query game state (provinces, treasury) |
-| `query_role_map` | communication | Look up agent IDs by official name |
-| `create_incident` | action | Create economic effects (add/factor on fields) |
-| `create_task_session` | session | Create sub-session for focused work |
-| `finish_task_session` | session | Complete task, return result to parent |
-| `fail_task_session` | session | Fail task with reason |
-| `search_memory` | memory | Vector search across past sessions |
-
-**System Prompt Construction** (`_build_system_prompt`):
-1. `soul.md` content (personality)
-2. `data_scope.yaml` (permissions)
-3. Action execution instructions (when to use `create_incident`)
-4. Task dispatch or task execution instructions (context-dependent)
-5. Agent reply instructions (text reply vs send_message)
-
-### Session State Management
-
-`SessionStateManager` in each agent tracks:
-- `pending_tasks`: unfinished task sub-sessions
-- `pending_replies`: messages awaiting reply (from `await_reply=true`)
-- `message_queue`: events queued while session is blocked
-- Session hierarchy: parent/child relationships, nesting depth (max 5)
-
-When a session is blocked (has pending tasks or replies), new events are queued. When unblocked, queued events are drained through the ReAct loop.
-
-### Memory System
-
-**Tape** (per-agent, per-session):
-- JSONL + SQLite dual-write
-- Optional mirror to `data/memory/` (via `SIMU_MEMORY_DIR`)
-
-**Context Window**:
-- Sliding window with auto-compression into ViewSegments
-- Session summaries generated by LLM after each response
-- Views stored in ChromaDB for cross-session retrieval
-
-**Memory Retrieval** (two-level):
-- L1: Search across sessions by title/summary
-- L2: Search within sessions for specific views
-
-### Engine & Economic Model
-
-**Tick** (manual trigger via `POST /api/state/tick`):
-```
-TickCoordinator.tick()
-  → Apply base growth (production, population)
-  → Apply active Incident effects (add: one-time, factor: per-tick)
-  → Calculate tax: production × (base_tax_rate + tax_modifier)
-  → Calculate surplus, remittance, treasury
-  → Decrement incident remaining_ticks, expire completed
-```
-
-**Key Fields:**
-- Province: `production_value`, `population`, `fixed_expenditure`, `stockpile`, `tax_modifier`, `base_production_growth`, `base_population_growth`
-- Nation: `imperial_treasury`, `base_tax_rate`, `tribute_rate`, `fixed_expenditure`
-- `tax_modifier` is an additive offset (initial 0.0), not the tax rate itself
-
-### Event Types
-
-| Type | Direction | Description |
-|------|-----------|-------------|
-| `CHAT` | player → agent | Player command |
-| `AGENT_MESSAGE` | agent → agent | Initiated communication |
-| `RESPONSE` | agent → agent/player | Auto-routed reply |
-| `TASK_CREATED` | agent → self | Synthetic event for new task |
-| `TASK_FINISHED` | server → agent | Task completed |
-| `TASK_FAILED` | server → agent | Task failed |
-| `TOOL_CALL` | agent → tape | ReAct loop tool invocation |
-| `TOOL_RESULT` | agent → tape | Tool execution result |
-| `SHUTDOWN` | server → agent | Graceful shutdown |
-| `RELOAD_CONFIG` | server → agent | Hot-reload personality |
+### 5. Conversations, Targeted Wake & OAR Receipt Evidence
+- Monarch can only list and read the 4 court channels (`conv_state_a`, `conv_state_b`, `conv_state_c`, `conv_court_group`) and is blocked (`403`) from official-to-official peer chats (`conv_peer_*`).
+- Group chat (`conv_court_group`) wakes only explicitly `@`-mentioned officials; un-mentioned messages are stored as announcements with `wake_targets: []`.
+- `GET /api/officer/inbox` is strictly read-only and **never** advances `seen_seq`.
+- Only `POST /api/officer/receipt` with `outcome: 'accepted'` advances `seen_seq`. `rejected`/`failed` outcomes do not advance `seen_seq`.
+- `POST /api/officer/reply` rejects empty output (`""`) as call failure rather than treating it as `no_reply: true`; `no_reply: true` requires explicit `[NO_REPLY]` directive.
+- Late chat replies (`source_week` already `LOCKED` or `ARCHIVED`) are stored on `source_week` with `is_late: true` and `[晚到回复 · 原针对第 N 周征询，不改变已锁定提案]`, with zero effect on formal proposals or the ledger.
 
 ## Coding Standards
 
-### Error Handling
-
-**FORBIDDEN: Silent failures with hardcoded fallbacks.** Do NOT return fake data when operations fail.
-
-```python
-# ❌ WRONG
-if not role_map_path.exists():
-    return """朝廷现任官员：- 直隶巡抚 李卫: ..."""  # Hardcoded!
-
-# ✅ CORRECT
-if not role_map_path.exists():
-    return "无法查询官员信息：role_map 文件不存在"
-```
-
-### Key Patterns
-
-- **Pydantic v2** with `Decimal` precision for game data
-- **Event sourcing:** Append-only JSONL + SQLite tape
-- **@tool decorator** for registering agent tools
-- **ToolResult** with `ends_loop=True` for session-switching tools
-- **Hot-reload:** `soul.md` / `data_scope.yaml` changes auto-detected
-- **asyncio throughout:** All I/O is async
-
-### Import Rules
-
-Packages have strict dependency directions:
-```
-shared ← sdk ← agents
-shared ← server
-```
-SDK and server do NOT depend on each other — they communicate via HTTP/SSE.
-
-## Development Workflow
-
-1. Check existing tests for patterns
-2. Run `uv run ruff check .` and `uv run pytest` before committing
-3. Use `develop-v5` as the primary development branch
-4. Create feature/fix branches from `develop-v5`
-5. PR review required before merge
-
-### Design Documents
-
-- `docs/architecture/ARCHITECTURE.md` — V5 architecture details
-- `docs/research/v6-architecture-research.md` — Future architecture research
+- **Fail Fast, No Silent Fallbacks**: Validate inputs strictly and return explicit HTTP status codes (`400`, `401`, `403`, `404`, `409`). Never clamp invalid proposal numbers or substitute fake data.
+- **Single-Transaction Mutations**: `lock` and `settle` must execute inside atomic SQLite transactions (`BEGIN IMMEDIATE ... COMMIT`).
+- **Concise Final-State Comments**: Write brief English comments explaining current invariants rather than historical changelog notes.
