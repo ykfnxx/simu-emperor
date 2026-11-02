@@ -618,6 +618,39 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
       activeWeek3.states.find((s) => s.state_id === 'state_a')!.report?.summary,
     ).toBe('第3周甲州新奏报');
 
+    // Monarch sends a new message in Week 3 OPEN
+    const resWeek3Msg = await app.request('/api/court/messages', {
+      method: 'POST',
+      headers: authHeader('monarch-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_state_b',
+        content: '第3周新旨：乙州余涝如何？',
+      }),
+    });
+    expect(resWeek3Msg.status).toBe(201);
+
+    // Historical Week 2 conversation query excludes Week 3 messages
+    const resHistMsgsWeek2 = await app.request('/api/conversations/conv_state_b/messages?week=2', {
+      headers: authHeader('monarch-token'),
+    });
+    expect(resHistMsgsWeek2.status).toBe(200);
+    const histMsgsWeek2 = (await resHistMsgsWeek2.json()) as {
+      messages: Array<{ content: string; created_in_week: number; source_week: number }>;
+    };
+    expect(histMsgsWeek2.messages.every((m) => m.created_in_week <= 2 && m.source_week <= 2)).toBe(
+      true,
+    );
+    expect(histMsgsWeek2.messages.some((m) => m.content.includes('第3周新旨'))).toBe(false);
+
+    // Active conversation query includes Week 3 messages
+    const resAllMsgs = await app.request('/api/conversations/conv_state_b/messages', {
+      headers: authHeader('monarch-token'),
+    });
+    const allMsgs = (await resAllMsgs.json()) as {
+      messages: Array<{ content: string; created_in_week: number }>;
+    };
+    expect(allMsgs.messages.some((m) => m.content.includes('第3周新旨'))).toBe(true);
+
     store.close();
   });
 
@@ -890,6 +923,38 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
       }
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serves production static frontend assets at the backend origin without intercepting /api routes', async () => {
+    const tempStaticDir = mkdtempSync(join(tmpdir(), 'simu-emperor-static-'));
+    const store = new GameStore({ initialWeek: 2 });
+
+    try {
+      writeFileSync(
+        join(tempStaticDir, 'index.html'),
+        '<!doctype html><html><body><div id="root">Simu-Emperor UI</div></body></html>',
+        'utf-8',
+      );
+      writeFileSync(join(tempStaticDir, 'app.js'), 'console.log("simu-ui");', 'utf-8');
+
+      const app = createApp(store, { ...TEST_AUTH, staticDir: tempStaticDir });
+
+      const resIndex = await app.request('/');
+      expect(resIndex.status).toBe(200);
+      expect(resIndex.headers.get('content-type')).toContain('text/html');
+      expect(await resIndex.text()).toContain('Simu-Emperor UI');
+
+      const resAsset = await app.request('/app.js');
+      expect(resAsset.status).toBe(200);
+      expect(resAsset.headers.get('content-type')).toContain('text/javascript');
+      expect(await resAsset.text()).toContain('simu-ui');
+
+      const resUnknownApi = await app.request('/api/nonexistent');
+      expect(resUnknownApi.status).toBe(404);
+    } finally {
+      store.close();
+      rmSync(tempStaticDir, { recursive: true, force: true });
     }
   });
 });
