@@ -8,9 +8,8 @@ This file defines the current architecture, coding standards, and development wo
 - **Product & Design Baselines**:
   - [PRODUCT.md](PRODUCT.md) — Product scope, capabilities, constraints, and principles.
   - [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md) — Approved v2.1 interaction, weekly state machine, accounting, and communication specification.
-- **Current Increment Status**:
-  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, HTTP contracts (`src/contracts/index.ts`), and React/Vite map-first court UI (`web/`).
-  - Next increment (not yet implemented): Native OAR (`@botiverse/oar`) official caller integration.
+- **Current Architecture Scope**:
+  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, HTTP contracts (`src/contracts/index.ts`), React/Vite map-first court UI (`web/`), and external official caller (`src/officers/`) using `@botiverse/oar@0.84.0` with `once` and `watch` CLI modes, per-official persistent native session resume under `data/runtime/officers/<officer_id>`, and strict `session.prompt` `kind === 'accepted'` receipt semantics.
 
 ## Commands (Node 24+)
 
@@ -23,7 +22,10 @@ npm install
 # Configure required runtime tokens (.env is loaded explicitly on server startup)
 cp .env.example .env
 
-# Typecheck (backend + frontend)
+# Configure single-official caller environment
+cp .env.officer.example .env.officer
+
+# Typecheck (backend + frontend + official caller)
 npm run typecheck
 
 # Run tests
@@ -36,6 +38,10 @@ npm start
 # Start backend and Vite dev server in development
 npm run dev
 npm run dev:web
+
+# Run one official caller (once or watch mode)
+npm run run-one-officer -- --env-file .env.officer --once
+npm run run-one-officer -- --env-file .env.officer --watch
 ```
 
 ## Architecture & Core Rules
