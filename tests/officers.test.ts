@@ -18,18 +18,15 @@ import { type AppAuthOptions, createApp } from '../src/app.ts';
 import {
   type CourtViewResponse,
   EXPLICIT_NO_REPLY_DIRECTIVE,
-  type OfficerInboxResponse,
   WAN,
 } from '../src/contracts/index.ts';
 import { GameStore } from '../src/engine/game-store.ts';
 import {
-  GameApiError,
   loadOfficerState,
-  OfficerModelOutputError,
-  OfficerRuntimeError,
-  OfficerSessionStateError,
+   type OfficerCycleResult,
   parseOfficerCliArgs,
   resolveOfficerConfig,
+  runCli,
   runOfficerOnce,
   runOfficerWatch,
 } from '../src/officers/index.ts';
@@ -747,9 +744,13 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
         {},
         tempDir,
       );
-      const watchResults = await runOfficerWatch(watchConfig, {
+      const watchResults: OfficerCycleResult[] = [];
+      await runOfficerWatch(watchConfig, {
         runtimeRegistry: registry,
         fetchImpl,
+        onCycle: (cycleResult) => {
+          watchResults.push(cycleResult);
+        },
       });
       expect(watchResults).toHaveLength(1);
       expect(watchResults[0]!.status).toBe('acted');
@@ -890,6 +891,24 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       );
       const registry = createRuntimeRegistry([runtime]);
 
+      const recordedPostCalls: Array<{ path: string; body: Record<string, unknown> }> = [];
+      const spiedFetchImpl: typeof fetch = async (input, init) => {
+        const url = new URL(
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url,
+        );
+        if ((init?.method ?? 'GET').toUpperCase() === 'POST') {
+          recordedPostCalls.push({
+            path: url.pathname,
+            body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {},
+          });
+        }
+        return await fetchImpl(input, init);
+      };
+
       // 1. Send wake 1 -> model outputs empty whitespace -> fails as EMPTY_MODEL_OUTPUT, server wake becomes SESSION_REJECTED
       await app.request('/api/court/messages', {
         method: 'POST',
@@ -900,9 +919,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
         }),
       });
 
+      recordedPostCalls.length = 0;
       scriptedBehavior = 'empty';
       await expect(
-        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl }),
+        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl: spiedFetchImpl }),
       ).rejects.toThrowError(
         expect.objectContaining({
           name: 'OfficerModelOutputError',
@@ -912,6 +932,18 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       expect(store.getConversationMessages('monarch', 'conv_state_b')[0]!.delivery_status).toBe(
         'SESSION_REJECTED',
       );
+      // Prove no invented invalid game action (reply/submission/messages) was sent on parser error
+      expect(recordedPostCalls.map((c) => c.path)).toEqual([
+        '/api/officer/receipt',
+        '/api/officer/receipt',
+      ]);
+      expect(recordedPostCalls[0]!.body.outcome).toBe('accepted');
+      expect(recordedPostCalls[1]!.body).toMatchObject({
+        conversation_id: 'conv_state_b',
+        up_to_seq: 1,
+        outcome: 'failed',
+        error: expect.stringContaining('Model returned empty output'),
+      });
 
       // 2. Send wake 2 -> model outputs no_reply=true without explicit_directive -> fails visibly
       await app.request('/api/court/messages', {
@@ -923,9 +955,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
         }),
       });
 
+      recordedPostCalls.length = 0;
       scriptedBehavior = 'missing_directive';
       await expect(
-        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl }),
+        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl: spiedFetchImpl }),
       ).rejects.toThrowError(
         expect.objectContaining({
           name: 'OfficerModelOutputError',
@@ -935,6 +968,16 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       expect(store.getConversationMessages('monarch', 'conv_state_b')[1]!.delivery_status).toBe(
         'SESSION_REJECTED',
       );
+      expect(recordedPostCalls.map((c) => c.path)).toEqual([
+        '/api/officer/receipt',
+        '/api/officer/receipt',
+      ]);
+      expect(recordedPostCalls[1]!.body).toMatchObject({
+        conversation_id: 'conv_state_b',
+        up_to_seq: 2,
+        outcome: 'failed',
+        error: expect.stringContaining('[NO_REPLY]'),
+      });
 
       // 3. Send wake 3 -> model outputs markdown-fenced / malformed JSON -> rejected without repair
       await app.request('/api/court/messages', {
@@ -946,9 +989,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
         }),
       });
 
+      recordedPostCalls.length = 0;
       scriptedBehavior = 'malformed_json';
       await expect(
-        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl }),
+        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl: spiedFetchImpl }),
       ).rejects.toThrowError(
         expect.objectContaining({
           name: 'OfficerModelOutputError',
@@ -958,6 +1002,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       expect(store.getConversationMessages('monarch', 'conv_state_b')[2]!.delivery_status).toBe(
         'SESSION_REJECTED',
       );
+      expect(recordedPostCalls.map((c) => c.path)).toEqual([
+        '/api/officer/receipt',
+        '/api/officer/receipt',
+      ]);
 
       // 3b. Send wake 3b -> model outputs string-coerced number -> rejected without coercion
       await app.request('/api/court/messages', {
@@ -969,9 +1017,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
         }),
       });
 
+      recordedPostCalls.length = 0;
       scriptedBehavior = 'string_coercion';
       await expect(
-        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl }),
+        runOfficerOnce(configB, { runtimeRegistry: registry, fetchImpl: spiedFetchImpl }),
       ).rejects.toThrowError(
         expect.objectContaining({
           name: 'OfficerModelOutputError',
@@ -981,6 +1030,10 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       expect(store.getConversationMessages('monarch', 'conv_state_b')[3]!.delivery_status).toBe(
         'SESSION_REJECTED',
       );
+      expect(recordedPostCalls.map((c) => c.path)).toEqual([
+        '/api/officer/receipt',
+        '/api/officer/receipt',
+      ]);
 
       // 3c. Send wake 3c -> runtime turn ends with failed outcome after prompt accepted -> never turns into no_reply
       await app.request('/api/court/messages', {
@@ -1239,6 +1292,495 @@ describe('Simu-Emperor External OAR Official Caller (v2.1)', () => {
       expect(stateBWeek3After.report_status).toBe('REPORTED');
       expect(stateBWeek3After.report?.summary).toBe('第3周乙州新奏报：余涝需粮二万石。');
       expect(stateBWeek3After.proposal?.relief_central_grain).toBe(1 * WAN);
+
+      store.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes untargeted announcement context on new-week OPEN submission and receipts only captured game seq maxima without requiring a reply', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'simu-emperor-new-week-context-'));
+    try {
+      const store = new GameStore({ initialWeek: 2 });
+      const app = createApp(store, TEST_AUTH);
+      const fetchImpl = appFetch(app);
+
+      // Post an untargeted group announcement (seq=1, mentions=[]) before Officer B submits Week 2 report
+      const announcement = store.postCourtMessage({
+        conversation_id: 'conv_court_group',
+        content: '本周先赈灾，请把这项通告作为规划依据',
+      });
+      expect(announcement.seq).toBe(1);
+
+      let capturedPrompt: {
+        state_truth_brief: {
+          gross_silver: number;
+          gross_grain: number;
+          disaster_type: string;
+          relief_demand_grain: number;
+        };
+        unread_context: Array<{
+          conversation_id: string;
+          max_unread_seq: number;
+          unread_messages: Array<{ seq: number; content: string; is_unnamed_announcement: boolean }>;
+        }>;
+        pending_wakes_requiring_reply: unknown[];
+      } | null = null;
+
+      const runtime = scriptedRuntime({
+        id: 'scripted-context',
+        turn: (turn) => {
+          capturedPrompt = JSON.parse(turn.input);
+          // A second untargeted announcement (seq=2) arrives DURING the turn after prompt acceptance
+          store.postCourtMessage({
+            conversation_id: 'conv_court_group',
+            content: '生成期间新通告：严禁虚报灾情',
+          });
+          const b = capturedPrompt!.state_truth_brief;
+          // No reply is required or returned for an untargeted announcement
+          turn.say(
+            JSON.stringify({
+              submission: {
+                report: {
+                  gross_silver: b.gross_silver,
+                  gross_grain: b.gross_grain,
+                  disaster_type: b.disaster_type,
+                  relief_demand_grain: b.relief_demand_grain,
+                  summary: '奉朝议通告，乙州先行赈灾',
+                },
+                proposal: {
+                  project_local_silver: 0,
+                  project_central_silver: 0,
+                  relief_local_grain: 1 * WAN,
+                  relief_central_grain: 2 * WAN,
+                },
+              },
+            }),
+          );
+        },
+      });
+
+      const cfg = resolveOfficerConfig(
+        {
+          officerId: 'officer_b',
+          officerToken: 'officer-b-token',
+          gameOrigin: 'http://127.0.0.1:18888',
+          runtimeId: 'scripted-context',
+          dataDir: join(tempDir, 'officers-data'),
+        },
+        {},
+        tempDir,
+      );
+      const registry = createRuntimeRegistry([runtime]);
+
+      const result = await runOfficerOnce(cfg, {
+        runtimeRegistry: registry,
+        fetchImpl,
+      });
+
+      expect(result.status).toBe('acted');
+      if (result.status !== 'acted') throw new Error('Expected acted');
+      expect(store.getCourtView().states.find((s) => s.state_id === 'state_b')!.report).not.toBeNull();
+      expect(capturedPrompt).not.toBeNull();
+      expect(JSON.stringify(capturedPrompt!.unread_context)).toContain('本周先赈灾');
+      expect(capturedPrompt!.pending_wakes_requiring_reply).toEqual([]);
+
+      // Only the pre-call captured game seq (1) was receipted; seq=2 arriving during the turn remains unread!
+      const inboxAfter = store.getOfficerInbox('officer_b');
+      const groupConvAfter = inboxAfter.conversations.find(
+        (c) => c.conversation_id === 'conv_court_group',
+      )!;
+      expect(groupConvAfter.seen_seq).toBe(1);
+      expect(groupConvAfter.unread_messages.map((m) => m.seq)).toEqual([2]);
+
+      // Subsequent cycle with only that unread untargeted announcement (seq=2) does not wake by itself
+      const nextIdle = await runOfficerOnce(cfg, {
+        runtimeRegistry: registry,
+        fetchImpl,
+      });
+      expect(nextIdle.status).toBe('idle');
+      expect(
+        store
+          .getOfficerInbox('officer_b')
+          .conversations.find((c) => c.conversation_id === 'conv_court_group')!.seen_seq,
+      ).toBe(1);
+
+      store.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('forwards stop signal during an active cycle to session.abort, records honest failed receipt, detaches/disposes in finally, and prevents any formal or chat writes', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'simu-emperor-stop-active-'));
+    try {
+      const store = new GameStore({ initialWeek: 2 });
+      const app = createApp(store, TEST_AUTH);
+      const fetchImpl = appFetch(app);
+
+      // Post an untargeted announcement (seq=1) and a targeted monarch wake (seq=2)
+      store.postCourtMessage({
+        conversation_id: 'conv_court_group',
+        content: '本周先赈灾，请把这项通告作为规划依据',
+      });
+      store.postCourtMessage({
+        conversation_id: 'conv_state_b',
+        content: '乙州请即刻回奏赈灾方略',
+      });
+
+      const stop = new AbortController();
+      let capturedPrompt: { unread_context: unknown; state_truth_brief: Record<string, number | string> } | null =
+        null;
+
+      const runtime = scriptedRuntime({
+        id: 'scripted-stop',
+        turn: (turn) => {
+          capturedPrompt = JSON.parse(turn.input);
+          const b = capturedPrompt!.state_truth_brief;
+          turn.say(
+            JSON.stringify({
+              submission: {
+                report: {
+                  gross_silver: b.gross_silver,
+                  gross_grain: b.gross_grain,
+                  disaster_type: b.disaster_type,
+                  relief_demand_grain: b.relief_demand_grain,
+                  summary: 'Should never be submitted after stop',
+                },
+                proposal: {
+                  project_local_silver: 0,
+                  project_central_silver: 0,
+                  relief_local_grain: 0,
+                  relief_central_grain: 0,
+                },
+              },
+              replies: [
+                {
+                  conversation_id: 'conv_state_b',
+                  content: 'Should never be posted after stop',
+                },
+              ],
+            }),
+          );
+        },
+      });
+
+      const cfg = resolveOfficerConfig(
+        {
+          officerId: 'officer_b',
+          officerToken: 'officer-b-token',
+          gameOrigin: 'http://127.0.0.1:18888',
+          runtimeId: 'scripted-stop',
+          dataDir: join(tempDir, 'officers-data'),
+        },
+        {},
+        tempDir,
+      );
+
+      const postPaths: string[] = [];
+      const spiedFetch: typeof fetch = async (input, init) => {
+        const url = new URL(
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url,
+        );
+        if ((init?.method ?? 'GET').toUpperCase() === 'POST') {
+          postPaths.push(url.pathname);
+        }
+        return await fetchImpl(input, init);
+      };
+
+      const streamedCycles: OfficerCycleResult[] = [];
+      await runOfficerWatch(
+        { ...cfg, maxCycles: 1 },
+        {
+          signal: stop.signal,
+          runtimeRegistry: createRuntimeRegistry([runtime]),
+          fetchImpl: spiedFetch,
+          onCycle: (res) => {
+            streamedCycles.push(res);
+          },
+          hooks: {
+            onAfterPromptAccepted() {
+              stop.abort();
+            },
+          },
+        },
+      );
+
+      expect(stop.signal.aborted).toBe(true);
+      expect(streamedCycles).toHaveLength(1);
+      expect(streamedCycles[0]!.status).toBe('stopped');
+      // Formal report was NOT submitted and chat reply was NOT posted
+      expect(store.getCourtView().states.find((s) => s.state_id === 'state_b')!.report).toBeNull();
+      expect(store.getConversationMessages('monarch', 'conv_state_b')).toHaveLength(1);
+      expect(store.getConversationMessages('monarch', 'conv_state_b')[0]!.delivery_status).toBe(
+        'SESSION_REJECTED',
+      );
+      expect(postPaths).not.toContain('/api/officer/submission');
+      expect(postPaths).not.toContain('/api/officer/reply');
+      expect(postPaths).not.toContain('/api/officer/messages');
+
+      // Announcement context was included and receipted up to captured seq=1
+      expect(JSON.stringify(capturedPrompt!.unread_context)).toContain('本周先赈灾');
+      expect(
+        store
+          .getOfficerInbox('officer_b')
+          .conversations.find((c) => c.conversation_id === 'conv_court_group')!.seen_seq,
+      ).toBe(1);
+
+      // Part 2: Controlled in-flight turn on Officer C proving session.abort() is invoked and session.dispose() runs in finally
+      store.postCourtMessage({
+        conversation_id: 'conv_state_c',
+        content: '丙州请奏旱情。',
+      });
+      const stopInFlight = new AbortController();
+      let sessionAbortCalls = 0;
+      let sessionDisposeCalls = 0;
+
+      const controlledInFlightRuntime = defineRuntime(
+        {
+          id: 'controlled-inflight',
+          installation: async () => ({ kind: 'available', via: 'bundled' }),
+          session: async (_inst, sessionOptions) => {
+            const kernel = createSessionKernel(sessionOptions.resume);
+            kernel.opened({ requested: 'auto', placement: 'in_process' });
+            const capabilities = {
+              queue: { durable: false },
+              attribution: 'none' as const,
+              images: false,
+            };
+            return sealSession({
+              id: kernel.sessionId,
+              capabilities,
+              prompt: async (input, inputOptions) => {
+                const req = kernel.request('toRuntime', {
+                  kind: 'prompt',
+                  input,
+                  ...inputOptions,
+                });
+                const res = kernel.respond(req.id, { kind: 'accepted' });
+                // While the turn is actively in-flight, abort the stop signal after 15ms
+                setTimeout(() => {
+                  stopInFlight.abort();
+                }, 15);
+                return { request: req, response: res };
+              },
+              queue: async (input, inputOptions) => {
+                const req = kernel.request('toRuntime', { kind: 'queue', input, ...inputOptions });
+                return { request: req, response: kernel.respond(req.id, { kind: 'accepted' }) };
+              },
+              abort: async () => {
+                sessionAbortCalls += 1;
+                const req = kernel.request('toRuntime', { kind: 'abort' });
+                const res = kernel.respond(req.id, { kind: 'accepted' });
+                kernel.frame({
+                  type: 'controlled/aborted',
+                  native: {},
+                  events: [{ kind: 'turn_ended', outcome: { kind: 'aborted' } }],
+                });
+                return { request: req, response: res };
+              },
+              rawEvents: (observer, cursor) => kernel.rawEvents(observer, cursor),
+              records: () => kernel.records(),
+              graph: () => kernel.graph(),
+              dispose: async () => {
+                sessionDisposeCalls += 1;
+                const req = kernel.request('toRuntime', { kind: 'dispose' });
+                kernel.respond(req.id, { kind: 'exited', code: 0 });
+              },
+            });
+          },
+        },
+        { execution: 'in_process' },
+      );
+
+      const cfgC = resolveOfficerConfig(
+        {
+          officerId: 'officer_c',
+          officerToken: 'officer-c-token',
+          gameOrigin: 'http://127.0.0.1:18888',
+          runtimeId: 'controlled-inflight',
+          dataDir: join(tempDir, 'officers-data'),
+        },
+        {},
+        tempDir,
+      );
+
+      postPaths.length = 0;
+      const resC = await runOfficerOnce(cfgC, {
+        signal: stopInFlight.signal,
+        runtimeRegistry: createRuntimeRegistry([controlledInFlightRuntime]),
+        fetchImpl: spiedFetch,
+      });
+      expect(resC.status).toBe('stopped');
+      expect(sessionAbortCalls).toBe(1);
+      expect(sessionDisposeCalls).toBe(1);
+      expect(postPaths.every((p) => p === '/api/officer/receipt')).toBe(true);
+      expect(postPaths).toHaveLength(4);
+      expect(store.getCourtView().states.find((s) => s.state_id === 'state_c')!.report).toBeNull();
+      expect(store.getConversationMessages('monarch', 'conv_state_c')[0]!.delivery_status).toBe(
+        'SESSION_REJECTED',
+      );
+
+      store.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('streams concise per-cycle CLI output immediately as each watch cycle completes and surfaces 409 late submission original week and reason without waiting for shutdown', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'simu-emperor-watch-stream-'));
+    try {
+      const store = new GameStore({ initialWeek: 2 });
+      const app = createApp(store, TEST_AUTH);
+      const fetchImpl = appFetch(app);
+
+      // Monarch wakes Officer B in Week 2 OPEN
+      store.postCourtMessage({
+        conversation_id: 'conv_state_b',
+        content: '乙州本周请粮几何？',
+      });
+
+      const streamedLines: string[] = [];
+      let linesSeenBeforeTurn2: string[] = [];
+      let turnIndex = 0;
+
+      const runtime = scriptedRuntime({
+        id: 'scripted-stream',
+        turn: async (turn) => {
+          turnIndex += 1;
+          if (turnIndex === 1) {
+            // Lock and settle Week 2 during Turn 1 -> server moves to Week 3 OPEN
+            await app.request('/api/court/lock', {
+              method: 'POST',
+              headers: authHeader('monarch-token'),
+              body: JSON.stringify({ target_week: 2 }),
+            });
+            await app.request('/api/court/settle', {
+              method: 'POST',
+              headers: authHeader('monarch-token'),
+              body: JSON.stringify({ target_week: 2, decisions: {} }),
+            });
+
+            const b = JSON.parse(turn.input).state_truth_brief;
+            turn.say(
+              JSON.stringify({
+                submission: {
+                  report: {
+                    gross_silver: b.gross_silver,
+                    gross_grain: b.gross_grain,
+                    disaster_type: b.disaster_type,
+                    relief_demand_grain: b.relief_demand_grain,
+                    summary: '第2周迟到奏报',
+                  },
+                  proposal: {
+                    project_local_silver: 0,
+                    project_central_silver: 0,
+                    relief_local_grain: 1 * WAN,
+                    relief_central_grain: 2 * WAN,
+                  },
+                },
+                replies: [
+                  {
+                    conversation_id: 'conv_state_b',
+                    content: '臣迟复第2周圣询。',
+                  },
+                ],
+              }),
+            );
+          } else {
+            // Capture CLI lines emitted BEFORE Cycle 2 finishes or watch exits!
+            linesSeenBeforeTurn2 = [...streamedLines];
+            const b = JSON.parse(turn.input).state_truth_brief;
+            turn.say(
+              JSON.stringify({
+                submission: {
+                  report: {
+                    gross_silver: b.gross_silver,
+                    gross_grain: b.gross_grain,
+                    disaster_type: b.disaster_type,
+                    relief_demand_grain: b.relief_demand_grain,
+                    summary: '第3周按期奏报',
+                  },
+                  proposal: {
+                    project_local_silver: 0,
+                    project_central_silver: 0,
+                    relief_local_grain: 1 * WAN,
+                    relief_central_grain: 1 * WAN,
+                  },
+                },
+              }),
+            );
+          }
+        },
+      });
+
+      await runCli(
+        [
+          '--officer',
+          'officer_b',
+          '--token',
+          'officer-b-token',
+          '--origin',
+          'http://127.0.0.1:18888',
+          '--runtime',
+          'scripted-stream',
+          '--watch',
+          '--max-cycles',
+          '2',
+          '--poll-ms',
+          '10',
+          '--data-dir',
+          join(tempDir, 'officers-data'),
+        ],
+        {},
+        {
+          runtimeRegistry: createRuntimeRegistry([runtime]),
+          fetchImpl,
+        },
+        (line) => {
+          streamedLines.push(line);
+        },
+      );
+
+      // Cycle 1 was streamed to CLI BEFORE Cycle 2 even began (without waiting for watch exit)
+      expect(linesSeenBeforeTurn2).toHaveLength(1);
+      const cycle1Summary = JSON.parse(linesSeenBeforeTurn2[0]!) as Record<string, unknown>;
+      expect(cycle1Summary).toMatchObject({
+        status: 'acted',
+        officer_id: 'officer_b',
+        originating_week: 2,
+        submission_status: 'rejected_phase_locked',
+        submission: {
+          status: 'rejected_phase_locked',
+          http_status: 409,
+          week_number: 2,
+          code: 'WEEK_LOCKED',
+          reason: expect.stringContaining('第 2 周'),
+        },
+      });
+      // Must not leak credentials or prompt payload
+      expect(linesSeenBeforeTurn2[0]).not.toContain('officer-b-token');
+      expect(linesSeenBeforeTurn2[0]).not.toContain('state_truth_brief');
+
+      // Both cycles were streamed in order
+      expect(streamedLines).toHaveLength(2);
+      const cycle2Summary = JSON.parse(streamedLines[1]!) as Record<string, unknown>;
+      expect(cycle2Summary).toMatchObject({
+        status: 'acted',
+        officer_id: 'officer_b',
+        originating_week: 3,
+        submission_status: 'submitted',
+        submission: {
+          status: 'submitted',
+          week_number: 3,
+          state_id: 'state_b',
+        },
+      });
 
       store.close();
     } finally {
