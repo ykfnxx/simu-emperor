@@ -662,13 +662,13 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
             {viewedWeek.week_phase === 'OPEN' && (
               <div className="phase-hint-strip">
-                当前处于 OPEN（征询中）阶段。请先点击底栏【截止本周征询】冻结各州提案后，再勾选批复。
+                当前处于本周征询阶段。请先点击底栏【截止本周征询】冻结各州提案后，再勾选批复。
               </div>
             )}
 
             {viewedWeek.week_phase === 'ARCHIVED' && (
               <div className="phase-hint-strip archived">
-                第 {viewedWeek.week_number} 周已归档封存，以下为单事务结算后的正式批复记录（只读）。
+                第 {viewedWeek.week_number} 周已归档封存，以下为本周结算后的正式批复记录（只读）。
               </div>
             )}
           </div>
