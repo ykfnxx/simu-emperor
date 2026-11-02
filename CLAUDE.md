@@ -14,20 +14,23 @@ This file defines the current architecture, coding standards, and development wo
 
 ## Commands (Node 24+)
 
-Use Node 24 (`/opt/homebrew/opt/node@24/bin` on macOS if default `PATH` points to an older version):
+Ensure Node 24+ is on `PATH` (on macOS with Homebrew `node@24`: `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`):
 
 ```bash
 # Install dependencies
-/opt/homebrew/opt/node@24/bin/npm install
+npm install
+
+# Configure required runtime tokens (.env is loaded explicitly on server startup)
+cp .env.example .env
 
 # Typecheck
-/opt/homebrew/opt/node@24/bin/npm run typecheck
+npm run typecheck
 
 # Run tests
-/opt/homebrew/opt/node@24/bin/npm test
+npm test
 
 # Start server in development
-/opt/homebrew/opt/node@24/bin/npm run dev
+npm run dev
 ```
 
 ## Architecture & Core Rules
