@@ -1229,7 +1229,7 @@ export class GameStore {
       states,
       background_regions: BACKGROUND_REGIONS,
       settlement,
-      conversations: this.listConversationsForActor('monarch'),
+      conversations: this.listConversationsForActor('monarch', targetWeekNumber),
     };
   }
 
@@ -1393,7 +1393,13 @@ export class GameStore {
     };
   }
 
-  public listConversationsForActor(actorId: ActorId): ConversationSummaryView[] {
+  public listConversationsForActor(
+    actorId: ActorId,
+    maxWeek?: number,
+  ): ConversationSummaryView[] {
+    if (maxWeek !== undefined) {
+      this.getWeekRow(maxWeek);
+    }
     const rows = this.db
       .prepare(`
         SELECT c.conversation_id, c.title, c.kind, c.state_id, cp.seen_seq
@@ -1420,9 +1426,18 @@ export class GameStore {
           .all(row.conversation_id) as unknown as Array<{ participant_id: ActorId }>
       ).map((p) => p.participant_id);
 
-      const lastSeqRow = this.db
-        .prepare('SELECT COALESCE(MAX(seq), 0) AS last_seq FROM messages WHERE conversation_id = ?')
-        .get(row.conversation_id) as { last_seq: number };
+      const lastSeqRow =
+        maxWeek !== undefined
+          ? (this.db
+              .prepare(
+                'SELECT COALESCE(MAX(seq), 0) AS last_seq FROM messages WHERE conversation_id = ? AND created_in_week <= ? AND source_week <= ?',
+              )
+              .get(row.conversation_id, maxWeek, maxWeek) as { last_seq: number })
+          : (this.db
+              .prepare(
+                'SELECT COALESCE(MAX(seq), 0) AS last_seq FROM messages WHERE conversation_id = ?',
+              )
+              .get(row.conversation_id) as { last_seq: number });
 
       return {
         conversation_id: row.conversation_id,
@@ -1431,7 +1446,7 @@ export class GameStore {
         state_id: row.state_id,
         participants,
         last_seq: lastSeqRow.last_seq,
-        seen_seq: row.seen_seq,
+        seen_seq: maxWeek !== undefined ? Math.min(row.seen_seq, lastSeqRow.last_seq) : row.seen_seq,
       };
     });
   }
@@ -1503,8 +1518,21 @@ export class GameStore {
     };
   }
 
-  public getConversationMessages(actorId: ActorId, conversationId: string): ChatMessageView[] {
+  public getConversationMessages(
+    actorId: ActorId,
+    conversationId: string,
+    maxWeek?: number,
+  ): ChatMessageView[] {
     this.assertParticipant(actorId, conversationId);
+    if (maxWeek !== undefined) {
+      this.getWeekRow(maxWeek);
+      const rows = this.db
+        .prepare(
+          'SELECT * FROM messages WHERE conversation_id = ? AND created_in_week <= ? AND source_week <= ? ORDER BY seq ASC',
+        )
+        .all(conversationId, maxWeek, maxWeek) as unknown as MessageRow[];
+      return rows.map((r) => this.toChatMessageView(r));
+    }
     const rows = this.db
       .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq ASC')
       .all(conversationId) as unknown as MessageRow[];

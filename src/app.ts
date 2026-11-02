@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Hono, type Context } from 'hono';
 import type {
   ActorId,
@@ -20,6 +21,7 @@ export interface AppAuthOptions {
   monarchDebugToken?: string;
   officerTokens?: Partial<Record<OfficerId, string>>;
   enableDebugTruth?: boolean;
+  staticDir?: string;
 }
 
 export interface ResolvedAuthConfig {
@@ -119,8 +121,44 @@ async function parseJsonBody<T>(c: Context): Promise<T> {
   }
 }
 
+const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../dist/web', import.meta.url));
+
+const STATIC_MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+function resolveSafeStaticFile(staticDir: string, reqPath: string): string | null {
+  const normalizedRoot = resolve(staticDir);
+  const relativePath = reqPath.replace(/^\/+/, '');
+  if (!relativePath) {
+    return null;
+  }
+  const candidate = resolve(normalizedRoot, relativePath);
+  if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}${sep}`)) {
+    return null;
+  }
+  try {
+    const st = statSync(candidate);
+    return st.isFile() ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): Hono {
   const auth = resolveAuthConfig(authOptions);
+  const staticDir = authOptions.staticDir ?? DEFAULT_STATIC_DIR;
   const app = new Hono();
 
   function requireMonarch(c: Context): void {
@@ -211,8 +249,9 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
 
   app.get('/api/court/conversations', (c) => {
     requireMonarch(c);
+    const week = parseOptionalWeekQuery(c);
     return c.json({
-      conversations: store.listConversationsForActor('monarch'),
+      conversations: store.listConversationsForActor('monarch', week),
     });
   });
 
@@ -273,7 +312,8 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
   app.get('/api/conversations/:conversationId/messages', (c) => {
     const actorId = requireActor(c);
     const conversationId = c.req.param('conversationId');
-    const messages = store.getConversationMessages(actorId, conversationId);
+    const week = parseOptionalWeekQuery(c);
+    const messages = store.getConversationMessages(actorId, conversationId, week);
     return c.json({
       conversation_id: conversationId,
       messages,
@@ -286,6 +326,40 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
     requireDebugTruth(c);
     const week = parseOptionalWeekQuery(c);
     return c.json(store.getDebugTruth(week));
+  });
+
+  // --- Production Static Frontend Serving Glue ---
+
+  app.get('*', (c) => {
+    const reqPath = c.req.path;
+    if (reqPath === '/api' || reqPath.startsWith('/api/')) {
+      return c.notFound();
+    }
+    if (!existsSync(staticDir)) {
+      return c.notFound();
+    }
+
+    const assetFile = resolveSafeStaticFile(staticDir, reqPath);
+    if (assetFile) {
+      const ext = extname(assetFile).toLowerCase();
+      const contentType = STATIC_MIME_TYPES[ext] ?? 'application/octet-stream';
+      const body = readFileSync(assetFile);
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': contentType },
+      });
+    }
+
+    const indexFile = resolveSafeStaticFile(staticDir, 'index.html');
+    if (indexFile) {
+      const body = readFileSync(indexFile);
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    return c.notFound();
   });
 
   app.onError((err, c) => {
