@@ -19,22 +19,26 @@
 
 ## 环境要求
 
-- Node.js `>= 24.0.0`（使用内置 `node:sqlite`）
+- Node.js `>= 24.0.0`（使用内置 `node:sqlite` 与 `process.loadEnvFile`）
+  - 若 macOS 使用 Homebrew keg-only `node@24`，可先执行 `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"`。
 
 ## 快速开始
 
 ```bash
-# 安装依赖
-/opt/homebrew/opt/node@24/bin/npm install
+# 1. 安装依赖
+npm install
 
-# 类型检查
-/opt/homebrew/opt/node@24/bin/npm run typecheck
+# 2. 初始化本地运行环境变量（服务端启动强制校验角色 Bearer Token，无硬编码回退）
+cp .env.example .env
 
-# 运行测试
-/opt/homebrew/opt/node@24/bin/npm test
+# 3. 类型检查
+npm run typecheck
 
-# 启动开发服务器（默认端口 8787）
-/opt/homebrew/opt/node@24/bin/npm run dev
+# 4. 运行测试
+npm test
+
+# 5. 启动开发服务器（默认读取 .env，监听 8787 端口）
+npm run dev
 ```
 
 ## 目录结构

@@ -1,7 +1,11 @@
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createApp } from '../src/app.ts';
+import { type AppAuthOptions, createApp, resolveAuthConfig } from '../src/app.ts';
 import {
-   type CourtViewResponse,
+  type CourtViewResponse,
   type DebugTruthResponse,
   EXPLICIT_NO_REPLY_DIRECTIVE,
   type OfficerBriefResponse,
@@ -11,6 +15,17 @@ import {
   WAN,
 } from '../src/contracts/index.ts';
 import { GameStore } from '../src/engine/game-store.ts';
+
+const TEST_AUTH: AppAuthOptions = {
+  monarchToken: 'monarch-token',
+  monarchDebugToken: 'monarch-debug-token',
+  officerTokens: {
+    officer_a: 'officer-a-token',
+    officer_b: 'officer-b-token',
+    officer_c: 'officer-c-token',
+  },
+  enableDebugTruth: false,
+};
 
 function authHeader(token: string): Record<string, string> {
   return {
@@ -24,7 +39,7 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
     const store = new GameStore({ initialWeek: 2 });
 
     // App with debug truth disabled first
-    const appDisabledDebug = createApp(store, { enableDebugTruth: false });
+    const appDisabledDebug = createApp(store, { ...TEST_AUTH, enableDebugTruth: false });
 
     // Even with monarch-debug-token, debug truth is rejected when ENABLE_DEBUG_TRUTH is false
     const resDebugOff = await appDisabledDebug.request('/api/debug/truth', {
@@ -36,7 +51,7 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
     });
 
     // App with debug truth enabled
-    const app = createApp(store, { enableDebugTruth: true });
+    const app = createApp(store, { ...TEST_AUTH, enableDebugTruth: true });
 
     // Officer B cannot access debug truth
     const resOfficerDebug = await app.request('/api/debug/truth', {
@@ -181,7 +196,7 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
 
   it('prevents monarch from listing or reading official-private peer chats and wakes only @-mentioned officers in group chat (Scenarios 06, 07)', async () => {
     const store = new GameStore({ initialWeek: 2 });
-    const app = createApp(store);
+    const app = createApp(store, TEST_AUTH);
 
     // Monarch lists conversations: only the 4 court channels are visible
     const resCourtConvs = await app.request('/api/court/conversations', {
@@ -283,7 +298,7 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
 
   it('does not advance seen_seq on GET inbox, advances only on accepted receipt, rejects empty output as failure, and never mutates ledger on chat (Scenarios 04, 05, 16)', async () => {
     const store = new GameStore({ initialWeek: 2 });
-    const app = createApp(store, { enableDebugTruth: true });
+    const app = createApp(store, { ...TEST_AUTH, enableDebugTruth: true });
 
     const initialTruth = store.getDebugTruth(2);
 
@@ -451,7 +466,7 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
 
   it('marks late officer chat replies with source_week notice without changing locked proposals, and supports read-only history view (Scenarios 10, 14)', async () => {
     const store = new GameStore({ initialWeek: 2 });
-    const app = createApp(store);
+    const app = createApp(store, TEST_AUTH);
 
     // Officer B submits Week 2 proposal during OPEN
     await app.request('/api/officer/submission', {
@@ -604,5 +619,277 @@ describe('Simu-Emperor HTTP API, Permissions & Chat/Receipt Protocol (v2.1)', ()
     ).toBe('第3周甲州新奏报');
 
     store.close();
+  });
+
+  it('preserves intervening un-mentioned group announcement in unread_messages when officer replies to an earlier wake (cursor regression)', async () => {
+    const store = new GameStore({ initialWeek: 2 });
+    const app = createApp(store, TEST_AUTH);
+
+    // 1. Group msg1 explicitly wakes officer_b
+    const resMsg1 = await app.request('/api/court/messages', {
+      method: 'POST',
+      headers: authHeader('monarch-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: 'msg1: 乙州速报水情',
+        mentions: ['officer_b'],
+      }),
+    });
+    expect(resMsg1.status).toBe(201);
+    const { message: msg1 } = (await resMsg1.json()) as { message: { seq: number } };
+    expect(msg1.seq).toBe(1);
+
+    // 2. Officer B accepts input up_to_seq = 1
+    const resAccept1 = await app.request('/api/officer/receipt', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        up_to_seq: msg1.seq,
+        outcome: 'accepted',
+      }),
+    });
+    expect(resAccept1.status).toBe(200);
+
+    // 3. While Officer B processes msg1, monarch stores un-mentioned announcement2 (seq = 2)
+    const resAnnounce2 = await app.request('/api/court/messages', {
+      method: 'POST',
+      headers: authHeader('monarch-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: 'announcement2: 朝廷通告各州核实存粮',
+        mentions: [],
+      }),
+    });
+    expect(resAnnounce2.status).toBe(201);
+    const { message: announce2 } = (await resAnnounce2.json()) as { message: { seq: number } };
+    expect(announce2.seq).toBe(2);
+
+    // 4. Officer B finishes processing msg1 and posts reply msg3 (seq = 3), plus an active officer message (seq = 4)
+    const resReply3 = await app.request('/api/officer/reply', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        source_week: 2,
+        content: 'msg3: 臣谨奏乙州水情',
+      }),
+    });
+    expect(resReply3.status).toBe(200);
+
+    const resOfficerMsg = await app.request('/api/officer/messages', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: 'msg3b: 补充河堤巡查记录',
+      }),
+    });
+    expect(resOfficerMsg.status).toBe(201);
+
+    // 5. Later monarch sends named wake4 (seq = 5) to officer_b
+    const resWake4 = await app.request('/api/court/messages', {
+      method: 'POST',
+      headers: authHeader('monarch-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: 'wake4: 乙州可见刚才朝廷通告？',
+        mentions: ['officer_b'],
+      }),
+    });
+    expect(resWake4.status).toBe(201);
+    const { message: wake4 } = (await resWake4.json()) as { message: { seq: number } };
+    expect(wake4.seq).toBe(5);
+
+    // 6. Officer B fetches inbox: seen_seq must still be 1, and announcement2 (seq 2) + wake4 (seq 5) must both be in unread_messages
+    const resInboxB = await app.request('/api/officer/inbox', {
+      headers: authHeader('officer-b-token'),
+    });
+    expect(resInboxB.status).toBe(200);
+    const inboxB = (await resInboxB.json()) as OfficerInboxResponse;
+    const groupConv = inboxB.conversations.find((c) => c.conversation_id === 'conv_court_group')!;
+    expect(groupConv.seen_seq).toBe(1);
+
+    const unreadSeqs = groupConv.unread_messages.map((m) => m.seq);
+    expect(unreadSeqs).toEqual([2, 5]);
+    const deliveredNextTime = groupConv.unread_messages.some((m) => m.seq === announce2.seq);
+    expect(deliveredNextTime).toBe(true);
+
+    store.close();
+  });
+
+  it('rejects malformed, nonexistent, non-participant, or self mentions on POST /api/officer/messages with 400', async () => {
+    const store = new GameStore({ initialWeek: 2 });
+    const app = createApp(store, TEST_AUTH);
+
+    // Non-array mentions
+    const resStringMentions = await app.request('/api/officer/messages', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: '格式错误点名',
+        mentions: 'officer_c',
+      }),
+    });
+    expect(resStringMentions.status).toBe(400);
+    expect(await resStringMentions.json()).toMatchObject({
+      error: { code: 'INVALID_MENTIONS' },
+    });
+
+    // Nonexistent officer ID
+    const resUnknownOfficer = await app.request('/api/officer/messages', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: '不存在官员点名',
+        mentions: ['nonexistent'],
+      }),
+    });
+    expect(resUnknownOfficer.status).toBe(400);
+    expect(await resUnknownOfficer.json()).toMatchObject({
+      error: { code: 'INVALID_MENTION_OFFICER' },
+    });
+
+    // Officer not in conversation (officer_a is not in conv_peer_b_c)
+    const resNonMember = await app.request('/api/officer/messages', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_peer_b_c',
+        content: '跨会话点名',
+        mentions: ['officer_a'],
+      }),
+    });
+    expect(resNonMember.status).toBe(400);
+    expect(await resNonMember.json()).toMatchObject({
+      error: { code: 'MENTION_NOT_IN_CONVERSATION' },
+    });
+
+    // Self-mention
+    const resSelfMention = await app.request('/api/officer/messages', {
+      method: 'POST',
+      headers: authHeader('officer-b-token'),
+      body: JSON.stringify({
+        conversation_id: 'conv_court_group',
+        content: '点名自己',
+        mentions: ['officer_b'],
+      }),
+    });
+    expect(resSelfMention.status).toBe(400);
+    expect(await resSelfMention.json()).toMatchObject({
+      error: { code: 'INVALID_SELF_MENTION' },
+    });
+
+    store.close();
+  });
+
+  it('requires explicit runtime role tokens (no hardcoded fallback), loads local .env on server startup, and accepts standard Bearer only', async () => {
+    // 1. resolveAuthConfig fails fast when required tokens are missing
+    expect(() => resolveAuthConfig({}, {})).toThrow(/Missing required runtime role credential/);
+
+    // 2. Non-Bearer custom headers (x-simu-token / x-debug-token) are rejected with 401
+    const store = new GameStore({ initialWeek: 2 });
+    const app = createApp(store, { ...TEST_AUTH, enableDebugTruth: true });
+    const resLegacyHeader = await app.request('/api/court/view', {
+      headers: { 'x-simu-token': 'monarch-token' },
+    });
+    expect(resLegacyHeader.status).toBe(401);
+    const resLegacyDebugHeader = await app.request('/api/debug/truth', {
+      headers: { 'x-debug-token': 'monarch-debug-token' },
+    });
+    expect(resLegacyDebugHeader.status).toBe(401);
+    store.close();
+
+    // 3. Server entry-point probe: fails startup when .env and process.env lack tokens; succeeds and uses .env when provided
+    const serverScript = resolve(process.cwd(), 'src/server.ts');
+    const tempDir = mkdtempSync(join(tmpdir(), 'simu-emperor-env-probe-'));
+
+    try {
+      const cleanEnv: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+      };
+
+      // Startup without .env or env vars must fail fast
+      const failedRun = spawnSync(
+        process.execPath,
+        ['--experimental-strip-types', serverScript],
+        {
+          cwd: tempDir,
+          env: cleanEnv,
+          encoding: 'utf-8',
+          timeout: 5000,
+        },
+      );
+      expect(failedRun.status).not.toBe(0);
+      expect(failedRun.stderr).toContain('Missing required runtime role credential');
+
+      // Write custom .env in tempDir (no tokens in process.env)
+      writeFileSync(
+        join(tempDir, '.env'),
+        [
+          'PORT=0',
+          'DATABASE_PATH=:memory:',
+          'MONARCH_TOKEN=configured-monarch-fixture',
+          'MONARCH_DEBUG_TOKEN=configured-debug-fixture',
+          'OFFICER_A_TOKEN=configured-a-fixture',
+          'OFFICER_B_TOKEN=configured-b-fixture',
+          'OFFICER_C_TOKEN=configured-c-fixture',
+          'ENABLE_DEBUG_TRUTH=1',
+        ].join('\n'),
+        'utf-8',
+      );
+
+      const child = spawn(process.execPath, ['--experimental-strip-types', serverScript], {
+        cwd: tempDir,
+        env: cleanEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const baseUrl = await new Promise<string>((resolveUrl, rejectUrl) => {
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          rejectUrl(new Error(`Server startup timed out. stdout=${stdout} stderr=${stderr}`));
+        }, 5000);
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf-8');
+          const match = stdout.match(/http:\/\/localhost:(\d+)/);
+          if (match) {
+            clearTimeout(timer);
+            resolveUrl(`http://127.0.0.1:${match[1]}`);
+          }
+        });
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr += chunk.toString('utf-8');
+        });
+        child.on('exit', (code) => {
+          clearTimeout(timer);
+          rejectUrl(new Error(`Server exited early with code ${code}: ${stderr}`));
+        });
+      });
+
+      try {
+        // Configured local token from .env works (200)
+        const resConfigured = await fetch(`${baseUrl}/api/court/view`, {
+          headers: { authorization: 'Bearer configured-monarch-fixture' },
+        });
+        expect(resConfigured.status).toBe(200);
+
+        // Old hardcoded default token does NOT work (403)
+        const resOldDefault = await fetch(`${baseUrl}/api/court/view`, {
+          headers: { authorization: 'Bearer monarch-token' },
+        });
+        expect(resOldDefault.status).toBe(403);
+      } finally {
+        child.kill('SIGTERM');
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

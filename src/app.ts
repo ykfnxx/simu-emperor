@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Hono, type Context } from 'hono';
 import type {
   ActorId,
@@ -27,36 +29,72 @@ export interface ResolvedAuthConfig {
   enableDebugTruth: boolean;
 }
 
-export function resolveAuthConfig(options: AppAuthOptions = {}): ResolvedAuthConfig {
-  const envDebug = process.env.ENABLE_DEBUG_TRUTH;
+// Loads a local .env file using Node 24's built-in process.loadEnvFile when present.
+export function loadLocalEnvFile(envFilePath: string = resolve(process.cwd(), '.env')): void {
+  if (existsSync(envFilePath)) {
+    process.loadEnvFile(envFilePath);
+  }
+}
+
+function requireNonEmptyToken(value: string | undefined, envName: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    throw new Error(`Missing required runtime role credential: ${envName}`);
+  }
+  return trimmed;
+}
+
+export function resolveAuthConfig(
+  options: AppAuthOptions = {},
+  env: NodeJS.ProcessEnv = process.env,
+): ResolvedAuthConfig {
+  const monarchToken = requireNonEmptyToken(
+    options.monarchToken ?? env.MONARCH_TOKEN,
+    'MONARCH_TOKEN',
+  );
+  const monarchDebugToken = requireNonEmptyToken(
+    options.monarchDebugToken ?? env.MONARCH_DEBUG_TOKEN,
+    'MONARCH_DEBUG_TOKEN',
+  );
+  const officerA = requireNonEmptyToken(
+    options.officerTokens?.officer_a ?? env.OFFICER_A_TOKEN,
+    'OFFICER_A_TOKEN',
+  );
+  const officerB = requireNonEmptyToken(
+    options.officerTokens?.officer_b ?? env.OFFICER_B_TOKEN,
+    'OFFICER_B_TOKEN',
+  );
+  const officerC = requireNonEmptyToken(
+    options.officerTokens?.officer_c ?? env.OFFICER_C_TOKEN,
+    'OFFICER_C_TOKEN',
+  );
+
+  const uniqueTokens = new Set([monarchToken, monarchDebugToken, officerA, officerB, officerC]);
+  if (uniqueTokens.size !== 5) {
+    throw new Error('Role credentials must be distinct across monarch, debug, and officers');
+  }
+
+  const envDebug = env.ENABLE_DEBUG_TRUTH;
   return {
-    monarchToken: options.monarchToken ?? process.env.MONARCH_TOKEN ?? 'monarch-token',
-    monarchDebugToken:
-      options.monarchDebugToken ?? process.env.MONARCH_DEBUG_TOKEN ?? 'monarch-debug-token',
+    monarchToken,
+    monarchDebugToken,
     officerTokens: {
-      officer_a:
-        options.officerTokens?.officer_a ?? process.env.OFFICER_A_TOKEN ?? 'officer-a-token',
-      officer_b:
-        options.officerTokens?.officer_b ?? process.env.OFFICER_B_TOKEN ?? 'officer-b-token',
-      officer_c:
-        options.officerTokens?.officer_c ?? process.env.OFFICER_C_TOKEN ?? 'officer-c-token',
+      officer_a: officerA,
+      officer_b: officerB,
+      officer_c: officerC,
     },
     enableDebugTruth:
       options.enableDebugTruth ?? (envDebug === '1' || envDebug === 'true'),
   };
 }
 
-function extractToken(c: Context): string | null {
+function extractBearerToken(c: Context): string | null {
   const authHeader = c.req.header('authorization');
   if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
     const token = authHeader.slice(7).trim();
     if (token.length > 0) {
       return token;
     }
-  }
-  const customToken = c.req.header('x-simu-token') ?? c.req.header('x-debug-token');
-  if (customToken && customToken.trim().length > 0) {
-    return customToken.trim();
   }
   return null;
 }
@@ -86,9 +124,9 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
   const app = new Hono();
 
   function requireMonarch(c: Context): void {
-    const token = extractToken(c);
+    const token = extractBearerToken(c);
     if (!token) {
-      throw new DomainError(401, 'UNAUTHORIZED', '缺少访问凭据');
+      throw new DomainError(401, 'UNAUTHORIZED', '缺少 Bearer 访问凭据');
     }
     if (token !== auth.monarchToken && token !== auth.monarchDebugToken) {
       throw new DomainError(403, 'FORBIDDEN_ROLE', '该接口仅限君主访问');
@@ -96,9 +134,9 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
   }
 
   function requireOfficer(c: Context): OfficerId {
-    const token = extractToken(c);
+    const token = extractBearerToken(c);
     if (!token) {
-      throw new DomainError(401, 'UNAUTHORIZED', '缺少官员访问凭据');
+      throw new DomainError(401, 'UNAUTHORIZED', '缺少官员 Bearer 访问凭据');
     }
     for (const [officerId, expectedToken] of Object.entries(auth.officerTokens) as Array<
       [OfficerId, string]
@@ -111,9 +149,9 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
   }
 
   function requireActor(c: Context): ActorId {
-    const token = extractToken(c);
+    const token = extractBearerToken(c);
     if (!token) {
-      throw new DomainError(401, 'UNAUTHORIZED', '缺少访问凭据');
+      throw new DomainError(401, 'UNAUTHORIZED', '缺少 Bearer 访问凭据');
     }
     if (token === auth.monarchToken || token === auth.monarchDebugToken) {
       return 'monarch';
@@ -129,9 +167,9 @@ export function createApp(store: GameStore, authOptions: AppAuthOptions = {}): H
   }
 
   function requireDebugTruth(c: Context): void {
-    const token = extractToken(c);
+    const token = extractBearerToken(c);
     if (!token) {
-      throw new DomainError(401, 'UNAUTHORIZED', '缺少调试访问凭据');
+      throw new DomainError(401, 'UNAUTHORIZED', '缺少调试 Bearer 访问凭据');
     }
     if (!auth.enableDebugTruth) {
       throw new DomainError(
