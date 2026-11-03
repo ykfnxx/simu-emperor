@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createRuntimeRegistry, type SessionOptions } from '@botiverse/oar';
 import { scriptedRuntime, type ScriptedTurn } from '@botiverse/oar/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ReportInput } from '../src/contracts/gameplay.ts';
 import { GameplayStore } from '../src/engine/gameplay-store.ts';
 import { createGameplayApp } from '../src/gameplay-app.ts';
 import { CharacterCaller, runCharacterOnce, runCharacterWatch } from '../src/officers/character-runner.ts';
@@ -11,7 +12,7 @@ import type { CharacterCallerConfig } from '../src/officers/character-config.ts'
 import { runCharacterCli } from '../src/officers/character-cli.ts';
 
 const AUTH = { monarchDebugToken: 'caller-test-debug', monarchToken: 'caller-test-court', agentHostToken: 'caller-test-host' };
-const report = { body: '本省安好，谨奏。', disclose: ['disposable_silver'] };
+const report: ReportInput = { body: '本省安好，谨奏。', disclose: ['disposable_silver'] };
 
 describe('character caller with the real gameplay HTTP app and OAR session', () => {
   let store: GameplayStore;
@@ -187,6 +188,38 @@ describe('character caller with the real gameplay HTTP app and OAR session', () 
     await expect(runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry(() => {}) })).rejects.toMatchObject({ code: 'EMPTY_MODEL_OUTPUT' });
     expect(store.getCourtMessages(conversation.conversation_id)).toHaveLength(1);
     expect(store.getCourtView().provinces.find((entry) => entry.province.province_id === 'shaanxi')!.reports).toHaveLength(0);
+  });
+
+  it('restores an accepted unfinished wake after a caller restart without duplicating the report', async () => {
+    const { conversation, message } = dm();
+    // A successful report is durable independently of the later chat generation.
+    const context = store.getAssignment(config.characterId).context;
+    store.submit({ context, report });
+    await expect(runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry(() => {}) }))
+      .rejects.toMatchObject({ code: 'EMPTY_MODEL_OUTPUT' });
+    const failed = store.getInbox(context);
+    expect(failed.wakes[0]!.status).toBe('ACCEPTED');
+    expect(failed.conversations[0]!.unread_messages).toEqual([]);
+    expect(failed.conversations[0]!.seen_seq).toBe(message.seq);
+    const result = await runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry((turn) => answer(turn)) });
+    expect(result.replies_completed).toBe(1);
+    expect(result.report_id).toBeNull();
+    expect(store.getCourtMessages(conversation.conversation_id)).toHaveLength(2);
+    expect(prompts[1]).toContain('请回答粮情');
+    expect(opened[1]!.resume).toBe(result.session_id);
+    expect(store.getInbox(context).wakes).toEqual([]);
+  });
+
+  it('retries a rejected wake and answers the original source turn after settlement', async () => {
+    const { conversation, message } = dm();
+    const context = store.getAssignment(config.characterId).context;
+    store.recordReceipt({ context, conversation_id: conversation.conversation_id, up_to_seq: message.seq,
+      outcome: 'rejected', error: 'native prompt rejected' });
+    store.lock(target()); store.settle({ ...target(), decisions: [] });
+    const result = await runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry((turn) => answer(turn)) });
+    expect(result.context.turn_number).toBe(2);
+    expect(result.replies_completed).toBe(1);
+    expect(store.getCourtMessages(conversation.conversation_id)[1]).toMatchObject({ source_turn: 1, created_in_turn: 2, is_late: true });
   });
 
   it('aborts a native turn on cancellation without writing output', async () => {

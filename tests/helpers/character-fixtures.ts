@@ -1,4 +1,4 @@
-import type { AgentBrief, AgentExecutionContext, AgentInbox, ReportRecord } from '../../src/contracts/gameplay.ts';
+import type { AgentBrief, AgentExecutionContext, AgentInbox, GameplayMessage, ReportRecord } from '../../src/contracts/gameplay.ts';
 import {
   captureCharacterReplyTargets,
   type CharacterTurnInput,
@@ -43,20 +43,22 @@ export function characterInput(): CharacterTurnInput {
     }],
     last_settlement: null,
   };
+  const message: GameplayMessage = {
+    seq: 101, conversation_id: 'conversation_private', sender_id: 'monarch', appointment_id: null,
+    content: '请减少中央请银，说明地方能出多少。', source_turn: 1, created_in_turn: 1,
+    is_late: false, mentions: [], wake_targets: [context.character_id], created_at: '2026-11-04T00:00:00Z',
+  };
   const inbox: AgentInbox = {
     context: { ...context }, turn: { ...brief.turn },
     wakes: [{
       wake_id: 7, message_seq: 101, conversation_id: 'conversation_private', source_turn: 1,
       target_appointment_id: context.appointment_id, status: 'PENDING', error: null,
+      message,
     }],
     conversations: [{
       conversation_id: 'conversation_private', title: '与陆慎之私聊', kind: 'dm',
       participants: ['monarch', context.character_id], last_seq: 101, seen_seq: 0,
-      unread_messages: [{
-        seq: 101, conversation_id: 'conversation_private', sender_id: 'monarch', appointment_id: null,
-        content: '请减少中央请银，说明地方能出多少。', source_turn: 1, created_in_turn: 1,
-        is_late: false, mentions: [], wake_targets: [context.character_id], created_at: '2026-11-04T00:00:00Z',
-      }],
+      unread_messages: [message],
     }],
   };
   return { brief, inbox, reportRequired: true, replyTargets: captureCharacterReplyTargets(inbox) };

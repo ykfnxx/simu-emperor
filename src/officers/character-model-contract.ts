@@ -58,13 +58,13 @@ export interface CharacterTurnOutput {
 
 export function captureCharacterReplyTargets(inbox: AgentInbox): CharacterReplyTarget[] {
   return inbox.wakes
-    .filter((wake) => wake.status === 'PENDING' &&
+    .filter((wake) => wake.status !== 'REPLIED' && wake.status !== 'NO_REPLY' &&
       wake.target_appointment_id === inbox.context.appointment_id)
     .map((wake, index) => {
       const conversation = inbox.conversations.find((entry) => entry.conversation_id === wake.conversation_id);
-      const message = conversation?.unread_messages.find((entry) => entry.seq === wake.message_seq);
+      const message = wake.message;
       if (!conversation || !message) {
-        throw new CharacterModelOutputError('MISSING_WAKE_MESSAGE', 'Inbox omitted a pending wake message');
+        throw new CharacterModelOutputError('MISSING_WAKE_MESSAGE', 'Inbox omitted an unfinished wake message');
       }
       return {
         reply_id: `reply_${index + 1}`,
