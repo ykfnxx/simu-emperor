@@ -15,7 +15,7 @@ node --experimental-strip-types src/officers/character-cli.ts --env-file .env.ch
 
 `CHARACTER_ID` 是人物 ID。runtime、模型与 effort 从该人物当前职务的运行配置读取，不在调用器命令行另选一套。候任或离任人物没有可工作的任职，服务端明确拒绝，不创建临时替补角色。
 
-本步支持 `json` 模式。选中 `json+mcp-read` 会明确报未支持，不降级为 JSON。配置文件只在宿主读取，不放入人物工作区或重新导出到环境；若宿主凭据从进程环境传入，原生会话显式移除该变量，不支持该会话环境选项的 runtime 会报错。
+支持 `json` 和显式选择的 `json+mcp-read` 模式。后者通过标准 MCP SDK 挂载人物专属的只读工具，并由 OAR 传入原生会话；不支持带凭据 HTTP MCP 的 runtime 会明确拒绝，不降级。配置文件只在宿主读取，不放入人物工作区或重新导出到环境；若宿主凭据从进程环境传入，原生会话显式移除该变量，不支持该会话环境选项的 runtime 会报错。
 
 可选参数有 `--character`、`--origin`、`--data-dir`、`--poll-ms`、`--timeout-ms`、`--max-cycles`；`--new-session` 明确为本次启动新建原生会话。不要把宿主凭据放在命令行参数中。
 
@@ -35,3 +35,13 @@ node --experimental-strip-types src/officers/character-cli.ts --env-file .env.ch
 watch 模式串行处理同一人物，跨回合复用原生 session；职务配置明确变化时新建会话并保留旧记录。每轮完成即打印一行宿主结果，显示实际上奏/计划/回复及正式拒收情况。第四回合结束且无待处理 wake 时退出。SIGINT/SIGTERM 中止生成，停止后不继续发布剩余动作。
 
 数据路径与恢复规则见 [人物任职会话](character-sessions.md)。本步测试使用 OAR scripted runtime 和固定契约的测试 HTTP 服务，不能据此声称完成真实原生模型联测或 benchmark。
+
+## 只读 MCP
+
+`json+mcp-read` 提供四个工具：`read_local_state` 读取本省事实，`read_office_records` 读取职务项目/计划/署名报告/结算，`read_conversation` 读取已参与会话，`read_character_memory` 读取本人的已接受输入及署名报告。工具不接受人物或省份身份参数，执行上下文由宿主在每次生成期间绑定。任职失效后查询由同一游戏服务拒绝，生成结束后工具不再接受查询。写入仍只有最终 JSON。
+
+宿主在 OAR 接受输入后，把本人接收的消息及当时已有的本人署名报告追加到人物目录的 `accepted-memory.jsonl`，保留会话参与者、任职、日期及消息源回合。人物换职可读取自己的旧记录，继任者不继承。它只包含本调用器接收过的内容，不是完整聊天服务器归档，也不导出隐藏推理。`read_conversation` 会将这份记录与当前收件箱合并，不把另一私聊视为当前群聊共同知识。旧调用器未采集的历史保持未知。
+
+MCP 地址与随机连接凭据只在本次原生会话配置中提供，恢复时重新挂载，不写入人物持久会话状态。watch 跨回合重新绑定当前调用上下文；切换模式重新打开同一原生会话以更新工具配置。
+
+原生兼容记录：OAR 0.84.0 的 `serveMcpTools` 不发布 MCP annotations，因此本实现使用固定的 `@modelcontextprotocol/sdk@1.32.2`，四个工具均声明 `readOnlyHint`、`idempotentHint`，并明确无破坏操作及封闭数据范围。MCP SDK 处理协议与连接，不新增游戏服务进程。工具元数据影响原生确认行为，服务端仍逐次检查人物任职与可见范围。参见 [官方 OpenAI MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。

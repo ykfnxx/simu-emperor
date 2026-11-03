@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCharacterTurnPrompt,
+  CharacterTextCollector,
   captureCharacterReplyTargets,
   parseCharacterTurnOutput,
 } from '../src/officers/character-model-contract.ts';
@@ -76,5 +77,20 @@ describe('character model actions', () => {
     expect(prompt.private_stance).toContain('保守财政');
     expect(prompt.local_facts).toEqual(input.brief.facts);
     expect(prompt).not.toHaveProperty('hostToken');
+  });
+});
+
+describe('native final message selection', () => {
+  it('keeps final JSON message separate from earlier tool commentary', () => {
+    const output = new CharacterTextCollector();
+    output.append({ messageId: 'progress', text: '先核对粮情。' });
+    output.append({ messageId: 'final', text: '{"replies":' });
+    output.append({ messageId: 'final', text: '[]}' });
+    expect(output.text).toBe('{"replies":[]}');
+  });
+  it('leaves an unlabelled malformed output intact for normal validation failure', () => {
+    const output = new CharacterTextCollector();
+    output.append({ text: '说明' }); output.append({ text: '{}' });
+    expect(output.text).toBe('说明{}');
   });
 });

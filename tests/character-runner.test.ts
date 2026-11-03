@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRuntimeRegistry, type SessionOptions } from '@botiverse/oar';
+import { createRuntimeRegistry, defineRuntime, type SessionOptions } from '@botiverse/oar';
 import { scriptedRuntime, type ScriptedTurn } from '@botiverse/oar/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReportInput } from '../src/contracts/gameplay.ts';
@@ -242,12 +242,60 @@ describe('character caller with the real gameplay HTTP app and OAR session', () 
     })).rejects.toMatchObject({ code: 'TURN_TIMEOUT' });
   });
 
-  it('fails explicitly for an unsupported MCP read profile', async () => {
+  it('attaches only read MCP tools and serves the captured invocation through real MCP HTTP', async () => {
     store.setRuntimeProfile({ game_id: target().game_id, office_id: 'governor_shaanxi',
       profile: { runtime: 'scripted', model: 'scripted-1', effort: null, mode: 'json+mcp-read' } });
-    await expect(runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry((turn) => answer(turn)) }))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_INTERACTION_MODE' });
-    expect(prompts).toHaveLength(0);
+    const result = await runCharacterOnce(config, { fetchImpl, runtimeRegistry: registry(async (turn) => {
+      const server = turn.options.mcpServers![0]!;
+      if (!('type' in server)) throw new Error('Expected HTTP MCP');
+      const response = await fetch(server.url, { method: 'POST',
+        headers: { ...server.headers, accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'read_local_state', arguments: {} } }),
+      });
+      const rpc = await response.json();
+      expect(rpc.result.isError).toBeUndefined();
+      expect(JSON.parse(rpc.result.content[0].text).province_id).toBe('shaanxi');
+      expect(turn.input).toContain('You may query only gameplay_read tools');
+      answer(turn);
+    }) });
+    expect(result.report_id).toBeTruthy();
+  });
+
+  it('reopens the same native session when enabling MCP and rebinds reads on the next turn', async () => {
+    const turns: number[] = [];
+    const runtimeRegistry = registry(async (turn) => {
+      const server = turn.options.mcpServers?.[0];
+      if (server && 'type' in server) {
+        const rpc = await (await fetch(server.url, { method: 'POST', headers: { ...server.headers, accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'read_local_state', arguments: {} } }) })).json();
+        turns.push(JSON.parse(rpc.result.content[0].text).turn.turn_number);
+      }
+      answer(turn);
+    });
+    const caller = new CharacterCaller(config, { fetchImpl, runtimeRegistry });
+    try {
+      const first = await caller.runCycle();
+      store.setRuntimeProfile({ game_id: target().game_id, office_id: 'governor_shaanxi',
+        profile: { runtime: 'scripted', model: 'scripted-1', effort: null, mode: 'json+mcp-read' } });
+      dm();
+      const second = await caller.runCycle();
+      expect(second.session_id).toBe(first.session_id);
+      expect(opened[1]!.resume).toBe(first.session_id);
+      store.lock(target()); store.settle({ ...target(), decisions: [] });
+      await caller.runCycle();
+      expect(turns).toEqual([1, 2]);
+    } finally { await caller.dispose(); }
+  });
+
+  it('surfaces a runtime MCP refusal without running in JSON mode', async () => {
+    store.setRuntimeProfile({ game_id: target().game_id, office_id: 'governor_shaanxi',
+      profile: { runtime: 'scripted', model: 'scripted-1', effort: null, mode: 'json+mcp-read' } });
+    const base = scriptedRuntime({ turn: () => { throw new Error('Must not generate'); } });
+    const refusing = defineRuntime({ id: 'scripted', installation: base.installation, session: base.session,
+      refusedSessionOptions: { mcpServers: 'Selected runtime does not support session MCP' },
+    }, { execution: 'in_process' });
+    await expect(runCharacterOnce(config, { fetchImpl, runtimeRegistry: createRuntimeRegistry([refusing]) }))
+      .rejects.toThrow('does not support session MCP');
   });
 
   it('streams watch results before the next cycle and reuses one session', async () => {

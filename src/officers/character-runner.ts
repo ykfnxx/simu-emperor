@@ -5,10 +5,13 @@ import type { CharacterCallerConfig } from './character-config.ts';
 import { captureExecutionContext, CharacterGameClient, isClosedFormalTurn } from './character-game-client.ts';
 import {
   buildCharacterTurnPrompt,
+  CharacterTextCollector,
   captureCharacterReplyTargets,
   parseCharacterTurnOutput,
   type CharacterTurnInput,
 } from './character-model-contract.ts';
+import { rememberAcceptedCharacterInput } from './character-memory.ts';
+import { serveCharacterReadTools, type CharacterReadTools } from './character-read-tools.ts';
 import { loadCharacterSessionState } from './character-session-store.ts';
 import { openOrResumeCharacterSession, type CharacterSessionHandle } from './character-session.ts';
 
@@ -60,6 +63,8 @@ export class CharacterCaller {
   private readonly client: CharacterGameClient;
   private handle: CharacterSessionHandle | null = null;
   private requestNewSession: boolean;
+  private readTools: CharacterReadTools | null = null;
+  private handleMode: RuntimeProfile['mode'] | null = null;
 
   constructor(config: CharacterCallerConfig, deps: CharacterRunnerDependencies = {}) {
     this.config = config;
@@ -74,7 +79,12 @@ export class CharacterCaller {
   async dispose(): Promise<void> {
     const handle = this.handle;
     this.handle = null;
-    if (handle) await handle.session.dispose();
+    try { if (handle) await handle.session.dispose(); }
+    finally {
+      await this.readTools?.close();
+      this.readTools = null;
+      this.handleMode = null;
+    }
   }
 
   private async sessionFor(assignment: AgentAssignment): Promise<CharacterSessionHandle> {
@@ -82,25 +92,30 @@ export class CharacterCaller {
     if (!profile || !profile.runtime.trim() || !profile.model.trim()) {
       throw new CharacterCallerError('MISSING_RUNTIME_PROFILE', 'Configure the office runtime and model before running its character');
     }
-    if (profile.mode !== 'json') {
-      throw new CharacterCallerError('UNSUPPORTED_INTERACTION_MODE', 'This caller increment supports json mode only; MCP read mode is not silently downgraded');
+    if (profile.mode !== 'json' && profile.mode !== 'json+mcp-read') {
+      throw new CharacterCallerError('UNSUPPORTED_INTERACTION_MODE', 'Unknown character interaction mode');
     }
     if (this.handle && sameAppointment(this.handle.state, assignment.context) &&
-        configurationMatches(this.handle.state, profile) && !this.requestNewSession) {
+        configurationMatches(this.handle.state, profile) && this.handleMode === profile.mode && !this.requestNewSession) {
       return this.handle;
     }
     await this.dispose();
     const existing = loadCharacterSessionState(this.config.dataDir, assignment.context);
-    this.handle = await openOrResumeCharacterSession({
-      identity: assignment.context,
-      dataDir: this.config.dataDir,
-      runtimeId: profile.runtime,
-      model: profile.model,
-      ...(profile.effort === null ? {} : { effort: profile.effort }),
-      // The authenticated office profile is an explicit configuration change.
-      startNewSession: this.requestNewSession || Boolean(existing && !configurationMatches(existing, profile)),
-      ...(process.env.AGENT_HOST_TOKEN === undefined ? {} : { env: { AGENT_HOST_TOKEN: null } }),
-    }, this.deps.runtimeRegistry ?? defaultRuntimes);
+    if (profile.mode === 'json+mcp-read') this.readTools = await serveCharacterReadTools(this.client, this.config.dataDir);
+    try {
+      this.handle = await openOrResumeCharacterSession({
+        identity: assignment.context,
+        dataDir: this.config.dataDir,
+        runtimeId: profile.runtime,
+        model: profile.model,
+        ...(this.readTools ? { mcpServers: [this.readTools.server] } : {}),
+        ...(profile.effort === null ? {} : { effort: profile.effort }),
+        // The authenticated office profile is an explicit configuration change.
+        startNewSession: this.requestNewSession || Boolean(existing && !configurationMatches(existing, profile)),
+        ...(process.env.AGENT_HOST_TOKEN === undefined ? {} : { env: { AGENT_HOST_TOKEN: null } }),
+      }, this.deps.runtimeRegistry ?? defaultRuntimes);
+    } catch (error) { await this.dispose(); throw error; }
+    this.handleMode = profile.mode;
     this.requestNewSession = false;
     return this.handle;
   }
@@ -130,7 +145,7 @@ export class CharacterCaller {
 
     const handle = await this.sessionFor(assignment);
     result.session_id = handle.session.id;
-    const input: CharacterTurnInput = { brief, inbox, reportRequired, replyTargets };
+    const input: CharacterTurnInput = { brief, inbox, reportRequired, replyTargets, mode: assignment.office.runtime_profile!.mode };
     const capturedSeqs = new Map<string, number>();
     for (const conversation of inbox.conversations) {
       if (conversation.unread_messages.length > 0) {
@@ -152,6 +167,7 @@ export class CharacterCaller {
     let failedOutcome: 'failed' | 'rejected' = 'failed';
     try {
       stopCheck();
+      this.readTools?.activate(context);
       const inputId = crypto.randomUUID();
       const accepted = await handle.session.prompt(buildCharacterTurnPrompt(input), { inputId });
       stopCheck();
@@ -164,9 +180,10 @@ export class CharacterCaller {
           accepted.response.body.kind !== 'accepted') {
         throw new CharacterCallerError('INVALID_PROMPT_ACCEPTANCE', 'Runtime did not accept the matching captured input');
       }
-      let outputText = '';
+      rememberAcceptedCharacterInput(this.config.dataDir, input);
+      const output = new CharacterTextCollector();
       unsubscribe = handle.session.events((event) => {
-        if (event.agentPath.length === 0 && event.kind === 'text_delta') outputText += event.text;
+        if (event.agentPath.length === 0 && event.kind === 'text_delta') output.append(event);
       }, { cursor: { sessionId: handle.session.id, afterSeq: accepted.seq } });
       for (const [conversationId, maxSeq] of capturedSeqs) {
         await this.client.recordReceipt(context, conversationId, maxSeq, 'accepted');
@@ -178,9 +195,9 @@ export class CharacterCaller {
       if (outcome.kind !== 'completed') {
         throw new CharacterCallerError('TURN_FAILED', outcome.kind === 'failed' ? outcome.reason : 'Native turn was aborted');
       }
-      const output = parseCharacterTurnOutput(outputText, input);
+      const actions = parseCharacterTurnOutput(output.text, input);
       let formalClosed = false;
-      for (const planId of output.withdraw_plan_ids) {
+      for (const planId of actions.withdraw_plan_ids) {
         stopCheck();
         try {
           await this.client.withdrawPlan(context, planId);
@@ -192,10 +209,10 @@ export class CharacterCaller {
           break;
         }
       }
-      if (!formalClosed && (output.submission?.report || (output.submission?.plans?.length ?? 0) > 0)) {
+      if (!formalClosed && (actions.submission?.report || (actions.submission?.plans?.length ?? 0) > 0)) {
         stopCheck();
         try {
-          const submitted = await this.client.submit(context, output.submission!);
+          const submitted = await this.client.submit(context, actions.submission!);
           result.report_id = submitted.report?.report_id ?? null;
           result.plan_ids = submitted.plans.map((plan) => plan.plan_id);
         } catch (error) {
@@ -203,7 +220,7 @@ export class CharacterCaller {
           result.formal_rejections.push({ action: 'submission', code: error.code, message: error.message });
         }
       }
-      for (const reply of output.replies) {
+      for (const reply of actions.replies) {
         stopCheck();
         const target = replyTargets.find((entry) => entry.reply_id === reply.reply_id)!;
         await this.client.reply(context, target.target, reply.output);
@@ -224,6 +241,7 @@ export class CharacterCaller {
       clearTimeout(timer);
       this.deps.signal?.removeEventListener('abort', abort);
       unsubscribe?.();
+      this.readTools?.deactivate();
     }
   }
 }

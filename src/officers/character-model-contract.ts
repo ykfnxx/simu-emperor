@@ -47,6 +47,7 @@ export interface CharacterTurnInput {
   brief: AgentBrief;
   inbox: AgentInbox;
   reportRequired: boolean;
+  mode?: 'json' | 'json+mcp-read';
   replyTargets: readonly CharacterReplyTarget[];
 }
 
@@ -84,7 +85,9 @@ export function buildCharacterTurnPrompt(input: CharacterTurnInput): string {
   return JSON.stringify({
     rules: [
       'You are the appointed character in this turn-based game. Speak naturally in Chinese, without middle-dot separators.',
-      'Do not use filesystem, shell, MCP or other tools in json mode. Return exactly one raw JSON object, without markdown.',
+      input.mode === 'json+mcp-read'
+        ? 'You may query only gameplay_read tools: read_local_state, read_office_records, read_conversation, read_character_memory. No filesystem, shell or other tools. These tools never write. Return all actions in exactly one final raw JSON object without markdown.'
+        : 'Do not use filesystem, shell, MCP or other tools in json mode. Return exactly one raw JSON object, without markdown.',
       'The host owns identity, appointments, turns and credentials. Never output context, actor IDs, wake IDs, receipts or ledger changes.',
       'Use your private stance to choose disclosure and requests; do not quote the private stance as metadata.',
       'A report may just explain the situation or greet the monarch. Requests are optional. An empty disclosure list is valid.',
@@ -282,4 +285,18 @@ export function parseCharacterTurnOutput(rawText: string, input: CharacterTurnIn
   }
   if (replied.size !== required.size) throw new CharacterModelOutputError('MISSING_REQUIRED_REPLY', 'Each captured wake needs a reply or explicit silence');
   return { ...(submission === undefined ? {} : { submission }), withdraw_plan_ids: withdrawIds, replies };
+}
+
+/** Native messages keep progress commentary separate from the final JSON message. */
+export class CharacterTextCollector {
+  private messageId: string | undefined;
+  private output = '';
+  append(delta: { text: string; messageId?: string }): void {
+    if (delta.messageId !== undefined && delta.messageId !== this.messageId) {
+      this.messageId = delta.messageId;
+      this.output = '';
+    }
+    this.output += delta.text;
+  }
+  get text(): string { return this.output; }
 }
