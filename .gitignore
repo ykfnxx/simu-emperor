@@ -17,6 +17,7 @@ next-env.d.ts
 *.sqlite
 *.sqlite3
 data/runtime/
+data/benchmarks/
 
 # Environment
 .env
