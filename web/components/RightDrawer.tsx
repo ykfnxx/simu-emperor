@@ -1,4 +1,9 @@
+'use client';
+
 import React from 'react';
+import { X } from 'lucide-react';
+import { Button } from '../../components/kumo/components/button';
+import { InputArea } from '../../components/kumo/components/input/input-area';
 import {
   formatWan,
   OFFICER_IDS,
@@ -164,9 +169,10 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               if (!s) return null;
               const isCurr = currentState.state_id === sid;
               return (
-                <button
+                <Button
                   key={sid}
                   type="button"
+                  variant="ghost"
                   className={`state-pill-btn ${isCurr ? 'active' : ''}`}
                   data-testid={`drawer-state-pill-${sid}`}
                   title={`切换至${s.state_name}`}
@@ -174,31 +180,23 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 >
                   <span className={`pill-dot dot-${s.map_severity}`} />
                   <span>{s.state_name.replace('州', '')}</span>
-                </button>
+                </Button>
               );
             })}
           </div>
 
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            shape="square"
+            size="sm"
             className="drawer-close-btn"
             title="收起面板 (Esc)"
             aria-label="收起面板"
             onClick={onCloseDrawer}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
+            <X size={15} strokeWidth={1.8} aria-hidden="true" />
+          </Button>
         </div>
       </div>
 
@@ -401,22 +399,24 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
           {/* Bottom 2 Side-by-Side Action Buttons */}
           <div className="report-actions-row">
-            <button
+            <Button
               type="button"
-              className="secondary-court-btn"
+              variant="ghost"
+              className="secondary-court-btn w-full"
               data-testid="summon-state-officer-btn"
               onClick={() => onSummonStateOfficer(currentState.state_id)}
             >
               传讯官员
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="outline-cinnabar-btn"
+              variant="ghost"
+              className="outline-cinnabar-btn w-full"
               data-testid="goto-approval-tab-btn"
               onClick={() => onChangeTab('approval')}
             >
               审阅提案
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -449,14 +449,15 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 ? '朝议群聊（勾选 @点名 唤醒对应官员）'
                 : `${activeConversation?.title ?? ''}（发送即唤醒该州官员）`}
             </span>
-            <button
+            <Button
               type="button"
+              variant="ghost"
               className="text-link-btn"
               onClick={onRefreshMessages}
               title="查询最新回执与官员回复"
             >
               刷新
-            </button>
+            </Button>
           </div>
 
           {viewedWeek.is_history_view && (
@@ -586,7 +587,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
           {/* Chat Composer */}
           <div className="chat-composer-box">
-            <textarea
+            <InputArea
               className="chat-textarea"
               data-testid="chat-input-textarea"
               rows={2}
@@ -607,15 +608,16 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 }
               }}
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
               className="primary-court-btn send-chat-btn"
               data-testid="chat-send-btn"
               disabled={!canSendChat || sendingMessage || chatInputDraft.trim().length === 0}
               onClick={onSendMessage}
             >
               {sendingMessage ? '发送中' : '发旨'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
