@@ -1,46 +1,60 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describe, expect, it, beforeEach } from 'vitest';
-import { WAN, type CourtStateView } from '../src/contracts/index.ts';
-import { GameStore } from '../src/engine/game-store.ts';
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { CharacterId, CharacterPublicView, ProvinceId } from '../src/contracts/gameplay.ts';
+import { GameplayStore } from '../src/engine/gameplay-store.ts';
 import {
-  APPROVAL_DRAFT_KEY_PREFIX,
-  clearStaleApprovalDrafts,
-  evaluateApprovalDraftCompleteness,
-  LatestRequestController,
-  loadWeekApprovalDraft,
-  saveWeekApprovalDraft,
+  clearStaleConversationDrafts,
+  clearStalePlanApprovalDrafts,
+  CourtApiError,
+  createCourtUiStore,
+  DEFAULT_MONARCH_SETTINGS,
+  evaluatePlanApprovalCompleteness,
+  getAppointedCharacters,
+  getConversationCharacterIds,
+  getConversationTurnKey,
+  getPlanDraftStorageKey,
+  loadConversationDraftMap,
+  loadMonarchSettings,
+  loadTurnPlanApprovalDraft,
+  resolveIncumbentCharacterForProvince,
+  saveConversationDraft,
+  saveMonarchSettings,
+  saveTurnPlanApprovalDraft,
+  validateCustomPlanApprovalInput,
 } from '../web/client-api.ts';
 import {
-  BACKGROUND_REGION_GEOMETRIES,
-  BOTTOM_CONTROLS_OCCLUSION_RATIO,
-  buildAvailableHistoryWeekOptions,
+  JIANGSHAN_MING_C_REGIONS,
+  JIANGSHAN_MING_C_SNAPSHOT_ID,
+  JIANGSHAN_MING_C_SOURCE_COMMIT,
+} from '../web/jiangshan-geo-data.ts';
+import {
+  ACTIVE_PROVINCE_IDS,
+  buildAvailableHistoryTurnOptions,
   computeMinimalOcclusionPan,
-  computeStateLayerPresentation,
-  computeSvgCameraViewBox,
-  formatOutlinerStateParts,
-  formatWeekCalendarDate,
-  formatWeekCalendarIso,
-  getBackgroundGeographyLayer,
-  getLayerLegendEntries,
-  getProjectedHydroLayer,
-  getStateScreenCenterX,
-  getStateScreenCenterY,
+  computeProvinceLayerPresentation,
+  computeSvgViewBox,
+  formatFactProvenanceTag,
+  formatKnownNumericFact,
+  formatOutlinerProvinceParts,
+  formatTurnCalendarDate,
+  formatTurnCalendarIso,
+  getProvinceScreenCenterX,
+  getProvinceScreenCenterY,
   INITIAL_MAP_CAMERA,
-  LEFT_SHEET_OCCLUSION_RATIO,
-  LEFT_SHEET_SAFE_TARGET_RATIO,
+  JIANGSHAN_BACKGROUND_MAP,
+  JIANGSHAN_PROJECTOR,
+  MAP_LAYERS,
   MAP_VIEWBOX_ORIGIN_X,
   MAP_VIEWBOX_ORIGIN_Y,
-  MAP_VIEWBOX_WIDTH,
   MercatorProjector,
-  pickDefaultSelectedState,
-  PLAYABLE_PROVINCE_GEOMETRIES,
-  PROJECTOR,
-  RIGHT_OUTLINER_OCCLUSION_RATIO,
-  RIGHT_OUTLINER_SAFE_TARGET_RATIO,
-  TERRAIN_RELIEF_RECT,
-  TOP_HUD_OCCLUSION_RATIO,
-  zoomCameraAtClientPoint,
+  MING_INTERIOR_BOUNDARY_PATH,
+  MING_PROVINCE_GEOMETRIES,
+  MING_PROVINCE_GEOMETRY_BY_ID,
+  PROVINCE_IDS,
+  PROVIDER_REGION_ID_TO_PROVINCE_ID,
+  resolveProvinceIdFromProviderId,
+  resolveProviderIdFromProvinceId,
 } from '../web/map-data.ts';
 
 class MemoryStorage implements Storage {
@@ -65,290 +79,553 @@ class MemoryStorage implements Storage {
   }
 }
 
-describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft State (v2.2 EU4)', () => {
+describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authoritative Gameplay Contract', () => {
   beforeEach(() => {
-    const mockStorage = new MemoryStorage();
+    const mockSession = new MemoryStorage();
+    const mockLocal = new MemoryStorage();
     Object.defineProperty(globalThis, 'window', {
-      value: { sessionStorage: mockStorage },
+      value: {
+        sessionStorage: mockSession,
+        localStorage: mockLocal,
+      },
       configurable: true,
       writable: true,
     });
   });
 
-  it('defines 3 playable states, 5-state legends across all 3 layers, and strictly report-driven banner art roles (Scenarios 01, 03)', () => {
-    expect(PLAYABLE_PROVINCE_GEOMETRIES.map((p) => p.state_id)).toEqual([
-      'state_a',
-      'state_b',
-      'state_c',
-    ]);
-    expect(PLAYABLE_PROVINCE_GEOMETRIES.every((p) => p.is_playable === true)).toBe(true);
-    expect(BACKGROUND_REGION_GEOMETRIES.every((b) => b.is_playable === false)).toBe(true);
+  it('embeds all 15 Ming provincial units from pinned s_ming_c (1636–1643) snapshot and explicitly resolves provider feature IDs to game ProvinceIds', () => {
+    expect(JIANGSHAN_MING_C_SNAPSHOT_ID).toBe('s_ming_c');
+    expect(JIANGSHAN_MING_C_SOURCE_COMMIT).toBe('7c5cfe3b575806fbe3158a85109c166cd4d0574f');
+    expect(JIANGSHAN_MING_C_REGIONS).toHaveLength(15);
+    expect(MING_PROVINCE_GEOMETRIES).toHaveLength(15);
 
-    for (const layer of ['disaster', 'grain', 'silver'] as const) {
-      const legend = getLayerLegendEntries(layer);
-      expect(legend.map((l) => l.key)).toEqual([
-        'urgent',
-        'mild',
-        'stable',
-        'unknown',
-        'background',
-      ]);
-      const unknownEntry = legend.find((l) => l.key === 'unknown')!;
-      const bgEntry = legend.find((l) => l.key === 'background')!;
-      expect(unknownEntry.detailLabel).toContain('斜纹灰');
-      expect(unknownEntry.detailLabel).toContain('本周未奏报（未知');
-      expect(bgEntry.detailLabel).toContain('地理背景区（未启用）');
+    const activeGeoms = MING_PROVINCE_GEOMETRIES.filter((g) => g.active);
+    const frozenGeoms = MING_PROVINCE_GEOMETRIES.filter((g) => !g.active);
+    expect(activeGeoms.map((g) => g.province_id)).toEqual(['shaanxi', 'henan', 'huguang']);
+    expect(frozenGeoms).toHaveLength(12);
+    expect(PROVINCE_IDS).toHaveLength(15);
+    expect(ACTIVE_PROVINCE_IDS).toEqual(['shaanxi', 'henan', 'huguang']);
+
+    // Bijective explicit provider ID <-> ProvinceId resolution
+    const expectedPairs: Array<[number, ProvinceId, string]> = [
+      [1113, 'beizhili', '北直隶'],
+      [1077, 'nanzhili', '南直隶'],
+      [1078, 'shandong', '山东'],
+      [1079, 'shanxi', '山西'],
+      [1080, 'henan', '河南'],
+      [1081, 'shaanxi', '陕西'],
+      [1082, 'sichuan', '四川'],
+      [1083, 'huguang', '湖广'],
+      [1084, 'zhejiang', '浙江'],
+      [1085, 'jiangxi', '江西'],
+      [1086, 'fujian', '福建'],
+      [1087, 'guangdong', '广东'],
+      [1088, 'guangxi', '广西'],
+      [1089, 'yunnan', '云南'],
+      [1090, 'guizhou', '贵州'],
+    ];
+
+    for (const [providerId, provinceId, chineseName] of expectedPairs) {
+      expect(resolveProvinceIdFromProviderId(providerId)).toBe(provinceId);
+      expect(resolveProviderIdFromProvinceId(provinceId)).toBe(providerId);
+      const geom = MING_PROVINCE_GEOMETRY_BY_ID[provinceId];
+      expect(geom.provider_region_id).toBe(providerId);
+      expect(geom.name).toBe(chineseName);
+      expect(geom.outerPath.startsWith('M')).toBe(true);
     }
 
-    const store = new GameStore({ initialWeek: 2 });
-    // Submit only state_a and state_b; leave state_c UNKNOWN
-    store.submitOfficerPackage('officer_a', {
-      week_number: 2,
-      report: {
-        gross_silver: 2 * WAN,
-        gross_grain: 1 * WAN,
-        disaster_type: 'none',
-        relief_demand_grain: 0,
-        summary: '甲州安稳',
-      },
-      proposal: {
-        project_local_silver: 1 * WAN,
-        project_central_silver: 1 * WAN,
-        relief_local_grain: 0,
-        relief_central_grain: 0,
-      },
-      central_report: {
-        gross_silver: 3 * WAN,
-        gross_grain: 1 * WAN,
-      },
-    });
-    store.submitOfficerPackage('officer_b', {
-      week_number: 2,
-      report: {
-        gross_silver: 15_000,
-        gross_grain: 2 * WAN,
-        disaster_type: 'flood',
-        relief_demand_grain: 3 * WAN,
-        summary: '乙州洪灾告急',
-      },
-      proposal: {
-        project_local_silver: 0,
-        project_central_silver: 0,
-        relief_local_grain: 1 * WAN,
-        relief_central_grain: 2 * WAN,
-      },
-    });
+    // Unknown provider IDs never silently map to a game province
+    expect(resolveProvinceIdFromProviderId(9999)).toBeNull();
+    expect(resolveProvinceIdFromProviderId(0)).toBeNull();
+    expect(Object.keys(PROVIDER_REGION_ID_TO_PROVINCE_ID)).toHaveLength(15);
 
-    const view = store.getCourtView(2);
-    const stateA: CourtStateView = view.states.find((s) => s.state_id === 'state_a')!;
-    const stateB: CourtStateView = view.states.find((s) => s.state_id === 'state_b')!;
-    const stateC: CourtStateView = view.states.find((s) => s.state_id === 'state_c')!;
-
-    // Default selection picks urgent 乙州 (state_b)
-    expect(pickDefaultSelectedState(view.states)).toBe('state_b');
-
-    // Unsubmitted state_c is ALWAYS 'unknown' across disaster, grain, and silver layers (never 0)
-    for (const layer of ['disaster', 'grain', 'silver'] as const) {
-      const presC = computeStateLayerPresentation(stateC, layer);
-      expect(presC.severityKey).toBe('unknown');
-      expect(presC.badgeSubtitle).toBe('本周未奏报（未知）');
-      expect(presC.badgeSubtitle).not.toContain('0.0');
+    // Borders, hydrography, and Mercator registration
+    expect(MING_INTERIOR_BOUNDARY_PATH.startsWith('M')).toBe(true);
+    expect(JIANGSHAN_BACKGROUND_MAP.outerLandPath.startsWith('M')).toBe(true);
+    expect(JIANGSHAN_BACKGROUND_MAP.lakes.length).toBeGreaterThan(0);
+    expect(JIANGSHAN_BACKGROUND_MAP.rivers.length).toBeGreaterThan(0);
+    for (const lake of JIANGSHAN_BACKGROUND_MAP.lakes) {
+      expect(lake.name).not.toContain('·');
+    }
+    for (const label of JIANGSHAN_BACKGROUND_MAP.hydroLabels) {
+      expect(label.zh).not.toContain('·');
     }
 
-    // Grain layer genuinely displays reported disposable & gross grain values
-    const presAGrain = computeStateLayerPresentation(stateA, 'grain');
-    expect(presAGrain.severityKey).toBe('urgent'); // 0 disposable grain after mandatory 1.0万
-    expect(presAGrain.badgeSubtitle).toBe('可支配粮 0.0万石（账面1.0万石）');
-
-    const presBGrain = computeStateLayerPresentation(stateB, 'grain');
-    expect(presBGrain.severityKey).toBe('mild'); // 1.0万 disposable grain
-    expect(presBGrain.badgeSubtitle).toBe('可支配粮 1.0万石（账面2.0万石）');
-
-    // Silver layer genuinely displays reported disposable & gross silver values
-    const presASilver = computeStateLayerPresentation(stateA, 'silver');
-    expect(presASilver.severityKey).toBe('stable'); // 1.0万 disposable silver (>0.5万)
-    expect(presASilver.badgeSubtitle).toBe('可支配银 1.0万两（账面2.0万两）');
-
-    const presBSilver = computeStateLayerPresentation(stateB, 'silver');
-    expect(presBSilver.severityKey).toBe('mild'); // 0.5万 disposable silver
-    expect(presBSilver.badgeSubtitle).toBe('可支配银 0.5万两（账面1.5万两）');
-
-    store.close();
+    const rawUpstream = new MercatorProjector(1000, 700, {
+      west: 66,
+      east: 142,
+      south: 14,
+      north: 55,
+    });
+    const [ux, uy] = rawUpstream.toScreen(108.95, 34.27);
+    const [px, py] = JIANGSHAN_PROJECTOR.toScreen(108.95, 34.27);
+    expect(Math.hypot(px - ux, py - uy)).toBeLessThan(0.01);
+    expect(MAP_VIEWBOX_ORIGIN_X).toBe(395);
+    expect(MAP_VIEWBOX_ORIGIN_Y).toBe(278);
+    expect(computeSvgViewBox(INITIAL_MAP_CAMERA, 1440, 900).viewBoxString).toBe(
+      '-0.40 0.00 460.80 288.00',
+    );
   });
 
-  it('fits all 3 playable states in the [34%, 78%] corridor at default camera and pans minimally away from both Left Sheet (<34%) and Right Outliner (>78%) occluders (Scenario 02)', () => {
-    for (const viewportWidth of [1280, 1440]) {
-      // 1. At INITIAL_MAP_CAMERA, all 3 playable states lie inside [38%, 75%] and require zero pan
-      for (const stateId of ['state_a', 'state_b', 'state_c'] as const) {
-        const screenX = getStateScreenCenterX(stateId, viewportWidth, INITIAL_MAP_CAMERA);
-        const ratio = screenX / viewportWidth;
-        expect(ratio).toBeGreaterThanOrEqual(LEFT_SHEET_OCCLUSION_RATIO);
-        expect(ratio).toBeLessThanOrEqual(RIGHT_OUTLINER_OCCLUSION_RATIO);
-
-        const nextCam = computeMinimalOcclusionPan(stateId, viewportWidth, INITIAL_MAP_CAMERA, true);
-        expect(nextCam).toEqual(INITIAL_MAP_CAMERA);
-      }
-
-      // 2. When camera is panned/zoomed so state_a (甲州) sits at x = 22% of viewport width (occluded by Left Sheet < 38%)
-      const stateAGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === 'state_a')!;
-      const baseA = (stateAGeom.center.x / MAP_VIEWBOX_WIDTH) * viewportWidth;
-      const customZoomLeft = 1.2;
-      const leftOccludedScreenX = 0.22 * viewportWidth;
-      const leftOccludedCam = {
-        panX: leftOccludedScreenX - baseA * customZoomLeft,
-        panY: 18,
-        zoom: customZoomLeft,
-      };
-
-      const pannedFromLeft = computeMinimalOcclusionPan('state_a', viewportWidth, leftOccludedCam, true);
-      expect(pannedFromLeft.zoom).toBe(customZoomLeft);
-      expect(pannedFromLeft.panY).toBe(18);
-      const afterLeftScreenX = getStateScreenCenterX('state_a', viewportWidth, pannedFromLeft);
-      expect(afterLeftScreenX / viewportWidth).toBeCloseTo(LEFT_SHEET_SAFE_TARGET_RATIO, 2);
-
-      // 3. When camera is panned/zoomed so state_c (丙州) sits at x = 84% of viewport width (occluded by Right Outliner > 75%)
-      const stateCGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === 'state_c')!;
-      const baseC = (stateCGeom.center.x / MAP_VIEWBOX_WIDTH) * viewportWidth;
-      const customZoomRight = 1.25;
-      const rightOccludedScreenX = 0.84 * viewportWidth;
-      const rightOccludedCam = {
-        panX: rightOccludedScreenX - baseC * customZoomRight,
-        panY: -42,
-        zoom: customZoomRight,
-      };
-
-      const pannedFromRight = computeMinimalOcclusionPan('state_c', viewportWidth, rightOccludedCam, true);
-      expect(pannedFromRight.zoom).toBe(customZoomRight);
-      const afterRightScreenX = getStateScreenCenterX('state_c', viewportWidth, pannedFromRight);
-      const afterRightScreenY = getStateScreenCenterY(
-        'state_c',
-        viewportWidth,
-        Math.round(viewportWidth * 0.625),
-        pannedFromRight,
-      );
-      expect(afterRightScreenX / viewportWidth).toBeCloseTo(RIGHT_OUTLINER_SAFE_TARGET_RATIO, 2);
-      expect(afterRightScreenY / Math.round(viewportWidth * 0.625)).toBeLessThanOrEqual(
-        BOTTOM_CONTROLS_OCCLUSION_RATIO + 0.001,
-      );
-    }
-
-    // 4. At max zoom (2.58) across 1280x800, 1440x900, and 1586x992, selecting any state pans BOTH panX and panY into the visible corridor
+  it('frames all 3 active provinces inside the visible corridor at INITIAL_MAP_CAMERA and pans minimally when occluded', () => {
     for (const [vw, vh] of [
       [1280, 800],
       [1440, 900],
-      [1586, 992],
     ] as const) {
-      const highZoomCam = { panX: -540, panY: -220, zoom: 2.58 };
-      for (const stateId of ['state_a', 'state_b', 'state_c'] as const) {
-        const panned = computeMinimalOcclusionPan(stateId, vw, highZoomCam, true, vh);
-        expect(panned.zoom).toBe(2.58);
-        const sx = getStateScreenCenterX(stateId, vw, panned, vh);
-        const sy = getStateScreenCenterY(stateId, vw, vh, panned);
-        expect(sx / vw).toBeGreaterThanOrEqual(LEFT_SHEET_OCCLUSION_RATIO - 0.001);
-        expect(sx / vw).toBeLessThanOrEqual(RIGHT_OUTLINER_OCCLUSION_RATIO + 0.001);
-        expect(sy / vh).toBeGreaterThanOrEqual(TOP_HUD_OCCLUSION_RATIO - 0.001);
-        expect(sy / vh).toBeLessThanOrEqual(BOTTOM_CONTROLS_OCCLUSION_RATIO + 0.001);
+      for (const pid of ACTIVE_PROVINCE_IDS) {
+        const sx = getProvinceScreenCenterX(pid, INITIAL_MAP_CAMERA, vw, vh);
+        const sy = getProvinceScreenCenterY(pid, INITIAL_MAP_CAMERA, vw, vh);
+        expect(sx / vw).toBeGreaterThanOrEqual(0.34);
+        expect(sx / vw).toBeLessThanOrEqual(0.74);
+        expect(sy / vh).toBeGreaterThanOrEqual(0.18);
+        expect(sy / vh).toBeLessThanOrEqual(0.78);
+        expect(computeMinimalOcclusionPan(pid, INITIAL_MAP_CAMERA, vw, vh, 416)).toEqual(
+          INITIAL_MAP_CAMERA,
+        );
       }
+
+      // Pan away from left panel occlusion when camera shifts Shaanxi under left panel
+      const occludedLeftCam = { panX: -120, panY: 0, zoom: 1.35 };
+      const panned = computeMinimalOcclusionPan('shaanxi', occludedLeftCam, vw, vh, 416);
+      const afterX = getProvinceScreenCenterX('shaanxi', panned, vw, vh);
+      expect(afterX).toBeGreaterThanOrEqual(450);
     }
   });
 
-  it('persists per-week approval drafts in sessionStorage, enforces all non-zero central decisions before ready, and clears archived stale drafts (Scenario 11)', () => {
-    const store = new GameStore({ initialWeek: 2 });
-    store.submitOfficerPackage('officer_a', {
-      week_number: 2,
-      report: {
-        gross_silver: 2 * WAN,
-        gross_grain: 1 * WAN,
-        disaster_type: 'none',
-        relief_demand_grain: 0,
-        summary: '甲州奏报',
-      },
-      proposal: {
-        project_local_silver: 1 * WAN,
-        project_central_silver: 1 * WAN,
-        relief_local_grain: 0,
-        relief_central_grain: 0,
-      },
-      central_report: {
-        gross_silver: 3 * WAN,
-        gross_grain: 1 * WAN,
-      },
+  it('manages top-left Economy/Population/Talent toggle/collapse and Province detail switching in a single Zustand store', () => {
+    const uiStore = createCourtUiStore();
+    expect(uiStore.getState().activeLeftPanel).toBeNull();
+    expect(uiStore.getState().selectedProvinceId).toBeNull();
+
+    // Toggle Economy opens 'economy' in the single left panel
+    uiStore.getState().toggleGlobalPanel('economy');
+    expect(uiStore.getState().activeLeftPanel).toBe('economy');
+
+    // Switching to Population switches the same left panel to 'population'
+    uiStore.getState().toggleGlobalPanel('population');
+    expect(uiStore.getState().activeLeftPanel).toBe('population');
+
+    // Switching to Talent switches the same left panel to 'talent'
+    uiStore.getState().toggleGlobalPanel('talent');
+    expect(uiStore.getState().activeLeftPanel).toBe('talent');
+
+    // Clicking the already active top-left Talent button collapses the left panel
+    uiStore.getState().toggleGlobalPanel('talent');
+    expect(uiStore.getState().activeLeftPanel).toBeNull();
+
+    // Clicking a province (active or frozen) opens 'province' details in the same left panel
+    uiStore.getState().openProvincePanel('beizhili');
+    expect(uiStore.getState().activeLeftPanel).toBe('province');
+    expect(uiStore.getState().selectedProvinceId).toBe('beizhili');
+
+    uiStore.getState().openProvincePanel('henan', 'approval');
+    expect(uiStore.getState().activeLeftPanel).toBe('province');
+    expect(uiStore.getState().selectedProvinceId).toBe('henan');
+    expect(uiStore.getState().provinceTab).toBe('approval');
+  });
+
+  it('distinguishes omitted unknown facts from explicit zero, dates historical facts with original author, and never invents frozen province data', () => {
+    const store = new GameplayStore();
+    try {
+      const initialView = store.getCourtView();
+      const charMap = new Map<CharacterId, CharacterPublicView>(
+        initialView.characters.map((c) => [c.character_id, c]),
+      );
+
+      // 1. Frozen provinces have no invented economy across all layers
+      const beizhiliView = initialView.provinces.find(
+        (p) => p.province.province_id === 'beizhili',
+      )!;
+      for (const layer of ['silver', 'grain', 'disaster'] as const) {
+        const pres = computeProvinceLayerPresentation(beizhiliView, layer, 1);
+        expect(pres.band).toBe('frozen');
+        expect(pres.metricText).toBe('冻结（未启用）');
+        expect(pres.isStaleFact).toBe(false);
+      }
+      expect(MAP_LAYERS.map((l) => l.id)).toEqual(['silver', 'grain', 'disaster']);
+
+      // 2. Unreported active provinces show 'unknown' (never 0)
+      const shaanxiInitial = initialView.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      for (const layer of ['silver', 'grain', 'disaster'] as const) {
+        const pres = computeProvinceLayerPresentation(shaanxiInitial, layer, 1);
+        expect(pres.band).toBe('unknown');
+        expect(pres.badgeText).toBe('未奏报');
+        expect(pres.metricText).toContain('未奏报');
+      }
+      expect(formatKnownNumericFact(shaanxiInitial.known.disposable_silver, 'silver')).toBe(
+        '未奏报（未知）',
+      );
+      // Unknown fact provenance label is empty so '未奏报（未知）' is never shown twice
+      expect(
+        formatFactProvenanceTag(shaanxiInitial.known.disposable_silver, 1, charMap),
+      ).toEqual({
+        label: '',
+        isStale: false,
+        authorName: null,
+        dateText: null,
+      });
+
+      // 3. Turn 1: character_a (沈安民) discloses Shaanxi disposable_silver; character_b (周廷儒) discloses explicit 0 relief_demand_grain in Henan
+      const assignmentA = store.getAssignment('character_a');
+      store.submit({
+        context: assignmentA.context,
+        report: {
+          body: '陕西呈报实情',
+          disclose: ['gross_silver', 'disposable_silver', 'disaster_type', 'disaster_label'],
+        },
+      });
+      const assignmentB = store.getAssignment('character_b');
+      store.submit({
+        context: assignmentB.context,
+        report: {
+          body: '河南秋成无灾',
+          disclose: [
+            'disaster_type',
+            'disaster_label',
+            'relief_demand_grain',
+            'relief_population',
+          ],
+        },
+      });
+
+      const viewAfterReport = store.getCourtView();
+      const henanAfter = viewAfterReport.provinces.find((p) => p.province.province_id === 'henan')!;
+      // Explicit zero is rendered as 0.0万石 / 0人, NOT unknown
+      expect(henanAfter.known.relief_demand_grain?.value).toBe(0);
+      expect(formatKnownNumericFact(henanAfter.known.relief_demand_grain, 'grain')).toBe(
+        '0.0万石',
+      );
+      expect(formatKnownNumericFact(henanAfter.known.relief_population, 'population')).toBe('0人');
+      const henanZeroProv = formatFactProvenanceTag(
+        henanAfter.known.relief_demand_grain,
+        1,
+        charMap,
+      );
+      expect(henanZeroProv.label).toBe('本轮奏报（1636年1月1日，陆慎之奏）');
+      expect(henanZeroProv.isStale).toBe(false);
+      const henanDisasterPres = computeProvinceLayerPresentation(henanAfter, 'disaster', 1);
+      expect(henanDisasterPres.band).toBe('low');
+      expect(henanDisasterPres.badgeText).toBe('岁境平顺');
+      expect(henanDisasterPres.metricText).toContain('0人');
+
+      // 4. Advance to Turn 2 and replace Shaanxi governor (character_a -> character_d 卢象升)
+      store.lock({ game_id: viewAfterReport.game_id, target_turn: 1 });
+      store.settle({ game_id: viewAfterReport.game_id, target_turn: 1, decisions: [] });
+      store.appoint({
+        game_id: viewAfterReport.game_id,
+        target_turn: 2,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_d',
+      });
+
+      const turn2View = store.getCourtView();
+      const shaanxiTurn2 = turn2View.provinces.find((p) => p.province.province_id === 'shaanxi')!;
+      expect(shaanxiTurn2.appointment?.character_id).toBe('character_d');
+      expect(shaanxiTurn2.current_officer_reported).toBe(false);
+
+      // Old Turn 1 fact in Shaanxi retains original Turn 1 date (1636年1月1日) and original author (沈安民), never relabeled as 陈知远
+      const provTag = formatFactProvenanceTag(
+        shaanxiTurn2.known.disposable_silver,
+        turn2View.viewed_turn.turn_number,
+        charMap,
+      );
+      expect(provTag.isStale).toBe(true);
+      expect(provTag.authorName).toBe('沈安民');
+      expect(provTag.dateText).toBe('1636年1月1日');
+      expect(provTag.label).toContain('往期记录');
+      expect(provTag.label).toContain('沈安民');
+      expect(provTag.label).not.toContain('陈知远');
+      expect(provTag.label).not.toContain('·');
+
+      const outlinerParts = formatOutlinerProvinceParts(
+        shaanxiTurn2,
+        charMap,
+        turn2View.viewed_turn.turn_number,
+      );
+      expect(outlinerParts.governorName).toBe('陈知远');
+      expect(outlinerParts.reportStatusBadge).toBe('本轮未奏');
+      expect(outlinerParts.summaryText).toContain('1636年1月1日 沈安民');
+      expect(outlinerParts.summaryText).not.toContain('·');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('validates independent formal plan integer approval drafts (0..requested_amount), distinguishes 0 rejected vs undecided, omits pure-local plans from decisions, and never clamps invalid input', () => {
+    // 1. Custom integer validation
+    expect(validateCustomPlanApprovalInput('', 10_000).error).toBeUndefined();
+    expect(validateCustomPlanApprovalInput('', 10_000).approved_amount).toBeUndefined();
+    expect(validateCustomPlanApprovalInput('0', 10_000)).toEqual({
+      approved_amount: 0,
+      custom_input: '0',
+      error: undefined,
     });
-    store.submitOfficerPackage('officer_b', {
-      week_number: 2,
-      report: {
-        gross_silver: 15_000,
-        gross_grain: 2 * WAN,
-        disaster_type: 'flood',
-        relief_demand_grain: 3 * WAN,
-        summary: '乙州奏报',
-      },
-      proposal: {
-        project_local_silver: 0,
-        project_central_silver: 0,
-        relief_local_grain: 1 * WAN,
-        relief_central_grain: 2 * WAN,
-      },
+    expect(validateCustomPlanApprovalInput('4000', 10_000)).toEqual({
+      approved_amount: 4_000,
+      custom_input: '4000',
+      error: undefined,
     });
-    store.submitOfficerPackage('officer_c', {
-      week_number: 2,
-      report: {
-        gross_silver: 15_000,
-        gross_grain: 2 * WAN,
-        disaster_type: 'drought',
-        relief_demand_grain: 2 * WAN,
-        summary: '丙州奏报',
-      },
-      proposal: {
-        project_local_silver: 5_000,
-        project_central_silver: 15_000,
-        relief_local_grain: 1 * WAN,
-        relief_central_grain: 1 * WAN,
-      },
+    expect(validateCustomPlanApprovalInput('10000', 10_000)).toEqual({
+      approved_amount: 10_000,
+      custom_input: '10000',
+      error: undefined,
     });
 
-    const lockedView = store.lockWeek({ target_week: 2 });
+    // Out-of-range, negative, or decimal inputs fail fast with explicit error and never clamp
+    expect(validateCustomPlanApprovalInput('-1', 10_000).error).toContain('不得小于 0');
+    expect(validateCustomPlanApprovalInput('100.5', 10_000).error).toContain('整数');
+    expect(validateCustomPlanApprovalInput('10001', 10_000).error).toContain('不得超过请拨上限');
+    expect(validateCustomPlanApprovalInput('10001', 10_000).approved_amount).toBeUndefined();
 
-    // Save 3 of 4 decisions to sessionStorage (Scenario 11: 1 item still undecided)
-    saveWeekApprovalDraft(2, {
-      state_a: { project_central_silver: 'APPROVED' },
-      state_b: { relief_central_grain: 'REJECTED' },
-      state_c: { project_central_silver: 'APPROVED' },
-    });
+    // 2. End-to-end plan completeness & pure-local omission with GameplayStore (Turn 2 has both canal & relief demand)
+    const store = new GameplayStore();
+    try {
+      const initGameId = store.getCourtView().game_id;
+      store.lock({ game_id: initGameId, target_turn: 1 });
+      store.settle({ game_id: initGameId, target_turn: 1, decisions: [] });
 
-    // Simulate F5 reload by reading back from sessionStorage
-    const restoredPartial = loadWeekApprovalDraft(2);
-    const statusPartial = evaluateApprovalDraftCompleteness(lockedView.states, restoredPartial);
-    expect(statusPartial.subState).toBe('DRAFT_INCOMPLETE');
-    expect(statusPartial.isReady).toBe(false);
-    expect(statusPartial.requiredCount).toBe(4);
-    expect(statusPartial.decidedCount).toBe(3);
-    expect(statusPartial.pendingLabels).toEqual(['丙州中央请拨赈粮']);
+      const a2 = store.getAssignment('character_a');
+      const b2 = store.getAssignment('character_b');
+      // Shaanxi submits 1 pure-local canal plan (requested 0 silver) + 1 positive requested canal plan (requested 6,000 silver)
+      store.submit({
+        context: a2.context,
+        report: { body: '陕西自筹与请拨并举修渠', disclose: ['disposable_silver'] },
+        plans: [
+          { kind: 'canal', local_amount: 4_000, requested_amount: 0, purpose: '地方自筹疏浚' },
+          { kind: 'canal', local_amount: 2_000, requested_amount: 6_000, purpose: '泾渭干渠扩建' },
+        ],
+      });
+      // Henan (Turn 2 flood, relief_demand_grain = 30,000) submits 1 positive requested relief plan (requested 20,000 grain)
+      store.submit({
+        context: b2.context,
+        report: { body: '河南洪灾请拨赈粮', disclose: ['relief_demand_grain', 'disaster_label'] },
+        plans: [
+          { kind: 'relief', local_amount: 5_000, requested_amount: 20_000, purpose: '开封府急赈' },
+        ],
+      });
 
-    // Complete the 4th decision
-    saveWeekApprovalDraft(2, {
-      ...restoredPartial,
-      state_c: {
-        ...restoredPartial.state_c,
-        relief_central_grain: 'APPROVED',
-      },
-    });
+      const lockedView = store.lock({
+        game_id: initGameId,
+        target_turn: 2,
+      });
 
-    const restoredFull = loadWeekApprovalDraft(2);
-    const statusFull = evaluateApprovalDraftCompleteness(lockedView.states, restoredFull);
-    expect(statusFull.subState).toBe('DRAFT_READY');
-    expect(statusFull.isReady).toBe(true);
-    expect(statusFull.decidedCount).toBe(4);
-    expect(statusFull.draftApprovedSilver).toBe(25_000); // 1.0万 + 1.5万
-    expect(statusFull.draftApprovedGrain).toBe(10_000); // 1.0万
+      const shaanxiPlans = lockedView.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!.plans;
+      const henanPlans = lockedView.provinces.find(
+        (p) => p.province.province_id === 'henan',
+      )!.plans;
+      const pureLocalPlan = shaanxiPlans.find((p) => p.requested_amount === 0)!;
+      const shaanxiCanalPlan = shaanxiPlans.find((p) => p.requested_amount > 0)!;
+      const reliefPlan = henanPlans[0]!;
 
-    // Stale draft cleanup removes Week 1 and Week 2 drafts once Week 3 is active
-    saveWeekApprovalDraft(1, { state_a: { project_central_silver: 'REJECTED' } });
-    clearStaleApprovalDrafts(3, 'OPEN');
-    expect(window.sessionStorage.getItem(`${APPROVAL_DRAFT_KEY_PREFIX}1`)).toBeNull();
-    expect(window.sessionStorage.getItem(`${APPROVAL_DRAFT_KEY_PREFIX}2`)).toBeNull();
+      // Undecided initial state: 2 positive locked plans required; pure-local plan NOT required
+      const evalEmpty = evaluatePlanApprovalCompleteness(lockedView.provinces, {});
+      expect(evalEmpty.requiredPlans.map((p) => p.plan_id)).toEqual([
+        reliefPlan.plan_id,
+        shaanxiCanalPlan.plan_id,
+      ]);
+      expect(evalEmpty.requiredPlans.some((p) => p.plan_id === pureLocalPlan.plan_id)).toBe(false);
+      expect(evalEmpty.pureLocalPlans.map((p) => p.plan_id)).toEqual([pureLocalPlan.plan_id]);
+      expect(evalEmpty.readyToSettle).toBe(false);
+      expect(evalEmpty.undecidedPlanIds).toHaveLength(2);
 
-    store.close();
+      // Decide partial 3,000 silver for Shaanxi canal, and 0 (rejected) for Henan relief
+      saveTurnPlanApprovalDraft(lockedView.game_id, 2, {
+        [shaanxiCanalPlan.plan_id]: {
+          approved_amount: 3_000,
+          custom_input: '3000',
+        },
+        [reliefPlan.plan_id]: {
+          approved_amount: 0,
+          custom_input: '0',
+        },
+      });
+
+      const loadedDraft = loadTurnPlanApprovalDraft(lockedView.game_id, 2);
+      const evalComplete = evaluatePlanApprovalCompleteness(lockedView.provinces, loadedDraft);
+      expect(evalComplete.readyToSettle).toBe(true);
+      expect(evalComplete.draftApprovedGrain).toBe(0);
+      expect(evalComplete.draftApprovedSilver).toBe(3_000);
+      expect(evalComplete.decisions).toEqual([
+        { plan_id: reliefPlan.plan_id, approved_amount: 0 },
+        { plan_id: shaanxiCanalPlan.plan_id, approved_amount: 3_000 },
+      ]);
+
+      // Settle Turn 2 using the exact generated decisions array
+      const settledView = store.settle({
+        game_id: lockedView.game_id,
+        target_turn: 2,
+        decisions: evalComplete.decisions,
+      });
+      expect(settledView.active_turn.turn_number).toBe(3);
+      // Shaanxi pure-local canal plan (4,000) + partial canal plan (2,000 local + 3,000 central = 5,000) = 9,000 paid_silver
+      expect(
+        settledView.provinces.find((p) => p.province.province_id === 'shaanxi')!.project!
+          .paid_silver,
+      ).toBe(9_000);
+
+      // Stale draft cleanup preserves Turn 3 and removes Turn 2
+      clearStalePlanApprovalDrafts(lockedView.game_id, 3);
+      expect(
+        window.localStorage.getItem(getPlanDraftStorageKey(lockedView.game_id, 2)),
+      ).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('formats 1636 turn dates (1636-01-01..1636-01-22), stops at 4-turn ending with no 5th turn, resolves character-bound chat & runtime profile, and identifies 409 conflict codes', () => {
+    expect(formatTurnCalendarIso(1)).toBe('1636-01-01');
+    expect(formatTurnCalendarDate(1)).toBe('1636年1月1日');
+    expect(formatTurnCalendarIso(2)).toBe('1636-01-08');
+    expect(formatTurnCalendarDate(2)).toBe('1636年1月8日');
+    expect(formatTurnCalendarIso(3)).toBe('1636-01-15');
+    expect(formatTurnCalendarDate(3)).toBe('1636年1月15日');
+    expect(formatTurnCalendarIso(4)).toBe('1636-01-22');
+    expect(formatTurnCalendarDate(4)).toBe('1636年1月22日');
+
+    const opts = buildAvailableHistoryTurnOptions(4);
+    expect(opts).toHaveLength(4);
+    expect(opts.map((o) => o.date_iso)).toEqual([
+      '1636-01-01',
+      '1636-01-08',
+      '1636-01-15',
+      '1636-01-22',
+    ]);
+
+    const store = new GameplayStore();
+    try {
+      const v1 = store.getCourtView();
+      const shaanxi1 = v1.provinces.find((p) => p.province.province_id === 'shaanxi')!;
+      expect(resolveIncumbentCharacterForProvince(shaanxi1)).toBe('character_a');
+
+      // Update office runtime profile via store
+      const updatedOffice = store.setRuntimeProfile({
+        game_id: v1.game_id,
+        office_id: 'governor_shaanxi',
+        profile: {
+          runtime: 'claude',
+          model: 'claude-sonnet-4-5',
+          effort: 'high',
+          mode: 'json+mcp-read',
+        },
+      });
+      expect(updatedOffice.runtime_profile?.mode).toBe('json+mcp-read');
+      expect(updatedOffice.runtime_profile?.effort).toBe('high');
+
+      // Create DM with character_a, then replace Shaanxi governor with character_d
+      const dm = store.createConversation({
+        game_id: v1.game_id,
+        target_turn: 1,
+        kind: 'dm',
+        title: '与沈安民密折',
+        character_ids: ['character_a'],
+      });
+      expect(getConversationCharacterIds(dm)).toEqual(['character_a']);
+
+      saveConversationDraft(v1.game_id, 1, dm.conversation_id, '询问陕北流民');
+      expect(loadConversationDraftMap(v1.game_id, 1)[dm.conversation_id]).toBe('询问陕北流民');
+
+      store.appoint({
+        game_id: v1.game_id,
+        target_turn: 1,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_d',
+      });
+      const v1AfterAppoint = store.getCourtView();
+      const shaanxiAfter = v1AfterAppoint.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      // Province contact resolves new incumbent (character_d) at click/send time
+      expect(resolveIncumbentCharacterForProvince(shaanxiAfter)).toBe('character_d');
+      // Currently appointed characters for new group creation exclude dismissed character_a and include character_d
+      expect(getAppointedCharacters(v1AfterAppoint).map((c) => c.character_id)).toEqual([
+        'character_b',
+        'character_c',
+        'character_d',
+      ]);
+      // Existing conversation history & draft remain bound to original participant (character_a)
+      const existingConvs = store.listCourtConversations();
+      expect(getConversationCharacterIds(existingConvs[0]!)).toEqual(['character_a']);
+      expect(loadConversationDraftMap(v1.game_id, 1)[dm.conversation_id]).toBe('询问陕北流民');
+
+      // Group chat wakes only explicit mentions
+      const groupConv = store.createConversation({
+        game_id: v1.game_id,
+        target_turn: 1,
+        kind: 'group',
+        title: '三省廷议',
+        character_ids: ['character_d', 'character_b', 'character_c'],
+      });
+      const sentMsg = store.postCourtMessage({
+        game_id: v1.game_id,
+        target_turn: 1,
+        conversation_id: groupConv.conversation_id,
+        content: '请 @卢象升 速议河工',
+        mentions: ['character_d'],
+      });
+      expect(sentMsg.mentions).toEqual(['character_d']);
+      expect(sentMsg.wake_targets).toEqual(['character_d']);
+
+      // Progress through all 4 turns and verify 4-turn terminal ending (no 5th turn)
+      for (const turn of [1, 2, 3, 4]) {
+        store.lock({ game_id: v1.game_id, target_turn: turn });
+        store.settle({ game_id: v1.game_id, target_turn: turn, decisions: [] });
+      }
+      const finalView = store.getCourtView();
+      expect(finalView.active_turn).toEqual({
+        turn_number: 4,
+        date: '1636-01-22',
+        phase: 'ARCHIVED',
+      });
+      expect(() => store.getCourtView(5)).toThrow();
+      clearStaleConversationDrafts(v1.game_id, 4);
+
+      // Conflict error detection
+      for (const code of ['STALE_TURN', 'WRONG_PHASE', 'STALE_APPOINTMENT', 'STALE_GAME']) {
+        const err = new CourtApiError(409, code, 'Conflict');
+        expect(err.isStaleOrPhaseConflict()).toBe(true);
+      }
+
+      // Conversation + viewed turn key isolates message history per turn
+      expect(getConversationTurnKey('conv_1', 1)).toBe('conv_1:turn:1');
+      expect(getConversationTurnKey('conv_1', 2)).toBe('conv_1:turn:2');
+      expect(getConversationTurnKey('conv_1', 1)).not.toBe(
+        getConversationTurnKey('conv_1', 2),
+      );
+
+      // Monarch settings store only courtToken & debugToken with no legacy apiKey/apiEndpoint/modelName fallback
+      expect(DEFAULT_MONARCH_SETTINGS).toEqual({
+        courtToken: '',
+        debugToken: '',
+      });
+      window.localStorage.setItem(
+        'simu-ming-monarch-settings:v1',
+        JSON.stringify({
+          apiEndpoint: 'http://legacy',
+          apiKey: 'legacy-token',
+          modelName: 'legacy-model',
+          debugToken: 'dbg-1',
+        }),
+      );
+      expect(loadMonarchSettings()).toEqual({
+        courtToken: '',
+        debugToken: 'dbg-1',
+      });
+      saveMonarchSettings({
+        courtToken: 'fresh-court-token',
+        debugToken: 'fresh-debug-token',
+      });
+      expect(loadMonarchSettings()).toEqual({
+        courtToken: 'fresh-court-token',
+        debugToken: 'fresh-debug-token',
+      });
+    } finally {
+      store.close();
+    }
   });
 
   it('does not bundle or hardcode any backend role credentials into production browser JS', () => {
@@ -362,245 +639,7 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft 
       const content = readFileSync(join(staticDir, file), 'utf-8');
       expect(content).not.toContain('monarch-token');
       expect(content).not.toContain('monarch-debug-token');
-      expect(content).not.toContain('officer-a-token');
-      expect(content).not.toContain('officer-b-token');
-      expect(content).not.toContain('officer-c-token');
+      expect(content).not.toContain('agent-host-token');
     }
-  });
-
-  it('guards against current/history out-of-order request races so slow current-week responses never overwrite selected history view', async () => {
-    const store = new GameStore({ initialWeek: 2 });
-    store.lockWeek({ target_week: 2 });
-    store.settleWeek({ target_week: 2, decisions: {} });
-
-    const week3ActiveView = store.getCourtView();
-    const week2HistoryView = store.getCourtView(2);
-    expect(week3ActiveView.viewed_week.week_number).toBe(3);
-    expect(week3ActiveView.viewed_week.week_phase).toBe('OPEN');
-    expect(week2HistoryView.viewed_week.week_number).toBe(2);
-    expect(week2HistoryView.viewed_week.is_history_view).toBe(true);
-
-    const guard = new LatestRequestController();
-    let appliedView = week3ActiveView;
-    let loading = false;
-
-    // 1. User clicks Sync on current Week 3 (slow response)
-    const slowSyncTicket = guard.begin();
-    loading = true;
-
-    // 2. User immediately selects archived Week 2 (fast response)
-    guard.invalidate();
-    const fastHistoryTicket = guard.begin();
-    expect(slowSyncTicket.signal.aborted).toBe(true);
-    expect(slowSyncTicket.isCurrent()).toBe(false);
-    expect(fastHistoryTicket.isCurrent()).toBe(true);
-
-    // 3. Fast history Week 2 response arrives first
-    if (fastHistoryTicket.isCurrent()) {
-      appliedView = week2HistoryView;
-      loading = false;
-    }
-    expect(appliedView.viewed_week.week_number).toBe(2);
-    expect(appliedView.viewed_week.is_history_view).toBe(true);
-
-    // 4. Slow current Week 3 response arrives late — guard rejects it
-    if (slowSyncTicket.isCurrent()) {
-      appliedView = week3ActiveView;
-      loading = false;
-    }
-    expect(appliedView.viewed_week.week_number).toBe(2);
-    expect(appliedView.viewed_week.week_phase).toBe('ARCHIVED');
-    expect(appliedView.viewed_week.is_history_view).toBe(true);
-    expect(loading).toBe(false);
-
-    store.close();
-  });
-
-  it('builds georeferenced jiangshan-map Mercator territories, hydrography, and pure SVG viewBox camera math with 0.0 upstream registration drift', () => {
-    expect(PROJECTOR).toBeInstanceOf(MercatorProjector);
-    const [lng, lat] = PROJECTOR.toGeo(202.0, 128.9);
-    const [sx, sy] = PROJECTOR.toScreen(lng, lat);
-    expect(sx).toBeCloseTo(202.0, 1);
-    expect(sy).toBeCloseTo(128.9, 1);
-
-    // Exact registration against upstream jiangshan-map MercatorProjector(1000, 700, { west: 66, east: 142, south: 14, north: 55 })
-    const rawUpstream = new MercatorProjector(
-      1000,
-      700,
-      { west: 66, east: 142, south: 14, north: 55 },
-      0,
-      0,
-    );
-    const expectedRawAnchors: Array<{ lng: number; lat: number; rawX: number; rawY: number }> = [
-      { lng: 104, lat: 34.5, rawX: 500.0, rawY: 393.9586 },
-      { lng: 120, lat: 30, rawX: 710.5263, rawY: 464.0023 },
-      { lng: 116, lat: 40, rawX: 657.8947, rawY: 302.9684 },
-      { lng: 110, lat: 25, rawX: 578.9474, rawY: 538.2085 },
-    ];
-    for (const anchor of expectedRawAnchors) {
-      const [ux, uy] = rawUpstream.toScreen(anchor.lng, anchor.lat);
-      expect(ux).toBeCloseTo(anchor.rawX, 3);
-      expect(uy).toBeCloseTo(anchor.rawY, 3);
-
-      const [px, py] = PROJECTOR.toScreen(anchor.lng, anchor.lat);
-      const drift = Math.hypot(px - (ux - MAP_VIEWBOX_ORIGIN_X), py - (uy - MAP_VIEWBOX_ORIGIN_Y));
-      expect(drift).toBeLessThan(0.01);
-    }
-
-    expect(TERRAIN_RELIEF_RECT).toEqual({
-      x: -80 - MAP_VIEWBOX_ORIGIN_X,
-      y: -40 - MAP_VIEWBOX_ORIGIN_Y,
-      width: 1160,
-      height: 780,
-    });
-
-    const bgGeo = getBackgroundGeographyLayer();
-    expect(bgGeo.landmassShapes.length).toBeGreaterThan(20);
-    expect(bgGeo.interiorBoundaries.startsWith('M')).toBe(true);
-    expect(bgGeo.outerBoundaries.startsWith('M')).toBe(true);
-
-    const hydro = getProjectedHydroLayer();
-    expect(hydro.lakes.length).toBeGreaterThan(0);
-    expect(hydro.trunkCasingPaths.length).toBeGreaterThan(0);
-    expect(hydro.rivers.some((r) => r.rankClass === 'rank-trunk')).toBe(true);
-
-    expect(computeSvgCameraViewBox(INITIAL_MAP_CAMERA, 1440, 900)).toBe('0.00 0.00 460.00 288.00');
-    const zoomedCam = zoomCameraAtClientPoint(INITIAL_MAP_CAMERA, 1.4, 720, 450, {
-      left: 0,
-      top: 0,
-      width: 1440,
-      height: 900,
-    });
-    expect(zoomedCam.zoom).toBe(1.4);
-    expect(zoomedCam.panX).toBe(-288);
-    expect(zoomedCam.panY).toBe(-180);
-  });
-
-  it('derives trial calendar dates strictly from server viewed_week.week_number in UTC (1444-11-11 + 7 days/week), stays invariant across timezones, does not advance on lock/failure, ends at Week 4 terminal state without a 5th date, and formats outliner rows without middle dots', () => {
-    // 1. Timezone invariance across Americas, UTC, Asia, and Pacific offsets
-    const originalTz = process.env.TZ;
-    try {
-      for (const tz of ['UTC', 'America/Los_Angeles', 'Asia/Shanghai', 'Pacific/Auckland']) {
-        process.env.TZ = tz;
-        expect(formatWeekCalendarIso(1)).toBe('1444-11-11');
-        expect(formatWeekCalendarDate(1)).toBe('1444年11月11日');
-        expect(formatWeekCalendarIso(2)).toBe('1444-11-18');
-        expect(formatWeekCalendarDate(2)).toBe('1444年11月18日');
-        expect(formatWeekCalendarIso(3)).toBe('1444-11-25');
-        expect(formatWeekCalendarDate(3)).toBe('1444年11月25日');
-        expect(formatWeekCalendarIso(4)).toBe('1444-12-02');
-        expect(formatWeekCalendarDate(4)).toBe('1444年12月2日');
-      }
-    } finally {
-      if (originalTz === undefined) {
-        delete process.env.TZ;
-      } else {
-        process.env.TZ = originalTz;
-      }
-    }
-
-    // 2. Server workflow: locking and failed settlement never advance calendar date
-    const store = new GameStore({ initialWeek: 1 });
-    const week1Open = store.getCourtView();
-    expect(week1Open.viewed_week.week_number).toBe(1);
-    expect(formatWeekCalendarDate(week1Open.viewed_week.week_number)).toBe('1444年11月11日');
-
-    const week1Locked = store.lockWeek({ target_week: 1 });
-    expect(week1Locked.current_active_week).toEqual({ week_number: 1, week_phase: 'LOCKED' });
-    expect(formatWeekCalendarDate(week1Locked.viewed_week.week_number)).toBe('1444年11月11日');
-
-    // Settle Week 1 -> advances to Week 2 (1444年11月18日)
-    const afterSettle1 = store.settleWeek({ target_week: 1, decisions: {} });
-    expect(afterSettle1.current_active_week).toEqual({ week_number: 2, week_phase: 'OPEN' });
-    expect(formatWeekCalendarDate(afterSettle1.viewed_week.week_number)).toBe('1444年11月18日');
-
-    // Submit over-budget grain requests in Week 2 and verify failed settle does not advance date
-    store.submitOfficerPackage('officer_b', {
-      week_number: 2,
-      report: {
-        gross_silver: 15_000,
-        gross_grain: 2 * WAN,
-        disaster_type: 'flood',
-        relief_demand_grain: 3 * WAN,
-        summary: '乙州洪灾',
-      },
-      proposal: {
-        project_local_silver: 0,
-        project_central_silver: 0,
-        relief_local_grain: 1 * WAN,
-        relief_central_grain: 2 * WAN,
-      },
-    });
-    store.lockWeek({ target_week: 2 });
-    expect(() =>
-      store.settleWeek({
-        target_week: 2,
-        decisions: { state_b: { relief_central_grain: 'APPROVED' } },
-      }),
-    ).toThrow();
-    expect(formatWeekCalendarDate(store.getCourtView().viewed_week.week_number)).toBe('1444年11月18日');
-
-    // Settle Week 2 (rejecting over-budget request) -> advances to Week 3 (1444年11月25日)
-    const afterSettle2 = store.settleWeek({
-      target_week: 2,
-      decisions: { state_b: { relief_central_grain: 'REJECTED' } },
-    });
-    expect(formatWeekCalendarDate(afterSettle2.viewed_week.week_number)).toBe('1444年11月25日');
-
-    // 3. History dropdown options and history view date resolution on Week 3
-    const week1HistoryView = store.getCourtView(1);
-    expect(week1HistoryView.viewed_week.is_history_view).toBe(true);
-    expect(formatWeekCalendarDate(week1HistoryView.viewed_week.week_number)).toBe('1444年11月11日');
-    expect(formatWeekCalendarDate(store.getCourtView().viewed_week.week_number)).toBe('1444年11月25日');
-
-    const historyOptionsOnW3 = buildAvailableHistoryWeekOptions(
-      week1HistoryView.current_active_week.week_number,
-      week1HistoryView.viewed_week.week_number,
-    );
-    expect(historyOptionsOnW3.map((o) => o.weekNumber)).toEqual([1, 2, 3]);
-    expect(historyOptionsOnW3.map((o) => o.dateLabel)).toEqual([
-      '1444年11月11日',
-      '1444年11月18日',
-      '1444年11月25日',
-    ]);
-    expect(historyOptionsOnW3.find((o) => o.weekNumber === 1)?.isSelected).toBe(true);
-    expect(historyOptionsOnW3.find((o) => o.weekNumber === 3)?.isCurrent).toBe(true);
-
-    // 4. Settle Week 3 -> Week 4, then settle Week 4 -> terminal ARCHIVED without 5th week/date
-    store.lockWeek({ target_week: 3 });
-    const afterSettle3 = store.settleWeek({ target_week: 3, decisions: {} });
-    expect(formatWeekCalendarDate(afterSettle3.viewed_week.week_number)).toBe('1444年12月2日');
-
-    store.lockWeek({ target_week: 4 });
-    const afterSettle4 = store.settleWeek({ target_week: 4, decisions: {} });
-    expect(afterSettle4.current_active_week).toEqual({ week_number: 4, week_phase: 'ARCHIVED' });
-    expect(afterSettle4.viewed_week.week_number).toBe(4);
-    expect(formatWeekCalendarDate(afterSettle4.viewed_week.week_number)).toBe('1444年12月2日');
-    expect(
-      buildAvailableHistoryWeekOptions(
-        afterSettle4.current_active_week.week_number,
-        afterSettle4.viewed_week.week_number,
-      ),
-    ).toHaveLength(4);
-    expect(() => store.getCourtView(5)).toThrow();
-
-    // 5. Outliner state row formatting uses column alignment without middle-dot separators
-    const week2History = store.getCourtView(2);
-    const stB = week2History.states.find((s) => s.state_id === 'state_b')!;
-    const stC = week2History.states.find((s) => s.state_id === 'state_c')!;
-    expect(formatOutlinerStateParts(stB)).toEqual({
-      disasterText: '洪灾',
-      requestText: '请粮2.0万石',
-      isUnknown: false,
-    });
-    expect(formatOutlinerStateParts(stC)).toEqual({
-      disasterText: '未奏报（未知）',
-      requestText: '',
-      isUnknown: true,
-    });
-    expect(computeStateLayerPresentation(stB, 'disaster').badgeSubtitle).toBe('洪灾 需赈3.0万石');
-    expect(computeStateLayerPresentation(stB, 'disaster').badgeSubtitle).not.toContain('·');
-
-    store.close();
   });
 });

@@ -1,364 +1,677 @@
-import {
-  STATE_IDS,
-  type ApiErrorResponse,
-  type ApprovalDecision,
-  type ChatMessageView,
-  type CourtStateView,
-  type CourtViewResponse,
-  type DebugTruthResponse,
-  type LockWeekRequest,
-  type PostCourtMessageRequest,
-  type SettleWeekRequest,
-  type StateApprovalDecisionsInput,
-  type StateId,
-  type WeekPhase,
-} from '../src/contracts/index.ts';
+import { create } from 'zustand';
+import type {
+  AppointmentRequest,
+  AppointmentResponse,
+  CharacterId,
+  CharacterPublicView,
+  CourtMessageRequest,
+  CourtProvinceView,
+  CreateConversationRequest,
+  GameplayConversation,
+  GameplayCourtView,
+  GameplayDebugView,
+  GameplayMessage,
+  OfficeView,
+  PlanDecision,
+  PlanRecord,
+  ProvinceId,
+  RuntimeProfileRequest,
+  SettleTurnRequest,
+  TurnTargetRequest
+} from '../src/contracts/gameplay';
+import type { MapLayerKind } from './map-data';
 
-export const MONARCH_TOKEN_STORAGE_KEY = 'simu_emperor_monarch_token';
-export const DEBUG_TOKEN_STORAGE_KEY = 'simu_emperor_debug_token';
-export const APPROVAL_DRAFT_KEY_PREFIX = 'simu_emperor_approval_draft_week_';
+export type LeftPanelMode = 'economy' | 'population' | 'talent' | 'province' | null;
+export type ProvinceDrawerTab = 'report' | 'approval' | 'chat';
 
-export type WeekApprovalDraft = Partial<Record<StateId, StateApprovalDecisionsInput>>;
+export interface CourtUiState {
+  activeLeftPanel: LeftPanelMode;
+  selectedProvinceId: ProvinceId | null;
+  provinceTab: ProvinceDrawerTab;
+  activeLayer: MapLayerKind;
+  activeConversationId: string | null;
+  toggleGlobalPanel: (panel: 'economy' | 'population' | 'talent') => void;
+  openProvincePanel: (provinceId: ProvinceId, tab?: ProvinceDrawerTab) => void;
+  closeLeftPanel: () => void;
+  setProvinceTab: (tab: ProvinceDrawerTab) => void;
+  setActiveLayer: (layer: MapLayerKind) => void;
+  setActiveConversationId: (conversationId: string | null) => void;
+}
 
-export class HttpApiError extends Error {
-  public readonly status: number;
-  public readonly code: string;
+export function createCourtUiStore(
+  initial?: Partial<
+    Pick<
+      CourtUiState,
+      | 'activeLeftPanel'
+      | 'selectedProvinceId'
+      | 'provinceTab'
+      | 'activeLayer'
+      | 'activeConversationId'
+    >
+  >
+) {
+  return create<CourtUiState>((set) => ({
+    activeLeftPanel: initial?.activeLeftPanel ?? null,
+    selectedProvinceId: initial?.selectedProvinceId ?? null,
+    provinceTab: initial?.provinceTab ?? 'report',
+    activeLayer: initial?.activeLayer ?? 'silver',
+    activeConversationId: initial?.activeConversationId ?? null,
+    toggleGlobalPanel: (panel) =>
+      set((state) => ({
+        activeLeftPanel: state.activeLeftPanel === panel ? null : panel
+      })),
+    openProvincePanel: (provinceId, tab) =>
+      set((state) => ({
+        selectedProvinceId: provinceId,
+        activeLeftPanel: 'province',
+        provinceTab: tab ?? state.provinceTab
+      })),
+    closeLeftPanel: () =>
+      set({
+        activeLeftPanel: null,
+        selectedProvinceId: null
+      }),
+    setProvinceTab: (tab) => set({ provinceTab: tab }),
+    setActiveLayer: (layer) => set({ activeLayer: layer }),
+    setActiveConversationId: (conversationId) => set({ activeConversationId: conversationId })
+  }));
+}
 
-  constructor(status: number, code: string, message: string) {
+export const useCourtUiStore = createCourtUiStore();
+
+export const CONFLICT_ERROR_CODES = new Set([
+  'STALE_TURN',
+  'WRONG_PHASE',
+  'STALE_APPOINTMENT',
+  'STALE_GAME'
+]);
+
+export interface GameplayErrorBody {
+  error: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+export interface ConversationMessagesResponse {
+  conversation_id: string;
+  messages: GameplayMessage[];
+}
+
+export class CourtApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details?: Record<string, unknown>
+  ) {
     super(message);
-    this.name = 'HttpApiError';
+    this.name = 'CourtApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
+  }
+
+  isStaleOrPhaseConflict(): boolean {
+    return this.status === 409 || CONFLICT_ERROR_CODES.has(this.code);
   }
 }
 
-export class NetworkUncertainError extends Error {
-  constructor(message: string = '网络请求中断或超时，未收到服务端响应') {
-    super(message);
-    this.name = 'NetworkUncertainError';
+function buildCourtHeaders(includeJsonContentType = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json'
+  };
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
   }
+  const settings = loadMonarchSettings();
+  const token = settings.courtToken.trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
 }
 
-export interface RequestTicket {
-  readonly id: number;
-  readonly signal: AbortSignal;
-  isCurrent(): boolean;
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      payload.error &&
+      typeof payload.error === 'object'
+    ) {
+      const errObj = (payload as GameplayErrorBody).error;
+      throw new CourtApiError(
+        response.status,
+        typeof errObj.code === 'string' ? errObj.code : `HTTP_${response.status}`,
+        typeof errObj.message === 'string'
+          ? errObj.message
+          : `请求失败 (${response.status})`,
+        errObj.details
+      );
+    }
+    throw new CourtApiError(
+      response.status,
+      `HTTP_${response.status}`,
+      `请求失败 (${response.status})`
+    );
+  }
+
+  return payload as T;
+}
+
+export async function fetchCourtView(
+  turn?: number,
+  signal?: AbortSignal
+): Promise<GameplayCourtView> {
+  const query = turn !== undefined ? `?turn=${encodeURIComponent(String(turn))}` : '';
+  const response = await fetch(`/api/court/view${query}`, {
+    method: 'GET',
+    headers: buildCourtHeaders(false),
+    signal
+  });
+  return parseJsonResponse<GameplayCourtView>(response);
+}
+
+export async function postLockTurn(payload: TurnTargetRequest): Promise<GameplayCourtView> {
+  const response = await fetch('/api/court/lock', {
+    method: 'POST',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<GameplayCourtView>(response);
+}
+
+export async function postSettleTurn(payload: SettleTurnRequest): Promise<GameplayCourtView> {
+  const response = await fetch('/api/court/settle', {
+    method: 'POST',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<GameplayCourtView>(response);
+}
+
+export async function postAppointment(
+  payload: AppointmentRequest
+): Promise<AppointmentResponse> {
+  const response = await fetch('/api/court/appointments', {
+    method: 'POST',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<AppointmentResponse>(response);
+}
+
+export async function putRuntimeProfile(
+  payload: RuntimeProfileRequest
+): Promise<OfficeView> {
+  const response = await fetch('/api/court/runtime-profile', {
+    method: 'PUT',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<OfficeView>(response);
+}
+
+export async function fetchCourtConversations(signal?: AbortSignal): Promise<{
+  conversations: GameplayConversation[];
+}> {
+  const response = await fetch('/api/court/conversations', {
+    method: 'GET',
+    headers: buildCourtHeaders(false),
+    signal
+  });
+  return parseJsonResponse<{ conversations: GameplayConversation[] }>(response);
+}
+
+export async function postCreateConversation(
+  payload: CreateConversationRequest
+): Promise<GameplayConversation> {
+  const response = await fetch('/api/court/conversations', {
+    method: 'POST',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<GameplayConversation>(response);
+}
+
+export function getConversationTurnKey(
+  conversationId: string,
+  turnNumber: number
+): string {
+  return `${conversationId}:turn:${turnNumber}`;
+}
+
+export async function fetchConversationMessages(
+  conversationId: string,
+  turn?: number,
+  signal?: AbortSignal
+): Promise<ConversationMessagesResponse> {
+  const query = turn !== undefined ? `?turn=${encodeURIComponent(String(turn))}` : '';
+  const response = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
+    {
+      method: 'GET',
+      headers: buildCourtHeaders(false),
+      signal
+    }
+  );
+  return parseJsonResponse<ConversationMessagesResponse>(response);
+}
+
+export async function postCourtMessage(
+  payload: CourtMessageRequest
+): Promise<{ message: GameplayMessage }> {
+  const response = await fetch('/api/court/messages', {
+    method: 'POST',
+    headers: buildCourtHeaders(true),
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse<{ message: GameplayMessage }>(response);
+}
+
+export async function fetchDebugTruth(
+  turn?: number,
+  debugToken?: string
+): Promise<GameplayDebugView> {
+  const params = new URLSearchParams();
+  if (turn !== undefined) {
+    params.set('turn', String(turn));
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const token = debugToken?.trim() || loadMonarchSettings().debugToken.trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`/api/debug/truth${query}`, {
+    method: 'GET',
+    headers
+  });
+  return parseJsonResponse<GameplayDebugView>(response);
 }
 
 /**
- * Local request generation + AbortController guard so stale responses,
- * errors, URL normalizations, or loading resets from superseded requests
- * never overwrite the latest user-selected view or credential intent.
+ * Resolves the current incumbent `CharacterId` for a province at click/send time.
+ * Never rewrites historical conversations or binds conversations to province IDs.
  */
-export class LatestRequestController {
-  private seq = 0;
-  private activeController: AbortController | null = null;
+export function resolveIncumbentCharacterForProvince(
+  provinceView: CourtProvinceView | undefined
+): CharacterId | null {
+  return provinceView?.appointment?.character_id ?? null;
+}
 
-  public begin(): RequestTicket {
-    this.seq += 1;
-    if (this.activeController) {
-      this.activeController.abort();
+export function getConversationCharacterIds(conv: GameplayConversation): CharacterId[] {
+  return conv.participants.filter((actor) => actor !== 'monarch');
+}
+
+export function getAppointedCharacters(
+  courtView: Pick<GameplayCourtView, 'appointments' | 'characters'> | null | undefined
+): CharacterPublicView[] {
+  if (!courtView) return [];
+  const appointedIds = new Set<CharacterId>();
+  for (const appt of courtView.appointments) {
+    if (appt.ended_at === null && appt.character_id) {
+      appointedIds.add(appt.character_id);
     }
-    const controller = new AbortController();
-    this.activeController = controller;
-    const id = this.seq;
-    return {
-      id,
-      signal: controller.signal,
-      isCurrent: () => this.seq === id && !controller.signal.aborted,
-    };
   }
-
-  public invalidate(): number {
-    this.seq += 1;
-    if (this.activeController) {
-      this.activeController.abort();
-      this.activeController = null;
-    }
-    return this.seq;
-  }
-
-  public get currentId(): number {
-    return this.seq;
-  }
+  return courtView.characters.filter((c) => appointedIds.has(c.character_id));
 }
 
-function getSessionStorage(): Storage | null {
+export interface PlanApprovalDraftEntry {
+  approved_amount?: number;
+  custom_input?: string;
+  error?: string;
+}
+
+export type TurnPlanApprovalDraft = Record<string, PlanApprovalDraftEntry>;
+
+const PLAN_DRAFT_STORAGE_PREFIX = 'simu-ming-plan-approval-draft:';
+const CHAT_DRAFT_STORAGE_PREFIX = 'simu-ming-chat-draft:';
+const MONARCH_SETTINGS_KEY = 'simu-ming-monarch-settings:v1';
+
+export function getPlanDraftStorageKey(gameId: string, turnNumber: number): string {
+  return `${PLAN_DRAFT_STORAGE_PREFIX}${gameId}:turn:${turnNumber}`;
+}
+
+export function loadTurnPlanApprovalDraft(
+  gameId: string,
+  turnNumber: number
+): TurnPlanApprovalDraft {
+  if (typeof window === 'undefined') return {};
   try {
-    return typeof window !== 'undefined' ? window.sessionStorage : null;
-  } catch {
-    return null;
-  }
-}
-
-export function getStoredMonarchToken(): string {
-  return getSessionStorage()?.getItem(MONARCH_TOKEN_STORAGE_KEY)?.trim() ?? '';
-}
-
-export function setStoredMonarchToken(token: string): void {
-  const storage = getSessionStorage();
-  if (!storage) return;
-  const trimmed = token.trim();
-  if (trimmed) {
-    storage.setItem(MONARCH_TOKEN_STORAGE_KEY, trimmed);
-  } else {
-    storage.removeItem(MONARCH_TOKEN_STORAGE_KEY);
-  }
-}
-
-export function getStoredDebugToken(): string {
-  return getSessionStorage()?.getItem(DEBUG_TOKEN_STORAGE_KEY)?.trim() ?? '';
-}
-
-export function setStoredDebugToken(token: string): void {
-  const storage = getSessionStorage();
-  if (!storage) return;
-  const trimmed = token.trim();
-  if (trimmed) {
-    storage.setItem(DEBUG_TOKEN_STORAGE_KEY, trimmed);
-  } else {
-    storage.removeItem(DEBUG_TOKEN_STORAGE_KEY);
-  }
-}
-
-export function loadWeekApprovalDraft(weekNumber: number): WeekApprovalDraft {
-  const storage = getSessionStorage();
-  if (!storage) return {};
-  const raw = storage.getItem(`${APPROVAL_DRAFT_KEY_PREFIX}${weekNumber}`);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const raw = window.localStorage.getItem(getPlanDraftStorageKey(gameId, turnNumber));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object') return {};
-    const sanitized: WeekApprovalDraft = {};
-    for (const stateId of STATE_IDS) {
-      const entry = parsed[stateId] as Record<string, unknown> | undefined;
-      if (entry && typeof entry === 'object') {
-        const stateDraft: StateApprovalDecisionsInput = {};
-        if (
-          entry.project_central_silver === 'APPROVED' ||
-          entry.project_central_silver === 'REJECTED'
-        ) {
-          stateDraft.project_central_silver = entry.project_central_silver;
-        }
-        if (
-          entry.relief_central_grain === 'APPROVED' ||
-          entry.relief_central_grain === 'REJECTED'
-        ) {
-          stateDraft.relief_central_grain = entry.relief_central_grain;
-        }
-        if (Object.keys(stateDraft).length > 0) {
-          sanitized[stateId] = stateDraft;
-        }
-      }
-    }
-    return sanitized;
+    return parsed as TurnPlanApprovalDraft;
   } catch {
     return {};
   }
 }
 
-export function saveWeekApprovalDraft(weekNumber: number, draft: WeekApprovalDraft): void {
-  const storage = getSessionStorage();
-  if (!storage) return;
-  storage.setItem(`${APPROVAL_DRAFT_KEY_PREFIX}${weekNumber}`, JSON.stringify(draft));
-}
-
-export function clearWeekApprovalDraft(weekNumber: number): void {
-  const storage = getSessionStorage();
-  if (!storage) return;
-  storage.removeItem(`${APPROVAL_DRAFT_KEY_PREFIX}${weekNumber}`);
-}
-
-export function clearStaleApprovalDrafts(
-  activeWeekNumber: number,
-  activeWeekPhase: WeekPhase,
-  viewedWeekNumber?: number,
-  viewedWeekPhase?: WeekPhase,
+export function saveTurnPlanApprovalDraft(
+  gameId: string,
+  turnNumber: number,
+  draft: TurnPlanApprovalDraft
 ): void {
-  const storage = getSessionStorage();
-  if (!storage) return;
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < storage.length; i += 1) {
-    const key = storage.key(i);
-    if (key && key.startsWith(APPROVAL_DRAFT_KEY_PREFIX)) {
-      const weekStr = key.slice(APPROVAL_DRAFT_KEY_PREFIX.length);
-      const weekNum = Number(weekStr);
-      if (
-        !Number.isSafeInteger(weekNum) ||
-        weekNum < activeWeekNumber ||
-        (weekNum === activeWeekNumber && activeWeekPhase === 'ARCHIVED') ||
-        (viewedWeekNumber !== undefined &&
-          weekNum === viewedWeekNumber &&
-          viewedWeekPhase === 'ARCHIVED')
-      ) {
-        keysToRemove.push(key);
-      }
-    }
-  }
-  for (const key of keysToRemove) {
-    storage.removeItem(key);
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      getPlanDraftStorageKey(gameId, turnNumber),
+      JSON.stringify(draft)
+    );
+  } catch {
+    // Ignore storage quota errors.
   }
 }
 
-export interface ApprovalCompletenessStatus {
-  subState: 'DRAFT_INCOMPLETE' | 'DRAFT_READY';
-  isReady: boolean;
-  requiredCount: number;
-  decidedCount: number;
-  pendingLabels: string[];
-  draftApprovedSilver: number;
-  draftApprovedGrain: number;
+export function clearTurnPlanApprovalDraft(gameId: string, turnNumber: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(getPlanDraftStorageKey(gameId, turnNumber));
+  } catch {
+    // Ignore storage errors.
+  }
 }
 
-export function evaluateApprovalDraftCompleteness(
-  states: CourtStateView[],
-  draft: WeekApprovalDraft,
-): ApprovalCompletenessStatus {
-  let requiredCount = 0;
-  let decidedCount = 0;
-  let draftApprovedSilver = 0;
-  let draftApprovedGrain = 0;
-  const pendingLabels: string[] = [];
-
-  for (const state of states) {
-    const proposal = state.proposal;
-    if (!proposal) continue;
-    const stateDraft = draft[state.state_id];
-
-    if (proposal.project_central_silver > 0) {
-      requiredCount += 1;
-      const dec: ApprovalDecision | undefined = stateDraft?.project_central_silver;
-      if (dec === 'APPROVED' || dec === 'REJECTED') {
-        decidedCount += 1;
-        if (dec === 'APPROVED') {
-          draftApprovedSilver += proposal.project_central_silver;
-        }
-      } else {
-        pendingLabels.push(`${state.state_name}中央工程请银`);
+export function clearStalePlanApprovalDrafts(
+  activeGameId: string,
+  activeTurnNumber: number
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keepKey = getPlanDraftStorageKey(activeGameId, activeTurnNumber);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(PLAN_DRAFT_STORAGE_PREFIX) && k !== keepKey) {
+        keysToRemove.push(k);
       }
     }
-
-    if (proposal.relief_central_grain > 0) {
-      requiredCount += 1;
-      const dec: ApprovalDecision | undefined = stateDraft?.relief_central_grain;
-      if (dec === 'APPROVED' || dec === 'REJECTED') {
-        decidedCount += 1;
-        if (dec === 'APPROVED') {
-          draftApprovedGrain += proposal.relief_central_grain;
-        }
-      } else {
-        pendingLabels.push(`${state.state_name}中央请拨赈粮`);
-      }
+    for (const k of keysToRemove) {
+      window.localStorage.removeItem(k);
     }
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+/**
+ * Validates custom integer approval input for a formal plan (`0..requestedAmount`).
+ * Never silently clamps or rounds invalid inputs; fails fast with an explicit error message.
+ */
+export function validateCustomPlanApprovalInput(
+  rawInput: string,
+  requestedAmount: number
+): PlanApprovalDraftEntry {
+  const trimmed = rawInput.trim();
+  if (trimmed === '') {
+    return {
+      approved_amount: undefined,
+      custom_input: '',
+      error: undefined
+    };
   }
 
-  const isReady = decidedCount === requiredCount;
+  if (!/^-?\d+$/.test(trimmed)) {
+    return {
+      approved_amount: undefined,
+      custom_input: rawInput,
+      error: '批复数额须为整数，不可输入小数或非数字'
+    };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed)) {
+    return {
+      approved_amount: undefined,
+      custom_input: rawInput,
+      error: '批复数额超出有效整数范围'
+    };
+  }
+
+  if (parsed < 0) {
+    return {
+      approved_amount: undefined,
+      custom_input: rawInput,
+      error: '批复数额不得小于 0'
+    };
+  }
+
+  if (parsed > requestedAmount) {
+    return {
+      approved_amount: undefined,
+      custom_input: rawInput,
+      error: `批复数额不得超过请拨上限（${requestedAmount}）`
+    };
+  }
+
   return {
-    subState: isReady ? 'DRAFT_READY' : 'DRAFT_INCOMPLETE',
-    isReady,
-    requiredCount,
-    decidedCount,
-    pendingLabels,
-    draftApprovedSilver,
-    draftApprovedGrain,
+    approved_amount: parsed,
+    custom_input: String(parsed),
+    error: undefined
   };
 }
 
-async function requestJson<T>(
-  path: string,
-  token: string,
-  init: RequestInit = {},
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      ...init,
-      headers: {
-        ...(init.body ? { 'content-type': 'application/json' } : {}),
-        authorization: `Bearer ${token}`,
-        ...(init.headers ?? {}),
-      },
-    });
-  } catch (err) {
-    throw new NetworkUncertainError(
-      err instanceof Error ? err.message : '网络请求异常，未收到服务端响应',
-    );
-  }
+export interface PlanApprovalEvaluation {
+  requiredPlans: PlanRecord[];
+  pureLocalPlans: PlanRecord[];
+  undecidedPlanIds: string[];
+  invalidPlanIds: string[];
+  readyToSettle: boolean;
+  decisions: PlanDecision[];
+  draftApprovedSilver: number;
+  draftApprovedGrain: number;
+  totalRequestedSilver: number;
+  totalRequestedGrain: number;
+}
 
-  if (!response.ok) {
-    let errorCode = `HTTP_${response.status}`;
-    let errorMessage = `请求失败 (${response.status})`;
-    try {
-      const body = (await response.json()) as Partial<ApiErrorResponse>;
-      if (body?.error?.code) errorCode = body.error.code;
-      if (body?.error?.message) errorMessage = body.error.message;
-    } catch {
-      // Fallback to HTTP status message if response is not JSON.
+/**
+ * Evaluates all formal plans across active provinces for `POST /api/court/settle`.
+ * - Each locked plan with `requested_amount > 0` requires exactly one integer decision `0..requested_amount`.
+ * - `0` is an explicit rejection (`不批`), distinct from `undefined` (`未批定`).
+ * - Pure-local plans (`requested_amount === 0`) require no approval decision and are omitted from `decisions`.
+ */
+export function evaluatePlanApprovalCompleteness(
+  provinces: readonly CourtProvinceView[],
+  draft: TurnPlanApprovalDraft
+): PlanApprovalEvaluation {
+  const requiredPlans: PlanRecord[] = [];
+  const pureLocalPlans: PlanRecord[] = [];
+  const undecidedPlanIds: string[] = [];
+  const invalidPlanIds: string[] = [];
+  const decisions: PlanDecision[] = [];
+
+  let draftApprovedSilver = 0;
+  let draftApprovedGrain = 0;
+  let totalRequestedSilver = 0;
+  let totalRequestedGrain = 0;
+
+  for (const pv of provinces) {
+    if (!pv.province.active) continue;
+    for (const plan of pv.plans) {
+      if (plan.status !== 'LOCKED') continue;
+      if (plan.requested_amount === 0) {
+        pureLocalPlans.push(plan);
+        continue;
+      }
+
+      requiredPlans.push(plan);
+      if (plan.resource === 'silver') {
+        totalRequestedSilver += plan.requested_amount;
+      } else {
+        totalRequestedGrain += plan.requested_amount;
+      }
+
+      const entry = draft[plan.plan_id];
+      if (!entry) {
+        undecidedPlanIds.push(plan.plan_id);
+        continue;
+      }
+
+      if (entry.error) {
+        invalidPlanIds.push(plan.plan_id);
+        continue;
+      }
+
+      const amount = entry.approved_amount;
+      if (amount === undefined) {
+        undecidedPlanIds.push(plan.plan_id);
+        continue;
+      }
+
+      if (
+        !Number.isInteger(amount) ||
+        amount < 0 ||
+        amount > plan.requested_amount
+      ) {
+        invalidPlanIds.push(plan.plan_id);
+        continue;
+      }
+
+      decisions.push({
+        plan_id: plan.plan_id,
+        approved_amount: amount
+      });
+
+      if (plan.resource === 'silver') {
+        draftApprovedSilver += amount;
+      } else {
+        draftApprovedGrain += amount;
+      }
     }
-    throw new HttpApiError(response.status, errorCode, errorMessage);
   }
 
-  return (await response.json()) as T;
+  return {
+    requiredPlans,
+    pureLocalPlans,
+    undecidedPlanIds,
+    invalidPlanIds,
+    readyToSettle: undecidedPlanIds.length === 0 && invalidPlanIds.length === 0,
+    decisions,
+    draftApprovedSilver,
+    draftApprovedGrain,
+    totalRequestedSilver,
+    totalRequestedGrain
+  };
 }
 
-export async function fetchCourtView(
-  token: string,
-  weekNumber?: number,
-  signal?: AbortSignal,
-): Promise<CourtViewResponse> {
-  const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
-  return requestJson<CourtViewResponse>(`/api/court/view${query}`, token, { signal });
+export type ConversationDraftMap = Record<string, string>;
+
+export function getConversationDraftStorageKey(gameId: string, turnNumber: number): string {
+  return `${CHAT_DRAFT_STORAGE_PREFIX}${gameId}:turn:${turnNumber}`;
 }
 
-export async function postLockWeek(
-  token: string,
-  payload: LockWeekRequest,
-): Promise<CourtViewResponse> {
-  return requestJson<CourtViewResponse>('/api/court/lock', token, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+export function loadConversationDraftMap(
+  gameId: string,
+  turnNumber: number
+): ConversationDraftMap {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(
+      getConversationDraftStorageKey(gameId, turnNumber)
+    );
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as ConversationDraftMap;
+  } catch {
+    return {};
+  }
 }
 
-export async function postSettleWeek(
-  token: string,
-  payload: SettleWeekRequest,
-): Promise<CourtViewResponse> {
-  return requestJson<CourtViewResponse>('/api/court/settle', token, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function fetchConversationMessages(
-  token: string,
+export function saveConversationDraft(
+  gameId: string,
+  turnNumber: number,
   conversationId: string,
-  weekNumber?: number,
-  signal?: AbortSignal,
-): Promise<{ conversation_id: string; messages: ChatMessageView[] }> {
-  const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
-  return requestJson<{ conversation_id: string; messages: ChatMessageView[] }>(
-    `/api/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
-    token,
-    { signal },
-  );
+  content: string
+): ConversationDraftMap {
+  const current = loadConversationDraftMap(gameId, turnNumber);
+  const next: ConversationDraftMap = { ...current };
+  if (content.trim() === '') {
+    delete next[conversationId];
+  } else {
+    next[conversationId] = content;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(
+        getConversationDraftStorageKey(gameId, turnNumber),
+        JSON.stringify(next)
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+  return next;
 }
 
-export async function postCourtMessage(
-  token: string,
-  payload: PostCourtMessageRequest,
-): Promise<{ message: ChatMessageView }> {
-  return requestJson<{ message: ChatMessageView }>('/api/court/messages', token, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+export function clearStaleConversationDrafts(
+  activeGameId: string,
+  activeTurnNumber: number
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keepKey = getConversationDraftStorageKey(activeGameId, activeTurnNumber);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(CHAT_DRAFT_STORAGE_PREFIX) && k !== keepKey) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const k of keysToRemove) {
+      window.localStorage.removeItem(k);
+    }
+  } catch {
+    // Ignore storage errors.
+  }
 }
 
-export async function fetchDebugTruth(
-  debugToken: string,
-  weekNumber?: number,
-  signal?: AbortSignal,
-): Promise<DebugTruthResponse> {
-  const query = weekNumber !== undefined ? `?week=${weekNumber}` : '';
-  return requestJson<DebugTruthResponse>(`/api/debug/truth${query}`, debugToken, { signal });
+export interface MonarchClientSettings {
+  courtToken: string;
+  debugToken: string;
+}
+
+export const DEFAULT_MONARCH_SETTINGS: MonarchClientSettings = {
+  courtToken: '',
+  debugToken: ''
+};
+
+export function loadMonarchSettings(): MonarchClientSettings {
+  if (typeof window === 'undefined') return DEFAULT_MONARCH_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(MONARCH_SETTINGS_KEY);
+    if (!raw) return DEFAULT_MONARCH_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<MonarchClientSettings>;
+    return {
+      courtToken: typeof parsed.courtToken === 'string' ? parsed.courtToken : '',
+      debugToken: typeof parsed.debugToken === 'string' ? parsed.debugToken : ''
+    };
+  } catch {
+    return DEFAULT_MONARCH_SETTINGS;
+  }
+}
+
+export function saveMonarchSettings(settings: MonarchClientSettings): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(MONARCH_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore storage errors.
+  }
 }

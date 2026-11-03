@@ -2,125 +2,148 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../components/kumo/components/button';
-import {
-  formatWan,
-  type CourtStateView,
-  type DebugTruthResponse,
-  type MapReportSeverity,
-  type StateId,
-} from '../../src/contracts/index.ts';
+import type {
+  CourtProvinceView,
+  GameplayDebugView,
+  ProvinceId
+} from '../../src/contracts/gameplay';
 import terrainReliefAsset from '../assets/jiangshan/terrain_relief.webp';
+import {
+  computeProvinceLayerPresentation,
+  computeSvgViewBox,
+  formatGrainAmountWan,
+  formatSilverAmountWan,
+  INITIAL_MAP_CAMERA,
+  JIANGSHAN_BACKGROUND_MAP,
+  MAP_LAYERS,
+  MING_INTERIOR_BOUNDARY_PATH,
+  MING_PROVINCE_GEOMETRIES,
+  panCameraByScreenDelta,
+  resolveProvinceIdFromProviderId,
+  TERRAIN_RELIEF_RECT,
+  zoomCameraAtScreenPoint,
+  type LayerSeverityBand,
+  type MapCamera,
+  type MapLayerKind
+} from '../map-data';
 
 const terrainReliefUrl =
   typeof terrainReliefAsset === 'string'
     ? terrainReliefAsset
     : terrainReliefAsset.src;
-import {
-  BACKGROUND_REGION_GEOMETRIES,
-  computeStateLayerPresentation,
-  computeSvgCameraViewBox,
-  getBackgroundGeographyLayer,
-  getLayerLegendEntries,
-  getProjectedHydroLayer,
-  INITIAL_MAP_CAMERA,
-  PLAYABLE_PROVINCE_GEOMETRIES,
-  TERRAIN_RELIEF_RECT,
-  WATER_CAPTIONS,
-  zoomCameraAtClientPoint,
-  type MapCameraState,
-  type MapLayerKind,
-} from '../map-data.ts';
 
 export interface MapViewportProps {
-  states: CourtStateView[];
-  selectedStateId: StateId | null;
-  drawerOpen: boolean;
+  provinces: CourtProvinceView[];
+  viewedTurnNumber: number;
+  selectedProvinceId: ProvinceId | null;
+  leftPanelOpen: boolean;
   activeLayer: MapLayerKind;
-  camera: MapCameraState;
-  debugTruth: DebugTruthResponse | null;
-  onSelectState: (stateId: StateId, viewportWidth: number, viewportHeight: number) => void;
+  camera: MapCamera;
+  debugTruth: GameplayDebugView | null;
+  onSelectProvince: (
+    provinceId: ProvinceId,
+    viewportWidth: number,
+    viewportHeight: number
+  ) => void;
   onClearSelection: () => void;
   onChangeLayer: (layer: MapLayerKind) => void;
-  onChangeCamera: React.Dispatch<React.SetStateAction<MapCameraState>>;
+  onChangeCamera: React.Dispatch<React.SetStateAction<MapCamera>>;
 }
 
-function getPolityWashFill(severity: Exclude<MapReportSeverity, 'background'>): string {
-  switch (severity) {
-    case 'urgent':
-      return '#B54434';
-    case 'mild':
-      return '#C88A3B';
-    case 'stable':
-      return '#7A9A76';
-    case 'unknown':
-      return '#9A9488';
+function getBandWashFill(band: LayerSeverityBand, layer: MapLayerKind): string {
+  if (band === 'frozen') {
+    return '#b5ab9b';
   }
+  if (band === 'unknown') {
+    return '#9a9488';
+  }
+  if (layer === 'disaster') {
+    if (band === 'high') return '#b54434';
+    if (band === 'medium') return '#c88a3b';
+    return '#7a9a76';
+  }
+  // For tax_silver and grain_stock: high is healthy sage, medium is ochre, low is urgent cinnabar
+  if (band === 'high') return '#7a9a76';
+  if (band === 'medium') return '#c88a3b';
+  return '#b54434';
 }
 
-function getPolityBorderColor(
-  severity: Exclude<MapReportSeverity, 'background'>,
-  isSelected: boolean,
-): string {
-  if (isSelected) {
-    return '#8C2D22';
+function getBandBorderStroke(band: LayerSeverityBand, layer: MapLayerKind): string {
+  if (band === 'frozen') {
+    return '#7f7567';
   }
-  switch (severity) {
-    case 'urgent':
-      return '#8F3628';
-    case 'mild':
-      return '#946528';
-    case 'stable':
-      return '#586F54';
-    case 'unknown':
-      return '#7A7067';
+  if (band === 'unknown') {
+    return '#7a7067';
   }
+  if (layer === 'disaster') {
+    if (band === 'high') return '#8f3628';
+    if (band === 'medium') return '#946528';
+    return '#586f54';
+  }
+  if (band === 'high') return '#586f54';
+  if (band === 'medium') return '#946528';
+  return '#8f3628';
+}
+
+function getBandStatusClass(band: LayerSeverityBand, layer: MapLayerKind): string {
+  if (band === 'frozen') return 'frozen';
+  if (band === 'unknown') return 'unknown';
+  if (layer === 'disaster') {
+    if (band === 'high') return 'urgent';
+    if (band === 'medium') return 'mild';
+    return 'stable';
+  }
+  if (band === 'high') return 'stable';
+  if (band === 'medium') return 'mild';
+  return 'urgent';
 }
 
 export const MapViewport: React.FC<MapViewportProps> = ({
-  states,
-  selectedStateId,
-  drawerOpen,
+  provinces,
+  viewedTurnNumber,
+  selectedProvinceId,
+  leftPanelOpen,
   activeLayer,
   camera,
   debugTruth,
-  onSelectState,
+  onSelectProvince,
   onClearSelection,
   onChangeLayer,
-  onChangeCamera,
+  onChangeCamera
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
-    height: typeof window !== 'undefined' ? window.innerHeight : 900,
+    height: typeof window !== 'undefined' ? window.innerHeight : 900
   }));
   const [dragging, setDragging] = useState(false);
 
-  const cameraRef = useRef<MapCameraState>(camera);
+  const cameraRef = useRef<MapCamera>(camera);
   cameraRef.current = camera;
 
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchStateRef = useRef<{
     startDist: number;
-    baseCam: MapCameraState;
+    baseCam: MapCamera;
     rect: { left: number; top: number; width: number; height: number };
   } | null>(null);
 
   const dragRef = useRef<{
     active: boolean;
     pointerId: number;
+    lastX: number;
+    lastY: number;
     startX: number;
     startY: number;
-    basePanX: number;
-    basePanY: number;
     moved: boolean;
   }>({
     active: false,
     pointerId: -1,
+    lastX: 0,
+    lastY: 0,
     startX: 0,
     startY: 0,
-    basePanX: 0,
-    basePanY: 0,
-    moved: false,
+    moved: false
   });
 
   useEffect(() => {
@@ -128,7 +151,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       const rect = containerRef.current?.getBoundingClientRect();
       setViewportSize({
         width: rect?.width || window.innerWidth || 1440,
-        height: rect?.height || window.innerHeight || 900,
+        height: rect?.height || window.innerHeight || 900
       });
     };
     updateSize();
@@ -136,32 +159,36 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Memoize static cartographic layers built from jiangshan-map outlines & hydrography
-  const backgroundGeo = useMemo(() => getBackgroundGeographyLayer(), []);
-  const hydroLayer = useMemo(() => getProjectedHydroLayer(), []);
-  const legendEntries = useMemo(() => getLayerLegendEntries(activeLayer), [activeLayer]);
+  const provinceById = useMemo(() => {
+    const map = new Map<ProvinceId, CourtProvinceView>();
+    for (const p of provinces) {
+      map.set(p.province.province_id, p);
+    }
+    return map;
+  }, [provinces]);
 
   const viewBoxString = useMemo(
-    () => computeSvgCameraViewBox(camera, viewportSize.width, viewportSize.height),
-    [camera, viewportSize.width, viewportSize.height],
+    () => computeSvgViewBox(camera, viewportSize.width, viewportSize.height).viewBoxString,
+    [camera, viewportSize.width, viewportSize.height]
   );
 
-  // Inverse square-root label scale so captions and town labels stay crisp across zoom levels
   const labelScale = useMemo(
     () => Number((1 / Math.sqrt(Math.max(0.65, Math.min(2.6, camera.zoom || 1)))).toFixed(3)),
-    [camera.zoom],
+    [camera.zoom]
   );
-  const showSecondaryTowns = camera.zoom >= 0.8;
+  const showSecondaryTowns = camera.zoom >= 0.92;
 
-  const stateById = (stateId: StateId): CourtStateView | undefined =>
-    states.find((s) => s.state_id === stateId);
+  const activeLayerMeta = useMemo(
+    () => MAP_LAYERS.find((l) => l.id === activeLayer) ?? MAP_LAYERS[0]!,
+    [activeLayer]
+  );
 
   const getContainerRect = () =>
     containerRef.current?.getBoundingClientRect() ?? {
       left: 0,
       top: 0,
       width: viewportSize.width,
-      height: viewportSize.height,
+      height: viewportSize.height
     };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -182,11 +209,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       dragRef.current = {
         active: true,
         pointerId: e.pointerId,
+        lastX: e.clientX,
+        lastY: e.clientY,
         startX: e.clientX,
         startY: e.clientY,
-        basePanX: cameraRef.current.panX,
-        basePanY: cameraRef.current.panY,
-        moved: false,
+        moved: false
       };
     } else if (activePointersRef.current.size === 2) {
       dragRef.current.active = false;
@@ -197,7 +224,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       pinchStateRef.current = {
         startDist,
         baseCam: cameraRef.current,
-        rect: getContainerRect(),
+        rect: getContainerRect()
       };
     }
   };
@@ -211,14 +238,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       const pts = Array.from(activePointersRef.current.values());
       const dist = Math.max(10, Math.hypot(pts[1]!.x - pts[0]!.x, pts[1]!.y - pts[0]!.y));
       const factor = dist / pinchStateRef.current.startDist;
-      const midX = (pts[0]!.x + pts[1]!.x) * 0.5;
-      const midY = (pts[0]!.y + pts[1]!.y) * 0.5;
-      const nextCam = zoomCameraAtClientPoint(
+      const midX = (pts[0]!.x + pts[1]!.x) * 0.5 - pinchStateRef.current.rect.left;
+      const midY = (pts[0]!.y + pts[1]!.y) * 0.5 - pinchStateRef.current.rect.top;
+      const nextCam = zoomCameraAtScreenPoint(
         pinchStateRef.current.baseCam,
         pinchStateRef.current.baseCam.zoom * factor,
         midX,
         midY,
-        pinchStateRef.current.rect,
+        pinchStateRef.current.rect.width,
+        pinchStateRef.current.rect.height
       );
       cameraRef.current = nextCam;
       onChangeCamera(nextCam);
@@ -228,28 +256,24 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     if (!dragRef.current.active || activePointersRef.current.size !== 1) {
       return;
     }
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    if (!dragRef.current.moved && Math.hypot(dx, dy) > 4) {
+    const totalDx = e.clientX - dragRef.current.startX;
+    const totalDy = e.clientY - dragRef.current.startY;
+    if (!dragRef.current.moved && Math.hypot(totalDx, totalDy) > 4) {
       dragRef.current.moved = true;
       setDragging(true);
     }
     if (dragRef.current.moved) {
-      const maxPanX = Math.max(680, Math.round(viewportSize.width * cameraRef.current.zoom * 0.9));
-      const maxPanY = Math.max(480, Math.round(viewportSize.height * cameraRef.current.zoom * 0.9));
-      const nextPanX = Math.max(
-        -maxPanX,
-        Math.min(maxPanX, Math.round(dragRef.current.basePanX + dx)),
+      const stepDx = e.clientX - dragRef.current.lastX;
+      const stepDy = e.clientY - dragRef.current.lastY;
+      dragRef.current.lastX = e.clientX;
+      dragRef.current.lastY = e.clientY;
+      const nextCam = panCameraByScreenDelta(
+        cameraRef.current,
+        stepDx,
+        stepDy,
+        viewportSize.width,
+        viewportSize.height
       );
-      const nextPanY = Math.max(
-        -maxPanY,
-        Math.min(maxPanY, Math.round(dragRef.current.basePanY + dy)),
-      );
-      const nextCam = {
-        ...cameraRef.current,
-        panX: nextPanX,
-        panY: nextPanY,
-      };
       cameraRef.current = nextCam;
       onChangeCamera(nextCam);
     }
@@ -272,11 +296,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       dragRef.current = {
         active: true,
         pointerId: remId,
+        lastX: remPt.x,
+        lastY: remPt.y,
         startX: remPt.x,
         startY: remPt.y,
-        basePanX: cameraRef.current.panX,
-        basePanY: cameraRef.current.panY,
-        moved: true,
+        moved: true
       };
       return;
     }
@@ -289,29 +313,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     if ((e.target as HTMLElement).closest('.map-bottom-right-controls')) {
       return;
     }
-    const rect = containerRef.current?.getBoundingClientRect() ?? {
-      left: 0,
-      top: 0,
-      width: viewportSize.width,
-      height: viewportSize.height,
-    };
+    const rect = getContainerRect();
     const delta = e.deltaY < 0 ? 0.14 : -0.14;
     onChangeCamera((prev) =>
-      zoomCameraAtClientPoint(prev, prev.zoom + delta, e.clientX, e.clientY, rect),
+      zoomCameraAtScreenPoint(
+        prev,
+        prev.zoom + delta,
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        rect.width,
+        rect.height
+      )
     );
   };
 
   const handleStepZoom = (delta: number) => {
-    const rect = containerRef.current?.getBoundingClientRect() ?? {
-      left: 0,
-      top: 0,
-      width: viewportSize.width,
-      height: viewportSize.height,
-    };
-    const centerClientX = rect.left + rect.width * 0.54;
-    const centerClientY = rect.top + rect.height * 0.5;
+    const rect = getContainerRect();
     onChangeCamera((prev) =>
-      zoomCameraAtClientPoint(prev, prev.zoom + delta, centerClientX, centerClientY, rect),
+      zoomCameraAtScreenPoint(
+        prev,
+        prev.zoom + delta,
+        rect.width * 0.52,
+        rect.height * 0.5,
+        rect.width,
+        rect.height
+      )
     );
   };
 
@@ -330,12 +356,28 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     }
   };
 
-  const selectedGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === selectedStateId);
+  const triggerSelectByProviderId = (providerRegionId: number) => {
+    const resolvedProvinceId = resolveProvinceIdFromProviderId(providerRegionId);
+    if (!resolvedProvinceId) {
+      return;
+    }
+    const vw =
+      containerRef.current?.clientWidth ??
+      (typeof window !== 'undefined' ? window.innerWidth : 1440);
+    const vh =
+      containerRef.current?.clientHeight ??
+      (typeof window !== 'undefined' ? window.innerHeight : 900);
+    onSelectProvince(resolvedProvinceId, vw, vh);
+  };
+
+  const selectedGeom = MING_PROVINCE_GEOMETRIES.find(
+    (g) => g.province_id === selectedProvinceId
+  );
 
   return (
     <div
       ref={containerRef}
-      className={`map-viewport ${dragging ? 'is-dragging' : ''} ${drawerOpen ? 'is-drawer-open' : ''}`}
+      className={`map-viewport ${dragging ? 'is-dragging' : ''} ${leftPanelOpen ? 'is-drawer-open' : ''}`}
       data-testid="map-viewport"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -357,20 +399,10 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           viewBox={viewBoxString}
           preserveAspectRatio="xMidYMid slice"
           role="img"
-          aria-label="江山舆图 三州疆域"
+          aria-label="江山舆图 崇祯九年两京十三省（s_ming_c 1636–1643）"
           onClick={handleBackgroundClick}
         >
           <defs>
-            <filter id="label-halo" x="-20%" y="-20%" width="140%" height="140%">
-              <feMorphology operator="dilate" radius="1.2" in="SourceAlpha" result="dilated" />
-              <feFlood floodColor="#FAF7F2" floodOpacity="0.92" result="bg" />
-              <feComposite in="bg" in2="dilated" operator="in" result="outline" />
-              <feMerge>
-                <feMergeNode in="outline" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-
             <linearGradient id="terrain-fade-h" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" className="terrain-edge-stop" />
               <stop offset="4.5%" className="terrain-edge-stop" stopOpacity="0" />
@@ -385,7 +417,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               <stop offset="100%" className="terrain-edge-stop" />
             </linearGradient>
 
-            {/* Diagonal hatch pattern for UNKNOWN / unreported states */}
             <pattern
               id="unknown-hatch-pattern"
               width="6"
@@ -393,13 +424,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               patternTransform="rotate(45 0 0)"
               patternUnits="userSpaceOnUse"
             >
-              <rect width="6" height="6" fill="rgba(222, 216, 204, 0.32)" />
+              <rect width="6" height="6" fill="rgba(222, 216, 204, 0.34)" />
               <line
                 x1="0"
                 y1="0"
                 x2="0"
                 y2="6"
-                stroke="rgba(122, 112, 103, 0.45)"
+                stroke="rgba(122, 112, 103, 0.46)"
                 strokeWidth="1.5"
               />
             </pattern>
@@ -444,264 +475,240 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             />
           </g>
 
-          {/* 2. Surrounding neutral landmass & deduplicated regional boundaries from jiangshan-map */}
+          {/* 2. Surrounding landmass context */}
           <g id="grp-surrounding-provinces" className="map-surrounding-group">
-            {backgroundGeo.landmassShapes.map((d, idx) => (
-              <path key={idx} d={d} className="map-province-shape" />
-            ))}
-            {backgroundGeo.combinedBoundaries ? (
-              <path d={backgroundGeo.combinedBoundaries} className="map-province-boundary-casing" />
-            ) : null}
-            {backgroundGeo.interiorBoundaries ? (
-              <path
-                d={backgroundGeo.interiorBoundaries}
-                className="map-province-boundary-interior"
-              />
-            ) : null}
-            {backgroundGeo.outerBoundaries ? (
-              <path d={backgroundGeo.outerBoundaries} className="map-province-boundary-outer" />
-            ) : null}
+            <path d={JIANGSHAN_BACKGROUND_MAP.outerLandPath} className="map-province-shape" />
+            <path
+              d={JIANGSHAN_BACKGROUND_MAP.interiorBordersPath}
+              className="map-province-boundary-interior"
+            />
           </g>
 
-          {/* 3. Playable State Territories (low-opacity watercolor washes + sub-boundaries) */}
-          <g id="grp-playable-polities" className="map-polities-group">
-            {PLAYABLE_PROVINCE_GEOMETRIES.map((geom) => {
-              const stateData = stateById(geom.state_id);
-              const pres = stateData
-                ? computeStateLayerPresentation(stateData, activeLayer)
-                : { severityKey: 'unknown' as const, badgeSubtitle: '本周未奏报（未知）' };
-              const isSelected = selectedStateId === geom.state_id;
-              const washFill = getPolityWashFill(pres.severityKey);
-              const borderStroke = getPolityBorderColor(pres.severityKey, false);
+          {/* 3. All 15 Ming Provincial Units (`s_ming_c` 1636–1643): 12 frozen + 3 active */}
+          <g id="grp-ming-provinces" className="map-polities-group">
+            {MING_PROVINCE_GEOMETRIES.map((geom) => {
+              const resolvedId = resolveProvinceIdFromProviderId(geom.provider_region_id);
+              if (!resolvedId) return null;
+              const provinceView = provinceById.get(resolvedId);
+              const pres = computeProvinceLayerPresentation(
+                provinceView,
+                activeLayer,
+                viewedTurnNumber
+              );
+              const isSelected = selectedProvinceId === resolvedId;
+              const statusClass = getBandStatusClass(pres.band, activeLayer);
+              const washFill = getBandWashFill(pres.band, activeLayer);
+              const borderStroke = getBandBorderStroke(pres.band, activeLayer);
 
               return (
                 <g
-                  key={geom.state_id}
-                  className={`map-playable-province status-${pres.severityKey} ${isSelected ? 'is-selected' : ''}`}
-                  data-testid={`map-province-${geom.state_id}`}
-                  data-severity={pres.severityKey}
+                  key={resolvedId}
+                  className={`map-playable-province status-${statusClass} ${geom.active ? 'is-active-province' : 'is-frozen-province'} ${isSelected ? 'is-selected' : ''}`}
+                  data-testid={`map-province-${resolvedId}`}
+                  data-province-id={resolvedId}
+                  data-provider-id={geom.provider_region_id}
+                  data-active={geom.active ? 'true' : 'false'}
+                  data-band={pres.band}
                   data-selected={isSelected ? 'true' : 'false'}
                   role="button"
                   tabIndex={0}
-                  aria-label={`${geom.state_name}（${pres.badgeSubtitle}）`}
+                  aria-label={`${geom.name}（${geom.active ? pres.metricText : '冻结疆域'}）`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (dragRef.current.moved) return;
-                    const vw =
-                      containerRef.current?.clientWidth ??
-                      (typeof window !== 'undefined' ? window.innerWidth : 1280);
-                    const vh =
-                      containerRef.current?.clientHeight ??
-                      (typeof window !== 'undefined' ? window.innerHeight : 800);
-                    onSelectState(geom.state_id, vw, vh);
+                    triggerSelectByProviderId(geom.provider_region_id);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      const vw =
-                        containerRef.current?.clientWidth ??
-                        (typeof window !== 'undefined' ? window.innerWidth : 1280);
-                      const vh =
-                        containerRef.current?.clientHeight ??
-                        (typeof window !== 'undefined' ? window.innerHeight : 800);
-                      onSelectState(geom.state_id, vw, vh);
+                      triggerSelectByProviderId(geom.provider_region_id);
                     }
                   }}
                 >
-                  {/* Watercolor wash over topographic hillshade */}
                   <path
-                    d={geom.d}
+                    d={geom.outerPath}
                     fill={washFill}
-                    className={`map-polity-wash status-${pres.severityKey}`}
+                    className={`map-polity-wash status-${statusClass} ${geom.active ? 'is-active' : 'is-frozen'}`}
                   />
 
-                  {/* Diagonal hatch overlay when report is UNKNOWN */}
-                  {pres.severityKey === 'unknown' && (
+                  {geom.active && pres.band === 'unknown' && (
                     <path
-                      d={geom.d}
+                      d={geom.outerPath}
                       fill="url(#unknown-hatch-pattern)"
                       className="map-polity-unknown-hatch"
                     />
                   )}
 
-                  {/* Subtle internal prefecture/jun dashed division lines */}
-                  {geom.subBoundaryPath && (
-                    <path d={geom.subBoundaryPath} className="map-polity-sub-boundary" />
-                  )}
-
-                  {/* Outer light paper casing + state boundary stroke */}
-                  <path d={geom.d} className="map-polity-casing" />
+                  <path d={geom.outerPath} className="map-polity-casing" />
                   <path
-                    d={geom.d}
+                    d={geom.outerPath}
                     fill="none"
                     stroke={borderStroke}
-                    className="map-polity-border"
+                    className={`map-polity-border ${geom.active ? 'is-active' : 'is-frozen'}`}
                   />
                 </g>
               );
             })}
+
+            {MING_INTERIOR_BOUNDARY_PATH && (
+              <path
+                d={MING_INTERIOR_BOUNDARY_PATH}
+                className="map-polity-sub-boundary"
+                pointerEvents="none"
+              />
+            )}
           </g>
 
-          {/* 4. Hydrography Layer (lakes & ranked rivers rendered over state washes, as in jiangshan-map) */}
+          {/* 4. Hydrography Layer (1636 historical rivers & lakes) */}
           <g id="grp-rivers" className="map-hydro-group" pointerEvents="none">
-            {hydroLayer.lakes.map((lk, idx) => (
+            {JIANGSHAN_BACKGROUND_MAP.lakes.map((lk, idx) => (
               <path
                 key={`lk-${idx}`}
-                d={lk.d}
-                className={lk.major ? 'hydro-lake rank-major' : 'hydro-lake'}
+                d={lk.path}
+                className={lk.rank <= 1 ? 'hydro-lake rank-major' : 'hydro-lake'}
               />
             ))}
-            {hydroLayer.trunkCasingPaths.map((d, idx) => (
-              <path key={`rc-${idx}`} d={d} className="hydro-river-casing" />
-            ))}
-            {hydroLayer.rivers.map((riv, idx) => (
-              <path key={`rv-${idx}`} d={riv.d} className={`hydro-river ${riv.rankClass}`} />
-            ))}
-            {WATER_CAPTIONS.map((wc) => (
-              <text
-                key={wc.id}
-                transform={`translate(${wc.x},${wc.y}) scale(${labelScale}) rotate(${wc.rot})`}
-                className="hydro-label is-trunk"
-              >
-                {wc.name}
-              </text>
-            ))}
+            {JIANGSHAN_BACKGROUND_MAP.rivers
+              .filter((r) => r.rank <= 2)
+              .map((r, idx) => (
+                <path key={`rc-${idx}`} d={r.path} className="hydro-river-casing" />
+              ))}
+            {JIANGSHAN_BACKGROUND_MAP.rivers.map((riv, idx) => {
+              const rankClass =
+                riv.rank === 1
+                  ? 'rank-trunk'
+                  : riv.rank === 2
+                    ? 'rank-major'
+                    : riv.rank === 3
+                      ? 'rank-med'
+                      : 'rank-minor';
+              return (
+                <path key={`rv-${idx}`} d={riv.path} className={`hydro-river ${rankClass}`} />
+              );
+            })}
+            {JIANGSHAN_BACKGROUND_MAP.hydroLabels
+              .filter((lb) => lb.kind === 'trunk')
+              .map((wc, idx) => (
+                <text
+                  key={`hl-${idx}`}
+                  transform={`translate(${wc.x},${wc.y}) scale(${labelScale}) rotate(${wc.rot})`}
+                  className="hydro-label is-trunk"
+                >
+                  {wc.zh}
+                </text>
+              ))}
           </g>
 
-          {/* 5. Selected State Crisp Cinnabar Highlight Outline */}
+          {/* 5. Selected Province Crisp Cinnabar Highlight Outline */}
           {selectedGeom && (
             <g
               id="grp-selected-outline"
               className="map-selected-outline-group"
               pointerEvents="none"
             >
-              <path d={selectedGeom.d} className="map-selected-halo" />
-              <path d={selectedGeom.d} className="map-selected-border" />
+              <path d={selectedGeom.outerPath} className="map-selected-halo" />
+              <path d={selectedGeom.outerPath} className="map-selected-border" />
             </g>
           )}
 
-          {/* 6. Non-Playable Surrounding Regional Captions, Town Markers, Prefecture Seats & State Titles */}
+          {/* 6. Province Seats, Prefecture Markers & Titles across all 15 Ming Provinces */}
           <g id="grp-captions" className="map-captions-group">
-            {BACKGROUND_REGION_GEOMETRIES.map((bg) => (
-              <g
-                key={bg.province_id}
-                className="map-bg-region-group"
-                data-testid={`map-background-${bg.province_id}`}
-                aria-disabled="true"
-                onClick={(e) => {
-                  // Clicking surrounding geographic background never switches active state
-                  e.stopPropagation();
-                }}
-              >
-                <title>{`${bg.region_name} ${bg.map_status_label}`}</title>
-                <rect
-                  x={bg.labelPos.x - 28}
-                  y={bg.labelPos.y - 9}
-                  width="56"
-                  height="18"
-                  fill="transparent"
-                />
-                <text
-                  transform={`translate(${bg.labelPos.x},${bg.labelPos.y}) scale(${labelScale})`}
-                  className={`map-regional-caption ${bg.province_id === 'bg_south' || bg.display_caption === '东海湾' ? 'kind-sea' : 'kind-land'}`}
-                >
-                  {bg.display_caption}
-                </text>
-              </g>
-            ))}
-
-            {PLAYABLE_PROVINCE_GEOMETRIES.map((geom) => {
-              const stateData = stateById(geom.state_id);
-              const pres = stateData
-                ? computeStateLayerPresentation(stateData, activeLayer)
-                : { severityKey: 'unknown' as const, badgeSubtitle: '本周未奏报（未知）' };
-              const isSelected = selectedStateId === geom.state_id;
-              const debugState = debugTruth?.states.find((s) => s.state_id === geom.state_id);
-              const showBadgeSub =
-                activeLayer !== 'disaster' || pres.severityKey === 'unknown';
+            {MING_PROVINCE_GEOMETRIES.map((geom) => {
+              const resolvedId = resolveProvinceIdFromProviderId(geom.provider_region_id);
+              if (!resolvedId) return null;
+              const provinceView = provinceById.get(resolvedId);
+              const pres = computeProvinceLayerPresentation(
+                provinceView,
+                activeLayer,
+                viewedTurnNumber
+              );
+              const isSelected = selectedProvinceId === resolvedId;
+              const statusClass = getBandStatusClass(pres.band, activeLayer);
+              const debugHidden =
+                geom.active && debugTruth
+                  ? debugTruth.provinces.find((dp) => dp.province_id === resolvedId)
+                  : undefined;
 
               return (
                 <g
-                  key={`annot-${geom.state_id}`}
-                  className={`map-state-annotations ${isSelected ? 'is-selected' : ''}`}
+                  key={`annot-${resolvedId}`}
+                  className={`map-state-annotations ${geom.active ? 'is-active' : 'is-frozen'} ${isSelected ? 'is-selected' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (dragRef.current.moved) return;
-                    const vw =
-                      containerRef.current?.clientWidth ??
-                      (typeof window !== 'undefined' ? window.innerWidth : 1280);
-                    const vh =
-                      containerRef.current?.clientHeight ??
-                      (typeof window !== 'undefined' ? window.innerHeight : 800);
-                    onSelectState(geom.state_id, vw, vh);
+                    triggerSelectByProviderId(geom.provider_region_id);
                   }}
                 >
-                  {/* Secondary sub-towns */}
-                  {showSecondaryTowns &&
-                    geom.towns.map((town) => (
-                      <g
-                        key={town.name}
-                        transform={`translate(${town.x},${town.y}) scale(${labelScale})`}
-                        className="map-town-marker"
-                      >
-                        <circle cx="0" cy="0" r="0.85" className="map-town-dot" />
-                        <text x="1.9" y="0.25" className="map-town-label">
-                          {town.name}
-                        </text>
-                      </g>
-                    ))}
+                  {geom.active &&
+                    showSecondaryTowns &&
+                    geom.towns
+                      .filter((t) => !t.isCapital)
+                      .map((town) => (
+                        <g
+                          key={town.name}
+                          transform={`translate(${town.x},${town.y}) scale(${labelScale})`}
+                          className="map-town-marker"
+                        >
+                          <circle cx="0" cy="0" r="0.82" className="map-town-dot" />
+                          <text x="1.8" y="0.25" className="map-town-label">
+                            {town.name}
+                          </text>
+                        </g>
+                      ))}
 
-                  {/* Prefecture Seat Marker (○ / ◎) */}
-                  <g
-                    transform={`translate(${geom.seat.x - 9},${geom.seat.y}) scale(${labelScale})`}
-                    className={`map-seat-marker ${isSelected ? 'is-selected' : ''}`}
-                  >
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r={isSelected ? '1.9' : '1.35'}
-                      className="map-seat-outer-ring"
-                    />
-                    {isSelected && <circle cx="0" cy="0" r="0.8" className="map-seat-inner-dot" />}
-                    <text x="3.1" y="0.3" className="map-seat-label">
-                      {geom.seat.name}
-                    </text>
-                  </g>
+                  {(geom.active || isSelected || camera.zoom >= 1.05) && (
+                    <g
+                      transform={`translate(${geom.capitalX},${geom.capitalY}) scale(${labelScale})`}
+                      className={`map-seat-marker ${isSelected ? 'is-selected' : ''}`}
+                    >
+                      <circle
+                        cx="0"
+                        cy="0"
+                        r={isSelected ? '1.85' : geom.active ? '1.35' : '1.05'}
+                        className="map-seat-outer-ring"
+                      />
+                      {isSelected && (
+                        <circle cx="0" cy="0" r="0.75" className="map-seat-inner-dot" />
+                      )}
+                      <text x="2.8" y="0.3" className="map-seat-label">
+                        {geom.seat_name}
+                      </text>
+                    </g>
+                  )}
 
-                  {/* Primary Classical Serif State Title */}
                   <g
-                    transform={`translate(${geom.center.x},${geom.center.y - 2}) scale(${labelScale})`}
+                    transform={`translate(${geom.labelCenterX},${geom.labelCenterY}) scale(${labelScale})`}
                     className="map-state-title-group"
                   >
                     <text
                       x="0"
                       y="0"
                       textAnchor="middle"
-                      className={`map-state-title status-${pres.severityKey} ${isSelected ? 'is-selected' : ''}`}
+                      className={`map-state-title status-${statusClass} ${geom.active ? 'is-active-title' : 'is-frozen-title'} ${isSelected ? 'is-selected' : ''}`}
                     >
-                      {geom.state_name}
+                      {geom.name}
                     </text>
 
                     <text
                       x="0"
-                      y="6.4"
+                      y={geom.active ? '6.2' : '4.8'}
                       textAnchor="middle"
-                      className={`map-state-sub-caption ${showBadgeSub ? 'is-visible' : 'is-compact'}`}
-                      data-testid={`map-badge-sub-${geom.state_id}`}
+                      className={`map-state-sub-caption is-visible ${geom.active ? '' : 'is-frozen-sub'}`}
+                      data-testid={`map-badge-sub-${resolvedId}`}
                     >
-                      {pres.badgeSubtitle}
+                      {geom.active ? pres.metricText : '冻结'}
                     </text>
 
-                    {debugState && (
+                    {debugHidden && (
                       <text
                         x="0"
-                        y="12.5"
+                        y="11.8"
                         textAnchor="middle"
                         className="map-state-debug-caption"
-                        data-testid={`map-debug-truth-${geom.state_id}`}
+                        data-testid={`map-debug-truth-${resolvedId}`}
                       >
-                        [真值 粮{formatWan(debugState.truth.disposable_grain, '万石')}/银
-                        {formatWan(debugState.truth.disposable_silver, '万两')}]
+                        [真值 银{formatSilverAmountWan(debugHidden.facts.gross_silver)} 粮
+                        {formatGrainAmountWan(debugHidden.facts.gross_grain)}]
                       </text>
                     )}
                   </g>
@@ -712,7 +719,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         </svg>
       </div>
 
-      {/* Lower-Right Compact Map Controls & Honest 5-State Legend (Matches simple-ui-preview-v1.png) */}
+      {/* Lower-Right Compact Map Controls & Honest Legend */}
       <div className="map-bottom-right-controls" data-testid="map-controls-dock">
         <div className="map-control-row">
           <div
@@ -721,36 +728,19 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             aria-label="舆图图层切换"
             data-testid="map-layer-switcher"
           >
-            <Button
-              type="button"
-              variant="ghost"
-              className={`map-layer-pill ${activeLayer === 'disaster' ? 'active' : ''}`}
-              aria-pressed={activeLayer === 'disaster'}
-              data-testid="layer-btn-disaster"
-              onClick={() => onChangeLayer('disaster')}
-            >
-              灾情
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className={`map-layer-pill ${activeLayer === 'grain' ? 'active' : ''}`}
-              aria-pressed={activeLayer === 'grain'}
-              data-testid="layer-btn-grain"
-              onClick={() => onChangeLayer('grain')}
-            >
-              存粮
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className={`map-layer-pill ${activeLayer === 'silver' ? 'active' : ''}`}
-              aria-pressed={activeLayer === 'silver'}
-              data-testid="layer-btn-silver"
-              onClick={() => onChangeLayer('silver')}
-            >
-              存银
-            </Button>
+            {MAP_LAYERS.map((layer) => (
+              <Button
+                key={layer.id}
+                type="button"
+                variant="ghost"
+                className={`map-layer-pill ${activeLayer === layer.id ? 'active' : ''}`}
+                aria-pressed={activeLayer === layer.id}
+                data-testid={`layer-btn-${layer.id}`}
+                onClick={() => onChangeLayer(layer.id)}
+              >
+                {layer.shortLabel}
+              </Button>
+            ))}
           </div>
 
           <div className="map-zoom-pill-group" role="group" aria-label="舆图视野控制">
@@ -790,17 +780,26 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         </div>
 
         <div className="map-legend-card" data-testid="map-layer-legend" aria-label="舆图图例">
-          {legendEntries.map((entry) => (
-            <span
-              key={entry.key}
-              className="legend-item"
-              data-testid={`legend-item-${entry.key}`}
-              title={entry.detailLabel}
-            >
-              <i className={`legend-swatch swatch-${entry.key}`} />
-              <span>{entry.shortLabel}</span>
-            </span>
-          ))}
+          <span className="legend-item" data-testid="legend-item-stable" title={activeLayerMeta.legendHigh}>
+            <i className="legend-swatch swatch-stable" />
+            <span>{activeLayer === 'disaster' ? activeLayerMeta.legendLow : activeLayerMeta.legendHigh}</span>
+          </span>
+          <span className="legend-item" data-testid="legend-item-mild" title={activeLayerMeta.legendMid}>
+            <i className="legend-swatch swatch-mild" />
+            <span>{activeLayerMeta.legendMid}</span>
+          </span>
+          <span className="legend-item" data-testid="legend-item-urgent" title={activeLayerMeta.legendLow}>
+            <i className="legend-swatch swatch-urgent" />
+            <span>{activeLayer === 'disaster' ? activeLayerMeta.legendHigh : activeLayerMeta.legendLow}</span>
+          </span>
+          <span className="legend-item" data-testid="legend-item-unknown" title={activeLayerMeta.legendUnknown}>
+            <i className="legend-swatch swatch-unknown" />
+            <span>{activeLayerMeta.legendUnknown}</span>
+          </span>
+          <span className="legend-item" data-testid="legend-item-frozen" title="两京十三省其余十二省为冻结状态">
+            <i className="legend-swatch swatch-frozen" />
+            <span>冻结疆域</span>
+          </span>
         </div>
       </div>
     </div>
