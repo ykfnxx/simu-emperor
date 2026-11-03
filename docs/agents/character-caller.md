@@ -28,6 +28,7 @@ node --experimental-strip-types src/officers/character-cli.ts --env-file .env.ch
 - 同一次生成可提交 report、创建/修改计划、明确撤回计划和回复。省略计划不清空旧承诺。
 - 模型只选择披露字段，服务端填入真值；模型不能设置提交身份、审批或回执。
 - 每个模型回复目标只对应本批捕获的一条 wake。wake ID、消息原回合与执行回合由宿主分别绑定，旧消息不冒充新回合。
+- 未完成 wake 从其附带的原消息恢复，包括已接受和先前拒收的任务；已读位置不代表已回复。恢复仍使用原 wake 和消息源回合。
 - 只有匹配的 OAR accepted 才登记接收，正文与正式动作要等生成完成并通过校验。空输出、坏 JSON 和隐式静默均报错。
 - 正式操作收到 `STALE_TURN` 或 `WRONG_PHASE` 时记录拒收，仍可提交原任职合法的晚到聊天。`STALE_APPOINTMENT`、`STALE_GAME` 或其他错误终止本轮，不重套现任身份或自动重试。
 

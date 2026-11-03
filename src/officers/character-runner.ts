@@ -137,6 +137,9 @@ export class CharacterCaller {
         capturedSeqs.set(conversation.conversation_id, Math.max(...conversation.unread_messages.map((message) => message.seq)));
       }
     }
+    for (const { target, message } of replyTargets) {
+      capturedSeqs.set(target.conversation_id, Math.max(capturedSeqs.get(target.conversation_id) ?? 0, message.seq));
+    }
     const replied = new Set<string>();
     let timedOut = false;
     const abort = () => { void handle.session.abort().catch(() => {}); };
