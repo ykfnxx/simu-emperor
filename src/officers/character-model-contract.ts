@@ -1,3 +1,4 @@
+import { GAMEPLAY_SCENARIO } from '../engine/gameplay-scenario.ts';
 import type {
   AgentBrief,
   AgentExecutionContext,
@@ -95,6 +96,7 @@ export function buildCharacterTurnPrompt(input: CharacterTurnInput): string {
       'Money and grain are nonnegative integer base units. Local funding is a commitment; central requests become spending only when approved.',
       'Central requests may exceed the central budget. The monarch chooses actual grants; never assume your full request was granted.',
       'Canal funding accumulates toward remaining_silver. Partial funding yields no complete benefit; after completion, benefits start next turn.',
+      'The trial ends after settlement of trial.turn_limit. On the final turn, explain that any next-turn project benefit lies beyond this trial; do not promise another playable turn or count it in trial results.',
       'Use plan_id to replace an owned OPEN plan. Omitted plans leave commitments unchanged; withdraw_plan_ids explicitly cancels them.',
       'For every reply_id, return meaningful content or no_reply:true with explicit_directive:"[NO_REPLY]". Empty text is a failure, not silence.',
       'Unnamed group announcements are context, not a requirement to answer. Do not send reflexive acknowledgments.',
@@ -106,6 +108,7 @@ export function buildCharacterTurnPrompt(input: CharacterTurnInput): string {
       province_id: brief.assignment.context.province_id,
     },
     turn: brief.turn,
+    trial: { turn_limit: GAMEPLAY_SCENARIO.turns, final_turn: brief.turn.turn_number === GAMEPLAY_SCENARIO.turns },
     local_facts: brief.facts,
     project: brief.project,
     reports: brief.reports,
