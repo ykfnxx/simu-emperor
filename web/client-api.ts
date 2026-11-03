@@ -234,7 +234,7 @@ export function evaluateApprovalDraftCompleteness(
           draftApprovedSilver += proposal.project_central_silver;
         }
       } else {
-        pendingLabels.push(`${state.state_name}·中央工程请银`);
+        pendingLabels.push(`${state.state_name}中央工程请银`);
       }
     }
 
@@ -247,7 +247,7 @@ export function evaluateApprovalDraftCompleteness(
           draftApprovedGrain += proposal.relief_central_grain;
         }
       } else {
-        pendingLabels.push(`${state.state_name}·中央请拨赈粮`);
+        pendingLabels.push(`${state.state_name}中央请拨赈粮`);
       }
     }
   }

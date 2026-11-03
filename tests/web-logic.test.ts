@@ -14,9 +14,13 @@ import {
 import {
   BACKGROUND_REGION_GEOMETRIES,
   BOTTOM_CONTROLS_OCCLUSION_RATIO,
+  buildAvailableHistoryWeekOptions,
   computeMinimalOcclusionPan,
   computeStateLayerPresentation,
   computeSvgCameraViewBox,
+  formatOutlinerStateParts,
+  formatWeekCalendarDate,
+  formatWeekCalendarIso,
   getBackgroundGeographyLayer,
   getLayerLegendEntries,
   getProjectedHydroLayer,
@@ -319,7 +323,7 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft 
     expect(statusPartial.isReady).toBe(false);
     expect(statusPartial.requiredCount).toBe(4);
     expect(statusPartial.decidedCount).toBe(3);
-    expect(statusPartial.pendingLabels).toEqual(['丙州·中央请拨赈粮']);
+    expect(statusPartial.pendingLabels).toEqual(['丙州中央请拨赈粮']);
 
     // Complete the 4th decision
     saveWeekApprovalDraft(2, {
@@ -468,5 +472,133 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft 
     expect(zoomedCam.zoom).toBe(1.4);
     expect(zoomedCam.panX).toBe(-288);
     expect(zoomedCam.panY).toBe(-180);
+  });
+
+  it('derives trial calendar dates strictly from server viewed_week.week_number in UTC (1444-11-11 + 7 days/week), stays invariant across timezones, does not advance on lock/failure, ends at Week 4 terminal state without a 5th date, and formats outliner rows without middle dots', () => {
+    // 1. Timezone invariance across Americas, UTC, Asia, and Pacific offsets
+    const originalTz = process.env.TZ;
+    try {
+      for (const tz of ['UTC', 'America/Los_Angeles', 'Asia/Shanghai', 'Pacific/Auckland']) {
+        process.env.TZ = tz;
+        expect(formatWeekCalendarIso(1)).toBe('1444-11-11');
+        expect(formatWeekCalendarDate(1)).toBe('1444年11月11日');
+        expect(formatWeekCalendarIso(2)).toBe('1444-11-18');
+        expect(formatWeekCalendarDate(2)).toBe('1444年11月18日');
+        expect(formatWeekCalendarIso(3)).toBe('1444-11-25');
+        expect(formatWeekCalendarDate(3)).toBe('1444年11月25日');
+        expect(formatWeekCalendarIso(4)).toBe('1444-12-02');
+        expect(formatWeekCalendarDate(4)).toBe('1444年12月2日');
+      }
+    } finally {
+      if (originalTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = originalTz;
+      }
+    }
+
+    // 2. Server workflow: locking and failed settlement never advance calendar date
+    const store = new GameStore({ initialWeek: 1 });
+    const week1Open = store.getCourtView();
+    expect(week1Open.viewed_week.week_number).toBe(1);
+    expect(formatWeekCalendarDate(week1Open.viewed_week.week_number)).toBe('1444年11月11日');
+
+    const week1Locked = store.lockWeek({ target_week: 1 });
+    expect(week1Locked.current_active_week).toEqual({ week_number: 1, week_phase: 'LOCKED' });
+    expect(formatWeekCalendarDate(week1Locked.viewed_week.week_number)).toBe('1444年11月11日');
+
+    // Settle Week 1 -> advances to Week 2 (1444年11月18日)
+    const afterSettle1 = store.settleWeek({ target_week: 1, decisions: {} });
+    expect(afterSettle1.current_active_week).toEqual({ week_number: 2, week_phase: 'OPEN' });
+    expect(formatWeekCalendarDate(afterSettle1.viewed_week.week_number)).toBe('1444年11月18日');
+
+    // Submit over-budget grain requests in Week 2 and verify failed settle does not advance date
+    store.submitOfficerPackage('officer_b', {
+      week_number: 2,
+      report: {
+        gross_silver: 15_000,
+        gross_grain: 2 * WAN,
+        disaster_type: 'flood',
+        relief_demand_grain: 3 * WAN,
+        summary: '乙州洪灾',
+      },
+      proposal: {
+        project_local_silver: 0,
+        project_central_silver: 0,
+        relief_local_grain: 1 * WAN,
+        relief_central_grain: 2 * WAN,
+      },
+    });
+    store.lockWeek({ target_week: 2 });
+    expect(() =>
+      store.settleWeek({
+        target_week: 2,
+        decisions: { state_b: { relief_central_grain: 'APPROVED' } },
+      }),
+    ).toThrow();
+    expect(formatWeekCalendarDate(store.getCourtView().viewed_week.week_number)).toBe('1444年11月18日');
+
+    // Settle Week 2 (rejecting over-budget request) -> advances to Week 3 (1444年11月25日)
+    const afterSettle2 = store.settleWeek({
+      target_week: 2,
+      decisions: { state_b: { relief_central_grain: 'REJECTED' } },
+    });
+    expect(formatWeekCalendarDate(afterSettle2.viewed_week.week_number)).toBe('1444年11月25日');
+
+    // 3. History dropdown options and history view date resolution on Week 3
+    const week1HistoryView = store.getCourtView(1);
+    expect(week1HistoryView.viewed_week.is_history_view).toBe(true);
+    expect(formatWeekCalendarDate(week1HistoryView.viewed_week.week_number)).toBe('1444年11月11日');
+    expect(formatWeekCalendarDate(store.getCourtView().viewed_week.week_number)).toBe('1444年11月25日');
+
+    const historyOptionsOnW3 = buildAvailableHistoryWeekOptions(
+      week1HistoryView.current_active_week.week_number,
+      week1HistoryView.viewed_week.week_number,
+    );
+    expect(historyOptionsOnW3.map((o) => o.weekNumber)).toEqual([1, 2, 3]);
+    expect(historyOptionsOnW3.map((o) => o.dateLabel)).toEqual([
+      '1444年11月11日',
+      '1444年11月18日',
+      '1444年11月25日',
+    ]);
+    expect(historyOptionsOnW3.find((o) => o.weekNumber === 1)?.isSelected).toBe(true);
+    expect(historyOptionsOnW3.find((o) => o.weekNumber === 3)?.isCurrent).toBe(true);
+
+    // 4. Settle Week 3 -> Week 4, then settle Week 4 -> terminal ARCHIVED without 5th week/date
+    store.lockWeek({ target_week: 3 });
+    const afterSettle3 = store.settleWeek({ target_week: 3, decisions: {} });
+    expect(formatWeekCalendarDate(afterSettle3.viewed_week.week_number)).toBe('1444年12月2日');
+
+    store.lockWeek({ target_week: 4 });
+    const afterSettle4 = store.settleWeek({ target_week: 4, decisions: {} });
+    expect(afterSettle4.current_active_week).toEqual({ week_number: 4, week_phase: 'ARCHIVED' });
+    expect(afterSettle4.viewed_week.week_number).toBe(4);
+    expect(formatWeekCalendarDate(afterSettle4.viewed_week.week_number)).toBe('1444年12月2日');
+    expect(
+      buildAvailableHistoryWeekOptions(
+        afterSettle4.current_active_week.week_number,
+        afterSettle4.viewed_week.week_number,
+      ),
+    ).toHaveLength(4);
+    expect(() => store.getCourtView(5)).toThrow();
+
+    // 5. Outliner state row formatting uses column alignment without middle-dot separators
+    const week2History = store.getCourtView(2);
+    const stB = week2History.states.find((s) => s.state_id === 'state_b')!;
+    const stC = week2History.states.find((s) => s.state_id === 'state_c')!;
+    expect(formatOutlinerStateParts(stB)).toEqual({
+      disasterText: '洪灾',
+      requestText: '请粮2.0万石',
+      isUnknown: false,
+    });
+    expect(formatOutlinerStateParts(stC)).toEqual({
+      disasterText: '未奏报（未知）',
+      requestText: '',
+      isUnknown: true,
+    });
+    expect(computeStateLayerPresentation(stB, 'disaster').badgeSubtitle).toBe('洪灾 需赈3.0万石');
+    expect(computeStateLayerPresentation(stB, 'disaster').badgeSubtitle).not.toContain('·');
+
+    store.close();
   });
 });

@@ -138,13 +138,14 @@ components:
 
 Simu-Emperor uses a simple light historical-cartographic interface where Paradox EU4 supplies the spatial layout only and the visual language is adapted from DeanChensj/jiangshan-map (commit a9cd67c). A continuous full-viewport (100vw × 100vh) SVG map serves as the primary workspace, layering georeferenced shaded relief (terrain_relief.webp), modern reference provincial and coastline boundaries, ranked blue hydrography, and low-opacity multiply watercolor washes across three fictional playable jurisdictions (甲州, 乙州, 丙州) and surrounding non-playable background geography.
 
-Floating UI chrome is kept light and restrained so geography remains dominant. A single 52px top HUD bar, a closable 404px left state sheet, a concise 324px right state outliner, and a compact lower-right map control dock sit on warm ivory panels (rgba(250, 247, 242, 0.96)) separated by 1px stone hairlines (#dcd4c6) and row dividers (#eae3d5). Classical Chinese Songti (--font-serif-cn) carries state titles, top treasury figures, sheet tabs, report key-value rows, outliner rows, and map annotations, while clean sans-serif (--font-sans-cn) handles operational buttons, timeline pills, chat streams, and form controls. Cinnabar (#9e3a2e) marks active selection and primary actions. The system rejects ornate gilded frames, heraldic crests, fantasy illustrations, and dark slate chrome.
+Floating UI chrome is kept light and restrained so geography remains dominant. A compact top-left floating resource bar, an independent top-right date and turn-action box aligned above the right state outliner, a closable 404px left state sheet, and a compact lower-right map control dock sit on warm ivory panels (rgba(250, 247, 242, 0.96)) separated by 1px stone hairlines (#dcd4c6) and row dividers (#eae3d5), leaving a continuous visible map expanse across the top center. Classical Chinese Songti (--font-serif-cn) carries state titles, top treasury and calendar date figures, sheet tabs, report key-value rows, outliner rows, and map annotations, while clean sans-serif (--font-sans-cn) handles operational buttons, dropdown menus, chat streams, and form controls. Cinnabar (#9e3a2e) marks active selection and primary actions. The system rejects ornate gilded frames, heraldic crests, fantasy illustrations, dark slate chrome, and middle-dot (`·`) text separators.
 
 **Key Characteristics:**
 - Full-viewport (100vw × 100vh) georeferenced SVG map adapted from DeanChensj/jiangshan-map with Mercator projection, shaded relief (terrain_relief.webp at 0.72 opacity), ranked blue rivers and lakes, and 2D occlusion-aware SVG viewBox camera math.
-- EU4-inspired four-zone spatial layout (unified top HUD bar, closable left state sheet, concise right state outliner, lower-right map layer and camera controls) rendered in flat warm ivory panels without heavy game chrome.
+- EU4-inspired corner-anchored spatial layout (compact top-left floating resource bar with gear utility menu, top-right independent date and turn-action box aligned above the right state outliner, closable left state sheet, lower-right map layer and camera controls) rendered in flat warm ivory panels with continuous map visibility between top-left and top-right.
+- Presentation-only UTC weekly calendar (`1444-11-11` for Week 1, `+7` UTC days per week) derived strictly from server week (`current_active_week` or `viewed_week` in history view) with a `往期` dropdown for available dated weeks.
 - Strict report-only visual encoding across disaster, grain, and silver layers using multiply watercolor washes (urgent cinnabar #b54434, mild ochre #c88a3b, stable sage #7a9a76) and a 45-degree slate diagonal hatch for unreported (UNKNOWN) states.
-- Dual-type hierarchy pairing classical Songti serif (--font-serif-cn) for editorial headings, tabs, key-value report rows, outliner summaries, and map labels with neutral sans-serif (--font-sans-cn) for operational controls and chat.
+- Dual-type hierarchy pairing classical Songti serif (--font-serif-cn) for editorial headings, calendar dates, tabs, key-value report rows, outliner summaries, and map labels with neutral sans-serif (--font-sans-cn) for operational controls and chat.
 - Responsive adaptation across 1586×992, 1440×900 (<=1460px), 1280×800 (<=1320px), and 390×844 mobile (<=960px), where the left sheet becomes an opaque full-width pane that suppresses background map bleed while open.
 
 ## Colors
@@ -194,27 +195,31 @@ The palette pairs warm rice-paper and ivory grounds with dark warm-ink typograph
 
 ## Layout
 
-The interface uses a full-viewport map canvas (`100vw × 100vh`, `overflow: hidden`) with an EU4-inspired four-zone floating overlay on desktop and a single-column flex stack on narrow screens:
+The interface uses a full-viewport map canvas (`100vw × 100vh`, `overflow: hidden`) with an EU4-inspired corner-anchored floating overlay on desktop and a single-column flex stack on narrow screens:
 
 1. **Full-Viewport Cartographic Workspace (`.simu-emperor-shell` > `.court-main-workspace` > `.map-viewport`)**:
    - Occupies `position: absolute; inset: 0; width: 100%; height: 100%` at `z-index: 1`.
    - Renders `<svg class="strategy-map-svg" preserveAspectRatio="xMidYMid slice">` with base viewBox dimensions `460 × 288` (`MAP_VIEWBOX_ORIGIN_X = 395`, `MAP_VIEWBOX_ORIGIN_Y = 278`).
-   - **2D Occlusion-Aware Camera Corridor (`computeMinimalOcclusionPan`)**: Selecting a playable state from the map or outliner checks whether the state's projected center sits inside the unobstructed map corridor between the floating panels (`34%` to `75%` of viewport width horizontally, `18%` to `78%` of viewport height vertically). If occluded, the camera pans the minimal distance required to place the state center at `44%` (left sheet clearance) or `66%` (right outliner clearance) horizontally and `28%` (top HUD clearance) or `68%` (bottom controls clearance) vertically, without altering zoom.
-2. **Unified Top HUD Bar (`.court-top-bar`, `z-index: 30`)**:
-   - Spans `top: 0; left: 0; right: 0` with `display: flex; align-items: center; justify-content: space-between`.
-   - **Three horizontal zones**: Left treasury summary (`朝廷存银`, `|`, `朝廷存粮`, source pill, optional debug truth pill); Center 4-week connected timeline pills (`第1周` › `第2周` › `第3周` › `第4周`) flanked by two `1px × 20px` vertical stone dividers (`--border-strong`); Right operational controls (`同步`, `截止征询`, `批复结算`, conditional `展开奏报`, `调试`, `凭证`).
-3. **Closable Left State Sheet (`.left-court-sheet`, `z-index: 25`)**:
+   - **2D Occlusion-Aware Camera Corridor (`computeMinimalOcclusionPan`)**: Selecting a playable state from the map or outliner checks whether the state's projected center sits inside the unobstructed map corridor between the floating panels (`34%` to `74%` of viewport width horizontally, `18%` to `78%` of viewport height vertically). If occluded, the camera pans the minimal distance required to place the state center at `44%` (left sheet clearance) or `65%` (right outliner clearance) horizontally and `28%` (top HUD clearance) or `68%` (bottom controls clearance) vertically, without altering zoom.
+2. **Top-Left Compact Resource & Utility Bar (`.court-top-bar`, `z-index: 30`)**:
+   - Anchored at `top: 16px; left: 18px` with `display: inline-flex; align-items: center`, leaving the top-center map canvas unobstructed.
+   - Displays reported central treasury metrics (`朝廷存银`, `|`, `朝廷存粮`, optional debug truth pill), paired with `同步`, conditional `展开奏报`, and an authored SVG gear button opening a popover utility menu (`调试真值视图`, `君主访问凭据`).
+3. **Top-Right Date & Turn-Action Stack (`.right-hud-stack` > `.court-date-turn-box` + `.right-court-outliner`, `z-index: 30`)**:
+   - Anchored at `top: 16px; right: 18px; width: 376px`, stacking the independent date and turn-action card (`.court-date-turn-box`) directly above the right state outliner (`.right-court-outliner`) with `gap: 12px`.
+   - `.court-date-turn-box` features a two-row layout: top row with the server-derived UTC calendar date (`1444年11月11日` for Week 1, `+7` UTC days per week, `31px` / `28px` / `23px` Songti) and `往期` disclosure panel (listing only available dated weeks `1 .. current_active_week`); bottom row with the two-step court workflow buttons (`截止征询` and `下一回合`, or `返回当前` in history view, or `试玩结束` when Week 4 is archived).
+4. **Closable Left State Sheet (`.left-court-sheet`, `z-index: 25`)**:
    - Anchored at `top: 76px; left: 18px; width: 404px; max-height: calc(100vh - 96px)`.
-   - On the `本州奏报` tab (`.left-court-sheet.is-tab-report`), enforces `min-height: min(702px, calc(100vh - 96px))` so the 5 key-value rows, memorial summary section, and 2-column footer button bar (`grid-template-columns: 1fr 1fr; gap: 12px`) maintain balanced vertical proportion.
-4. **Concise Right State Outliner (`.right-court-outliner`, `z-index: 20`)**:
-   - Anchored at `top: 76px; right: 18px; width: 324px; padding: 14px 16px`, stacking the `各州奏报（第N周）` header and 3 single-line state status rows (`gap: 4px`).
-5. **Lower-Right Map Controls & 5-State Legend (`.map-bottom-right-controls`, `z-index: 20`)**:
+   - Header displays the selected state title (`乙州`), narrow-screen state switcher pills, and an SVG close icon button.
+   - On the `本州奏报` tab (`.left-court-sheet.is-tab-report`), enforces `min-height: min(702px, calc(100vh - 96px))` so the 5 key-value rows (`灾情状态`, `可支配存粮`, `可支配存银`, `本州赈灾需求`, `向朝廷请拨`), `奏折摘要` section, and 2-column footer button bar (`传讯官员`, `审阅提案`) maintain balanced vertical proportion.
+5. **Concise Right State Outliner (`.right-court-outliner`)**:
+   - Width-aligned inside `.right-hud-stack` (`padding: 14px 16px`), stacking the `各州奏报` header and 3 single-line 3-column state status rows (`甲州` | `无灾` | `请银1.0万两`) using alignment rather than middle-dot punctuation.
+6. **Lower-Right Map Controls & 5-State Legend (`.map-bottom-right-controls`, `z-index: 20`)**:
    - Anchored at `right: 18px; bottom: 18px`, right-aligned in two rows (`gap: 9px`): top row with the 3-pill layer switcher (`灾情`, `存粮`, `存银`) and camera buttons (`+`, `−`, `复位视图`); bottom row with the 5-state legend card (`gap: 14px; padding: 7px 14px`).
-6. **Responsive Breakpoints (`web/styles.css`)**:
-   - **Default Desktop (`>1460px`, validated at `1586×992`)**: Top HUD `height: 52px`, `padding: 0 20px`; Left sheet `top: 76px`, `left: 18px`, `width: 404px`, report `min-height: 702px`; Right outliner `top: 76px`, `right: 18px`, `width: 324px`.
-   - **Medium Desktop (`@media (max-width: 1460px)`, validated at `1440×900`)**: Top HUD `height: 50px`, `padding: 0 16px`; Left sheet `top: 68px`, `left: 16px`, `width: 386px`, report `min-height: min(684px, calc(100vh - 86px))`; Right outliner `top: 68px`, `right: 16px`, `width: 312px`.
-   - **Compact Desktop (`@media (max-width: 1320px)`, validated at `1280×800`)**: Top HUD `min-height: 48px`, `padding: 4px 12px`, `flex-wrap: wrap`; Left sheet `top: 62px`, `left: 14px`, `width: 360px`, report `min-height: min(636px, calc(100vh - 78px))`; Right outliner `top: 62px`, `right: 14px`, `width: 296px`, `padding: 12px 13px`.
-   - **Mobile / Narrow Viewport (`@media (max-width: 960px)`, validated at `390×844`)**: `.court-main-workspace` switches to `display: flex; flex-direction: column; padding: 6px; gap: 6px`. `.court-top-bar` becomes a relative rounded card (`border-radius: 6px`, `padding: 6px 10px`) with vertical center dividers hidden. `.right-court-outliner` hides (`display: none`) and `.state-pill-selector` (`甲`, `乙`, `丙` pills) appears inside `.left-sheet-header`. `.left-court-sheet` becomes `position: relative; flex: 1; width: 100%; max-height: none; background: var(--surface-panel-solid)`, `.chat-messages-stream` expands (`max-height: none; flex: 1`), touch targets on tabs and footer CTAs expand to `min-height: 44px`, and `.map-viewport.is-drawer-open` sets `visibility: hidden; pointer-events: none` on `.map-camera-stage` and `.map-bottom-right-controls` so map graphics never bleed behind the open sheet.
+7. **Responsive Breakpoints (`web/styles.css`)**:
+   - **Default Desktop (`>1460px`, validated at `1586×992`)**: Top-left HUD `top: 16px`, `left: 18px`, `min-height: 44px`; Left sheet `top: 76px`, `left: 18px`, `width: 404px`, report `min-height: 702px`; Right HUD stack `top: 16px`, `right: 18px`, `width: 376px`, date `31px`.
+   - **Medium Desktop (`@media (max-width: 1460px)`, validated at `1440×900`)**: Top-left HUD `top: 14px`, `left: 16px`, `min-height: 44px`; Left sheet `top: 68px`, `left: 16px`, `width: 386px`, report `min-height: min(684px, calc(100vh - 86px))`; Right HUD stack `top: 14px`, `right: 16px`, `width: 352px`, date `28px`.
+   - **Compact Desktop (`@media (max-width: 1320px)`, validated at `1280×800`)**: Top-left HUD `top: 12px`, `left: 14px`, `min-height: 40px`; Left sheet `top: 62px`, `left: 14px`, `width: 360px`, report `min-height: min(636px, calc(100vh - 78px))`; Right HUD stack `top: 12px`, `right: 14px`, `width: 304px`, date `23px`.
+   - **Mobile / Narrow Viewport (`@media (max-width: 960px)`, validated at `390×844`)**: `.court-main-workspace` switches to `display: flex; flex-direction: column; padding: 6px; gap: 6px`. `.court-top-bar` and `.court-date-turn-box` become compact full-width header cards at the top of the flex stack while `.right-court-outliner` hides (`display: none`) and `.state-pill-selector` (`甲`, `乙`, `丙` pills) appears inside `.left-sheet-header`. `.left-court-sheet` becomes `position: relative; flex: 1; width: 100%; max-height: none; background: var(--surface-panel-solid)`, `.chat-messages-stream` expands (`max-height: none; flex: 1`), touch targets on tabs and footer CTAs expand to `min-height: 44px`, and `.map-viewport.is-drawer-open` sets `visibility: hidden; pointer-events: none` on `.map-camera-stage` and `.map-bottom-right-controls` so map graphics never bleed behind the open sheet.
 
 ## Elevation & Depth
 
@@ -237,31 +242,31 @@ The form language uses crisp, low-radius rectangles framed by `1px solid` warm s
 ## Components
 
 ### Buttons
-Action buttons use concise Chinese labels, `1px solid` borders, and `120ms ease` transitions without decorative icons or gradients.
-- **Shape:** `6px` radius (`rounded.md`) on sheet and modal buttons; `5px` radius (`rounded.sm`) on compact top HUD bar buttons.
-- **Primary:** Solid cinnabar background (`#9e3a2e`), matching border (`#9e3a2e`), pure white text (`#ffffff`), `font-size: 15px` (`13.5px` in top bar), `font-weight: 600`, `padding: 10px 14px` (`5px 14px` in top bar). Used for `截止征询` (when `OPEN`), `批复结算` (when `LOCKED` and draft ready), `发旨`, and modal submit CTAs.
+Action buttons use concise Chinese labels, `1px solid` borders, and `120ms ease` transitions without decorative unicode symbols or gradients.
+- **Shape:** `6px` radius (`rounded.md`) on sheet and modal buttons; `5px` radius (`rounded.sm`) on compact top HUD bar and date-turn card buttons.
+- **Primary:** Solid cinnabar background (`#9e3a2e`), matching border (`#9e3a2e`), pure white text (`#ffffff`), `font-size: 15px` (`13.5px` in top/turn bars), `font-weight: 600`, `padding: 10px 14px` (`6px 12px` in turn bar). Used for `截止征询` (when `OPEN`), `下一回合` (when `LOCKED` and draft ready), `发旨`, and modal submit CTAs.
 - **Hover / Focus:** Primary hover deepens to `#8b3126`; secondary hover shifts from `#faf7f2` to `#f2ece1`; cinnabar outline hover tints with `rgba(158, 58, 46, 0.08)`. Keyboard `:focus-visible` renders `outline: 2px solid #9e3a2e; outline-offset: 2px`.
 - **Secondary / Ghost / Tertiary:**
-  - **Secondary Court Button (`.secondary-court-btn`, `.top-util-btn`):** Solid ivory `#faf7f2`, `1px solid #c2b8a6` border, `#1f1c18` text (`传讯{X}州官员`, `同步`, `展开奏报`).
-  - **Cinnabar Outline Button (`.outline-cinnabar-btn`):** Solid ivory `#faf7f2`, `1px solid #9e3a2e` border, `#9e3a2e` text (`审阅{X}州提案`).
+  - **Secondary Court Button (`.secondary-court-btn`, `.top-util-btn`, `.history-dropdown-btn`):** Solid ivory `#faf7f2`, `1px solid #c2b8a6` border, `#1f1c18` text (`传讯官员`, `同步`, `展开奏报`, `往期`).
+  - **Cinnabar Outline Button (`.outline-cinnabar-btn`):** Solid ivory `#faf7f2`, `1px solid #9e3a2e` border, `#9e3a2e` text (`审阅提案`).
   - **Disabled State (`:disabled`):** Solid muted stone `#e2dcd0` background, `#d2cabd` border, `#766d61` text at `opacity: 1` (`cursor: not-allowed`).
-  - **Top Bar Underlined Text Links (`.top-text-link`):** Transparent background, `#685f54` text (`#9e3a2e` bold when active), `1px` underline (`rgba(138, 128, 114, 0.55)`, `text-underline-offset: 4px`) for `调试` and `凭证`.
+  - **Gear Icon Utility Button (`.top-gear-btn`):** Compact `30px × 30px` square button (`5px` radius) housing a 15px authored SVG gear icon that toggles `.top-gear-menu` (`调试真值视图`, `君主访问凭据`).
 
-### Chips
-Compact pill and chip controls represent week timeline steps, state selectors, channel switches, and binary approval decisions.
-- **Style:** `4px`–`5px` border radius (`12px` on `.top-source-pill`), `1px solid #dcd4c6` border, `--font-sans-cn` typography (`12px`–`13.5px`).
+### Chips & Dropdowns
+Compact controls represent historical week selection, state selectors, channel switches, and binary approval decisions.
+- **Style:** `4px`–`6px` border radius, `1px solid #dcd4c6` border, `--font-sans-cn` typography (`12px`–`13.5px`).
 - **State:**
-  - **Week Timeline Step Pills (`.timeline-step-btn`):** `#faf7f2` background, `#685f54` text (`padding: 5px 12px`), connected by `›` chevrons (`.week-chevron`). Viewed week (`.is-viewed`) switches to `border-color: #9e3a2e`, `color: #9e3a2e`, `font-weight: 700`, `background: #fdfaf7`; future weeks disable at `opacity: 0.65` on `#f3eee4`.
+  - **History Week Dropdown (`.history-dropdown-menu` > `.history-dropdown-item`):** Lists only available dated weeks (`1 .. current_active_week`), highlighting the selected date (`.is-selected`) with `color: #9e3a2e`, `font-weight: 700`, `background: #f9f3ee`.
   - **Approval Decision Radio Pills (`.radio-pill`):** Equal-width flex pills (`padding: 5px 10px`, `border-radius: 5px`, `background: #f2ece1`). Selecting `拟批准` (`.selected-approve`) applies `background: rgba(88, 120, 84, 0.10)`, `border-color: #587854`, `color: #587854`; selecting `拟驳回` (`.selected-reject`) applies `background: rgba(158, 58, 46, 0.08)`, `border-color: #9e3a2e`, `color: #9e3a2e`.
   - **Mobile State Selector Pills (`.state-pill-btn`) & Severity Dots (`.pill-dot`):** Displayed on `<=960px` with an `8px` circular severity dot (`#9e3a2e` urgent, `#b87328` mild, `#587854` stable, `#7a7067` unknown).
 
 ### Cards / Containers
 Floating panels and internal cards organize memorials, outliner summaries, and proposal line items without nested box clutter.
-- **Corner Style:** `9px` on floating outer panels (`.left-court-sheet`, `.right-court-outliner`), `6px` on internal proposal/debug cards and outliner rows.
+- **Corner Style:** `9px` on floating outer panels (`.left-court-sheet`, `.court-date-turn-box`, `.right-court-outliner`), `6px` on internal proposal/debug cards and outliner rows.
 - **Background:** Outer floating panels use `rgba(250, 247, 242, 0.96)` (`#faf7f2` solid on `<=960px`); internal containers (`.central-budget-card`, `.state-proposal-card`, `.chat-messages-stream`) use `#f2ece1` (`--surface-subtle`) with `#faf7f2` inner line items (`.proposal-line-item`, `.central-num-box`, `.chat-bubble`).
 - **Shadow Strategy:** Ambient elevation (`0 4px 16px rgba(31, 28, 24, 0.06)` and `0 3px 12px rgba(31, 28, 24, 0.05)`) on outer floating panels only; internal cards are flat.
-- **Border:** `1px solid #dcd4c6` on panels and cards; `1px solid #eae3d5` horizontal hairline dividers on `.sheet-kv-row` (`padding: 13px 0`) and `.outliner-state-row` (`padding: 9px 10px`).Selected outliner row (`.outliner-state-row.is-selected`) highlights with `background: #f9f3ee; border-color: #9e3a2e`.
-- **Internal Padding:** Left sheet header `18px 20px 12px`, tab panel `14px 20px 18px`; right outliner `14px 16px`; modal card `18px 20px`.
+- **Border:** `1px solid #dcd4c6` on panels and cards; `1px solid #eae3d5` horizontal hairline dividers on `.sheet-kv-row` (`padding: 13px 0`) and `.outliner-state-row` (`padding: 9px 10px`). Selected outliner row (`.outliner-state-row.is-selected`) highlights with `background: #f9f3ee; border-color: #9e3a2e`.
+- **Internal Padding:** Left sheet header `18px 20px 12px`, tab panel `14px 20px 18px`; date-turn box `12px 16px`; right outliner `14px 16px`; modal card `18px 20px`.
 
 ### Inputs / Fields
 Form fields appear in the court chat composer and the credential authentication modals.
@@ -270,7 +275,7 @@ Form fields appear in the court chat composer and the credential authentication 
 - **Error / Disabled:** Validation and auth errors render in `.inline-error-banner` (`background: rgba(158, 58, 46, 0.08)`, `border: 1px solid #9e3a2e`, `color: #9e3a2e`, `padding: 6px 10px`, `border-radius: 5px`). Disabled chat textarea in history or completed-trial view displays a read-only placeholder and blocks input.
 
 ### Navigation
-- **Unified Top HUD Bar (`.court-top-bar`):** Single horizontal bar (`height: 52px`) integrating treasury metrics, 4-week timeline navigation (flanked by `1px` vertical dividers), and court phase actions.
+- **Top-Left Compact Resource Bar (`.court-top-bar`) & Top-Right Date/Turn Box (`.court-date-turn-box`):** Split corner-anchored HUD exposing continuous map terrain across the top center, pairing central treasury metrics and gear utilities on the left with calendar date, `往期` dropdown, and `截止征询` / `下一回合` / `返回当前` / `试玩结束` controls on the right.
 - **Sheet 3-Tab Bar (`.drawer-tabs-bar`):** Equal-width 3-column grid (`grid-template-columns: repeat(3, 1fr)`, `padding: 0 18px`, `border-bottom: 1px solid #dcd4c6`). Tabs (`本州奏报`, `朝堂会话`, `提案批复`) use `--font-serif-cn`, `16px`, `color: #685f54`, and `border-bottom: 2.5px solid transparent`. Active tab (`.drawer-tab-btn.active`) sets `color: #9e3a2e`, `border-bottom-color: #9e3a2e`, `font-weight: 700`.
 - **Chat 4-Channel Selector (`.channel-selector-grid`):** 4-column pill bar (`grid-template-columns: repeat(4, 1fr); gap: 6px`) for the four monarch-visible channels (`甲州单聊`, `乙州单聊`, `丙州单聊`, `朝议群聊`).
 - **Lower-Right Map Layer & Camera Dock (`.map-bottom-right-controls`):** Segmented 3-layer pill group (`灾情`, `存粮`, `存银`, active pill highlighted with `background: #fdfaf7; border-color: #9e3a2e; color: #9e3a2e; font-weight: 700`) paired with `+`, `−`, and `复位视图` camera buttons (`height: 34px`).
@@ -284,10 +289,10 @@ Form fields appear in the court chat composer and the credential authentication 
 ### Do:
 - **Do** keep the interactive geographic map at 100vw × 100vh with low-opacity multiply washes (fill-opacity: 0.30, 0.36 selected, 0.38 hover) so terrain relief and hydrography remain legible underneath.
 - **Do** render unreported states (UNKNOWN) with the diagonal hatch pattern (#unknown-hatch-pattern) and explicit '本周未奏报（未知）' text rather than substituting 0 or background fills.
-- **Do** use --font-serif-cn for state titles, top bar treasury metrics, drawer tabs, report key-value rows (.sheet-kv-row), and outliner state rows (.outliner-state-row), paired with tabular-nums on all resource figures.
-- **Do** reserve --accent-cinnabar (#9e3a2e) for active phase/Action CTAs (截止征询, 批复结算, 发旨), selected tabs/pills, selected state borders (#8c2d22), and urgent disaster/shortage statuses.
+- **Do** use --font-serif-cn for state titles, top bar treasury metrics, calendar date display, drawer tabs, report key-value rows (.sheet-kv-row), and outliner state rows (.outliner-state-row), paired with tabular-nums on all resource figures.
+- **Do** reserve --accent-cinnabar (#9e3a2e) for active phase/Action CTAs (截止征询, 下一回合, 发旨), selected tabs/pills, selected state borders (#8c2d22), and urgent disaster/shortage statuses.
 - **Do** use the solid muted disabled tokens (background #e2dcd0, border #d2cabd, text #766d61, opacity: 1) on disabled action and primary buttons instead of translucent washed-out fills.
-- **Do** maintain single-line state summaries (white-space: nowrap) in .right-court-outliner across 1586px, 1440px, and 1280px desktop breakpoints.
+- **Do** maintain single-line 3-column state summaries (white-space: nowrap) in .right-court-outliner across 1586px, 1440px, and 1280px desktop breakpoints without middle-dot (`·`) text separators.
 
 ### Don't:
 - **Don't** introduce ornate EU4-style gilded frames, heraldic crests, hanging pennants, decorative province paintings, or dark slate/charcoal panels.

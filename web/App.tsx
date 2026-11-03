@@ -4,12 +4,10 @@ import {
   MAX_TRIAL_WEEKS,
   type ApprovalDecision,
   type ChatMessageView,
-  type CourtStateView,
   type CourtViewResponse,
   type DebugTruthResponse,
   type OfficerId,
   type StateId,
-  type WeekPhase,
 } from '../src/contracts/index.ts';
 import {
   clearStaleApprovalDrafts,
@@ -35,7 +33,11 @@ import {
 import { MapViewport } from './components/MapViewport.tsx';
 import { RightDrawer, type DrawerTabKey } from './components/RightDrawer.tsx';
 import {
+  buildAvailableHistoryWeekOptions,
   computeMinimalOcclusionPan,
+  formatOutlinerStateParts,
+  formatWeekCalendarDate,
+  formatWeekCalendarIso,
   INITIAL_MAP_CAMERA,
   pickDefaultSelectedState,
   type MapCameraState,
@@ -60,41 +62,6 @@ function syncHistoryWeekToUrl(weekNumber: number | undefined): void {
     url.searchParams.delete('week');
   }
   window.history.replaceState({}, '', url.toString());
-}
-
-function formatWeekPillText(
-  weekNum: number,
-  activeWeekNum: number,
-  activeWeekPhase: WeekPhase,
-): string {
-  if (weekNum < activeWeekNum) {
-    return `第${weekNum}周·已归档`;
-  }
-  if (weekNum === activeWeekNum) {
-    if (activeWeekPhase === 'OPEN') return `第${weekNum}周·征询中`;
-    if (activeWeekPhase === 'LOCKED') return `第${weekNum}周·待批复`;
-    return `第${weekNum}周·已归档`;
-  }
-  return `第${weekNum}周`;
-}
-
-function formatOutlinerStateSummary(st: CourtStateView): string {
-  if (st.report_status === 'UNKNOWN' || !st.report) {
-    return '未奏报（未知）';
-  }
-  const prop = st.proposal;
-  const grainReq = prop?.relief_central_grain ?? 0;
-  const silverReq = prop?.project_central_silver ?? 0;
-  if (grainReq > 0 && silverReq > 0) {
-    return `${st.report.disaster_label} · 请粮${formatWan(grainReq, '万石')}/请银${formatWan(silverReq, '万两')}`;
-  }
-  if (grainReq > 0) {
-    return `${st.report.disaster_label} · 请粮${formatWan(grainReq, '万石')}`;
-  }
-  if (silverReq > 0) {
-    return `${st.report.disaster_label} · 请银${formatWan(silverReq, '万两')}`;
-  }
-  return `${st.report.disaster_label} · 无请拨`;
 }
 
 export const App: React.FC = () => {
@@ -141,6 +108,14 @@ export const App: React.FC = () => {
   const [showDebugModal, setShowDebugModal] = useState<boolean>(false);
   const [debugTokenInput, setDebugTokenInput] = useState<string>(() => getStoredDebugToken());
   const [debugError, setDebugError] = useState<string | null>(null);
+
+  // HUD Popover Menu states (Top-left SVG gear & Top-right history dropdown)
+  const [gearMenuOpen, setGearMenuOpen] = useState<boolean>(false);
+  const [historyMenuOpen, setHistoryMenuOpen] = useState<boolean>(false);
+  const gearMenuWrapRef = useRef<HTMLDivElement | null>(null);
+  const historyMenuWrapRef = useRef<HTMLDivElement | null>(null);
+  const gearTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const historyTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Local request generation + AbortController guards against stale async responses
   const courtReqGuardRef = useRef<LatestRequestController>(new LatestRequestController());
@@ -327,10 +302,43 @@ export const App: React.FC = () => {
     };
   }, [debugMode, courtView]);
 
-  // Esc key clears selected state and closes left sheet
+  // Close open HUD menus on outside pointerdown
+  useEffect(() => {
+    if (!gearMenuOpen && !historyMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (gearMenuOpen && gearMenuWrapRef.current && !gearMenuWrapRef.current.contains(target)) {
+        setGearMenuOpen(false);
+      }
+      if (
+        historyMenuOpen &&
+        historyMenuWrapRef.current &&
+        !historyMenuWrapRef.current.contains(target)
+      ) {
+        setHistoryMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [gearMenuOpen, historyMenuOpen]);
+
+  // Esc key closes open menus/modals first and restores trigger focus, then clears selected state and closes left sheet
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (gearMenuOpen) {
+          e.preventDefault();
+          setGearMenuOpen(false);
+          gearTriggerRef.current?.focus();
+          return;
+        }
+        if (historyMenuOpen) {
+          e.preventDefault();
+          setHistoryMenuOpen(false);
+          historyTriggerRef.current?.focus();
+          return;
+        }
         if (showDebugModal) {
           debugReqGuardRef.current.invalidate();
           setShowDebugModal(false);
@@ -346,7 +354,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [showDebugModal, showCredentialModal, courtView]);
+  }, [gearMenuOpen, historyMenuOpen, showDebugModal, showCredentialModal, courtView]);
 
   const handleSelectStateFromMap = useCallback(
     (stateId: StateId, viewportWidth: number, viewportHeight: number) => {
@@ -422,9 +430,7 @@ export const App: React.FC = () => {
       applyLoadedCourtView(updated);
       setActiveTab('approval');
       setDrawerOpen(true);
-      setActionInfo(
-        `第 ${targetWeek} 周已截止征询，各州奏报、中央奏报与正式提案快照已冻结，请勾选批复决定。`,
-      );
+      setActionInfo('已截止征询，各州奏报、中央奏报与正式提案快照已冻结，请勾选批复决定。');
     } catch (err) {
       if (
         courtReqGuardRef.current.currentId !== actionGuardId ||
@@ -472,8 +478,8 @@ export const App: React.FC = () => {
       applyLoadedCourtView(updated);
       setActionInfo(
         updated.current_active_week.week_phase === 'ARCHIVED'
-          ? `第 ${targetWeek} 周已完成结算归档，四周试玩已全部完结。`
-          : `第 ${targetWeek} 周已完成结算归档，现已进入第 ${updated.current_active_week.week_number} 周征询阶段。`,
+          ? '本回合已完成结算，试玩结束。'
+          : `本回合已完成结算，现已进入 ${formatWeekCalendarDate(updated.current_active_week.week_number)} 征询阶段。`,
       );
     } catch (err) {
       if (
@@ -493,7 +499,7 @@ export const App: React.FC = () => {
         const synced = await loadCourtData(monarchToken, latestCourtIntentRef.current.week);
         if (synced) {
           setActionInfo(
-            `第 ${targetWeek} 周此前已完成结算归档，已同步至第 ${synced.current_active_week.week_number} 周（未重复扣款）。`,
+            `上回合此前已完成结算，已同步至 ${formatWeekCalendarDate(synced.current_active_week.week_number)}（未重复扣款）。`,
           );
         }
       } else {
@@ -538,12 +544,12 @@ export const App: React.FC = () => {
       if (archivedNow) {
         clearWeekApprovalDraft(uncertainWeek);
         setActionInfo(
-          `同步完成：第 ${uncertainWeek} 周结算已生效并归档，当前处于第 ${freshView.current_active_week.week_number} 周。`,
+          `同步完成：结算已生效，当前日期为 ${formatWeekCalendarDate(freshView.current_active_week.week_number)}。`,
         );
       } else {
         setApprovalDraft(loadWeekApprovalDraft(uncertainWeek));
         setActionInfo(
-          `尚未观察到第 ${uncertainWeek} 周完成结算；可稍候再次同步，或重新点击【批复结算】`,
+          '尚未观察到本回合完成结算；可稍候再次同步，或重新点击【下一回合】',
         );
       }
     }
@@ -682,8 +688,6 @@ export const App: React.FC = () => {
   const handleSelectWeekTimeline = (weekNum: number) => {
     if (!courtView) return;
     const activeWeekNum = courtView.current_active_week.week_number;
-    if (weekNum > activeWeekNum) return;
-
     const nextWeekQuery = weekNum === activeWeekNum ? undefined : weekNum;
     latestCourtIntentRef.current = { token: monarchToken, week: nextWeekQuery };
     courtReqGuardRef.current.invalidate();
@@ -717,6 +721,13 @@ export const App: React.FC = () => {
   const isHistoryView = courtView?.viewed_week.is_history_view ?? false;
   const isTrialCompleted = activeWeekNum === MAX_TRIAL_WEEKS && activeWeekPhase === 'ARCHIVED';
 
+  const displayedDateLabel = formatWeekCalendarDate(viewedWeekNum);
+  const displayedIsoDate = formatWeekCalendarIso(viewedWeekNum);
+  const historyWeekOptions = useMemo(
+    () => buildAvailableHistoryWeekOptions(activeWeekNum, viewedWeekNum),
+    [activeWeekNum, viewedWeekNum],
+  );
+
   const centralRep = courtView?.central_report;
 
   return (
@@ -736,9 +747,8 @@ export const App: React.FC = () => {
           onChangeCamera={setCamera}
         />
 
-        {/* Single Unified Top HUD Bar (Matches simple-ui-preview-v1.png: Left Treasury, Center Week Pills, Right Actions) */}
+        {/* Top-Left Compact Floating Resource Bar */}
         <header className="court-top-bar" data-testid="court-top-bar">
-          {/* Left: Central Reported Treasury & Source Pill */}
           <div className="top-bar-left" data-testid="top-central-summary">
             {centralRep ? (
               centralRep.report_status === 'REPORTED' &&
@@ -751,14 +761,12 @@ export const App: React.FC = () => {
                       {formatWan(centralRep.gross_silver, '万两')}
                     </strong>
                   </span>
-                  <span className="top-divider">|</span>
                   <span className="treasury-metric">
                     <span className="treasury-label">朝廷存粮</span>{' '}
                     <strong className="treasury-value">
                       {formatWan(centralRep.gross_grain, '万石')}
                     </strong>
                   </span>
-                  <span className="top-source-pill">来源：第{viewedWeekNum}周度支奏报</span>
                 </>
               ) : (
                 <>
@@ -766,13 +774,9 @@ export const App: React.FC = () => {
                     <span className="treasury-label">朝廷存银</span>{' '}
                     <strong className="treasury-value top-unknown-val">本周未奏报（未知）</strong>
                   </span>
-                  <span className="top-divider">|</span>
                   <span className="treasury-metric">
                     <span className="treasury-label">朝廷存粮</span>{' '}
                     <strong className="treasury-value top-unknown-val">本周未奏报（未知）</strong>
-                  </span>
-                  <span className="top-source-pill is-unknown">
-                    来源：第{viewedWeekNum}周未奏报
                   </span>
                 </>
               )
@@ -788,122 +792,22 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Center: 4-Week Connected Timeline Pills */}
-          <div
-            className="top-bar-center"
-            data-testid="court-bottom-bar"
-            role="navigation"
-            aria-label="四周进度轴"
-          >
-            <div className="week-timeline-pills">
-              {([1, 2, 3, 4] as const).map((weekNum, idx) => {
-                const isPastArchived =
-                  weekNum < activeWeekNum ||
-                  (weekNum === activeWeekNum && activeWeekPhase === 'ARCHIVED');
-                const isCurrentActive =
-                  weekNum === activeWeekNum && activeWeekPhase !== 'ARCHIVED';
-                const isViewed = weekNum === viewedWeekNum;
-                const isFuture = weekNum > activeWeekNum;
-
-                return (
-                  <React.Fragment key={weekNum}>
-                    {idx > 0 && (
-                      <span className="week-chevron" aria-hidden="true">
-                        ›
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      disabled={isFuture || !courtView}
-                      className={`timeline-step-btn ${isViewed ? 'is-viewed' : ''} ${isPastArchived ? 'is-archived' : ''} ${isCurrentActive ? 'is-current' : ''}`}
-                      data-testid={`timeline-week-${weekNum}`}
-                      onClick={() => handleSelectWeekTimeline(weekNum)}
-                    >
-                      <span
-                        className="step-label"
-                        data-testid={isViewed ? 'top-week-phase-label' : undefined}
-                      >
-                        {formatWeekPillText(weekNum, activeWeekNum, activeWeekPhase)}
-                      </span>
-                    </button>
-                  </React.Fragment>
-                );
-              })}
-            </div>
-
-            {isHistoryView && (
-              <button
-                type="button"
-                className="top-return-current-btn"
-                data-testid="top-return-current-week-btn"
-                onClick={() => handleSelectWeekTimeline(activeWeekNum)}
-              >
-                返回第{activeWeekNum}周
-              </button>
-            )}
-
-            {isTrialCompleted && !isHistoryView && (
-              <span className="trial-completed-status" data-testid="trial-completed-badge">
-                四周已完结
-              </span>
-            )}
-          </div>
-
-          {/* Right: Sync, Lock, Settle & Utility Controls */}
-          <div className="top-bar-right" data-testid="bottom-actions-area">
+          <div className="top-bar-utilities">
             <button
               type="button"
-              className="top-util-btn"
+              className="top-sync-btn"
               data-testid="sync-status-btn"
               disabled={!monarchToken || loadingCourt}
               onClick={() => void handleSyncCurrentWeekState()}
-              title="同步当前周与会话状态"
+              title="同步当前朝堂与会话状态"
             >
               同步
             </button>
 
-            {isHistoryView ? (
-              <button
-                type="button"
-                className="court-action-btn btn-return-current"
-                data-testid="bottom-return-current-week-btn"
-                onClick={() => handleSelectWeekTimeline(activeWeekNum)}
-              >
-                返回当前周
-              </button>
-            ) : isTrialCompleted ? null : (
-              <>
-                <button
-                  type="button"
-                  className={`court-action-btn btn-lock-week ${viewedWeekPhase === 'OPEN' ? 'is-primary-cinnabar' : ''}`}
-                  data-testid="lock-week-btn"
-                  disabled={!courtView || viewedWeekPhase !== 'OPEN' || submittingAction}
-                  onClick={() => void handleLockCurrentWeek()}
-                >
-                  截止征询
-                </button>
-                <button
-                  type="button"
-                  className={`court-action-btn btn-settle-week ${viewedWeekPhase === 'LOCKED' && approvalStatus.isReady ? 'is-primary-cinnabar' : ''}`}
-                  data-testid="settle-week-btn"
-                  disabled={
-                    !courtView ||
-                    viewedWeekPhase !== 'LOCKED' ||
-                    !approvalStatus.isReady ||
-                    submittingAction ||
-                    settleUncertainWeek !== null
-                  }
-                  onClick={() => void handleSettleCurrentWeek()}
-                >
-                  {submittingAction ? '结算中…' : '批复结算'}
-                </button>
-              </>
-            )}
-
             {!drawerOpen && courtView && (
               <button
                 type="button"
-                className="top-util-btn"
+                className="top-reopen-btn"
                 data-testid="reopen-drawer-btn"
                 onClick={() => {
                   const targetState = selectedStateId ?? pickDefaultSelectedState(courtView.states);
@@ -920,72 +824,262 @@ export const App: React.FC = () => {
               </button>
             )}
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={debugMode}
-              aria-label="调试真值视图"
-              className={`top-text-link ${debugMode ? 'is-active' : ''}`}
-              data-testid="debug-truth-toggle"
-              onClick={() => void handleToggleDebugSwitch()}
-              title="开启/关闭调试真值视图"
-            >
-              {debugMode ? '真值·开' : '调试'}
-            </button>
+            <div className="gear-menu-wrap" ref={gearMenuWrapRef}>
+              <button
+                ref={gearTriggerRef}
+                type="button"
+                className={`top-gear-btn ${gearMenuOpen || debugMode ? 'is-active' : ''}`}
+                data-testid="utility-gear-btn"
+                aria-label="系统与调试设置"
+                aria-expanded={gearMenuOpen}
+                aria-controls="utility-gear-panel"
+                title="凭据与调试设置"
+                onClick={() => {
+                  setHistoryMenuOpen(false);
+                  setGearMenuOpen((prev) => !prev);
+                }}
+              >
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3.2" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                </svg>
+              </button>
 
-            <button
-              type="button"
-              className="top-text-link"
-              data-testid="open-credential-modal-btn"
-              onClick={() => {
-                setTokenInput(monarchToken);
-                setAuthError(null);
-                setShowCredentialModal(true);
-              }}
-            >
-              凭证
-            </button>
+              {gearMenuOpen && (
+                <div
+                  id="utility-gear-panel"
+                  className="gear-popover-menu"
+                  data-testid="utility-gear-menu"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={debugMode}
+                    className={`gear-menu-item ${debugMode ? 'is-active' : ''}`}
+                    data-testid="debug-truth-toggle"
+                    onClick={() => {
+                      setGearMenuOpen(false);
+                      void handleToggleDebugSwitch();
+                    }}
+                  >
+                    <span>调试真值视图</span>
+                    <span className="gear-item-state">{debugMode ? '已开启' : '关闭'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="gear-menu-item"
+                    data-testid="open-credential-modal-btn"
+                    onClick={() => {
+                      setGearMenuOpen(false);
+                      setTokenInput(monarchToken);
+                      setAuthError(null);
+                      setShowCredentialModal(true);
+                    }}
+                  >
+                    <span>君主访问凭据</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        {/* Concise Right Outliner (Matches simple-ui-preview-v1.png: 各州奏报（第N周） + 3 state rows) */}
-        {courtView && (
-          <aside
-            className="right-court-outliner"
-            data-testid="eu4-right-outliner"
-            aria-label={`各州奏报（第${viewedWeekNum}周）`}
+        {/* Right HUD Column: Independent Date+Turn Box aligned to Right State Summary */}
+        <div className="right-hud-stack">
+          <section
+            className="court-date-turn-box"
+            data-testid="court-date-turn-box"
+            aria-label="朝堂纪年与回合操作"
           >
-            <div className="outliner-header">
-              <span>各州奏报（第{viewedWeekNum}周）</span>
+            <div className="date-turn-header">
+              <time
+                className="court-calendar-date"
+                data-testid="court-calendar-date"
+                dateTime={displayedIsoDate}
+              >
+                {displayedDateLabel}
+              </time>
+
+              <div className="history-dropdown-wrap" ref={historyMenuWrapRef}>
+                <button
+                  ref={historyTriggerRef}
+                  type="button"
+                  className={`history-dropdown-trigger ${historyMenuOpen ? 'is-open' : ''} ${isHistoryView ? 'is-history-active' : ''}`}
+                  data-testid="history-dropdown-trigger"
+                  aria-expanded={historyMenuOpen}
+                  aria-controls="history-dropdown-panel"
+                  disabled={!courtView}
+                  onClick={() => {
+                    setGearMenuOpen(false);
+                    setHistoryMenuOpen((prev) => !prev);
+                  }}
+                >
+                  <span>往期</span>
+                  <svg
+                    className="chevron-icon"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M2.5 4.5L6 8L9.5 4.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+
+                {historyMenuOpen && courtView && (
+                  <div
+                    id="history-dropdown-panel"
+                    className="history-dropdown-menu"
+                    data-testid="history-dropdown-menu"
+                  >
+                    {historyWeekOptions.map((opt) => (
+                      <button
+                        key={opt.weekNumber}
+                        type="button"
+                        aria-current={opt.isSelected ? 'date' : undefined}
+                        className={`history-option-btn ${opt.isSelected ? 'is-selected' : ''} ${opt.isCurrent ? 'is-current' : ''}`}
+                        data-testid={`timeline-week-${opt.weekNumber}`}
+                        data-week={opt.weekNumber}
+                        onClick={() => {
+                          setHistoryMenuOpen(false);
+                          handleSelectWeekTimeline(opt.weekNumber);
+                        }}
+                      >
+                        <span className="history-option-date">{opt.dateLabel}</span>
+                        {opt.isCurrent ? (
+                          <span className="history-option-tag">当前</span>
+                        ) : opt.isSelected ? (
+                          <span className="history-option-tag">回看中</span>
+                        ) : null}
+                      </button>
+                    ))}
+
+                    {isHistoryView && (
+                      <button
+                        type="button"
+                        className="history-return-menu-btn"
+                        data-testid="top-return-current-week-btn"
+                        onClick={() => {
+                          setHistoryMenuOpen(false);
+                          handleSelectWeekTimeline(activeWeekNum);
+                        }}
+                      >
+                        返回当前
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="outliner-state-list" data-testid="pending-requests-summary">
-              {courtView.states.map((st) => {
-                const isSel = selectedStateId === st.state_id && drawerOpen;
-                return (
+            <div className="date-turn-actions" data-testid="bottom-actions-area">
+              {isHistoryView ? (
+                <button
+                  type="button"
+                  className="court-action-btn btn-return-current"
+                  data-testid="bottom-return-current-week-btn"
+                  onClick={() => handleSelectWeekTimeline(activeWeekNum)}
+                >
+                  返回当前
+                </button>
+              ) : isTrialCompleted ? (
+                <div className="trial-completed-status" data-testid="trial-completed-badge">
+                  试玩结束
+                </div>
+              ) : (
+                <>
                   <button
-                    key={st.state_id}
                     type="button"
-                    className={`outliner-state-row ${isSel ? 'is-selected' : ''}`}
-                    data-testid={`outliner-state-${st.state_id}`}
-                    onClick={() => {
-                      handleSelectStateFromDrawer(st.state_id);
-                      setActiveTab('report');
-                    }}
+                    className={`court-action-btn btn-lock-week ${viewedWeekPhase === 'OPEN' ? 'is-primary-cinnabar' : ''}`}
+                    data-testid="lock-week-btn"
+                    disabled={!courtView || viewedWeekPhase !== 'OPEN' || submittingAction}
+                    onClick={() => void handleLockCurrentWeek()}
                   >
-                    <span className="outliner-state-left">
-                      <span className={`pill-dot dot-${st.map_severity}`} />
-                      <strong>{st.state_name}</strong>
-                    </span>
-                    <span className="outliner-state-summary">
-                      {formatOutlinerStateSummary(st)}
-                    </span>
+                    截止征询
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    className={`court-action-btn btn-settle-week ${viewedWeekPhase === 'LOCKED' && approvalStatus.isReady ? 'is-primary-cinnabar' : ''}`}
+                    data-testid="settle-week-btn"
+                    disabled={
+                      !courtView ||
+                      viewedWeekPhase !== 'LOCKED' ||
+                      !approvalStatus.isReady ||
+                      submittingAction ||
+                      settleUncertainWeek !== null
+                    }
+                    onClick={() => void handleSettleCurrentWeek()}
+                  >
+                    {submittingAction ? '结算中…' : '下一回合'}
+                  </button>
+                </>
+              )}
             </div>
-          </aside>
-        )}
+          </section>
+
+          {/* Concise Right Outliner: 各州奏报 + 3 column-aligned state rows */}
+          {courtView && (
+            <aside
+              className="right-court-outliner"
+              data-testid="eu4-right-outliner"
+              aria-label="各州奏报"
+            >
+              <div className="outliner-header">
+                <span>各州奏报</span>
+              </div>
+
+              <div className="outliner-state-list" data-testid="pending-requests-summary">
+                {courtView.states.map((st) => {
+                  const isSel = selectedStateId === st.state_id && drawerOpen;
+                  const rowParts = formatOutlinerStateParts(st);
+                  return (
+                    <button
+                      key={st.state_id}
+                      type="button"
+                      className={`outliner-state-row ${isSel ? 'is-selected' : ''} ${rowParts.isUnknown ? 'is-unknown' : ''}`}
+                      data-testid={`outliner-state-${st.state_id}`}
+                      onClick={() => {
+                        handleSelectStateFromDrawer(st.state_id);
+                        setActiveTab('report');
+                      }}
+                    >
+                      <span className="outliner-state-left">
+                        <span className={`pill-dot dot-${st.map_severity}`} />
+                        <strong>{st.state_name}</strong>
+                      </span>
+                      {rowParts.isUnknown ? (
+                        <span className="outliner-state-summary is-unknown-summary">
+                          {rowParts.disasterText}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="outliner-state-disaster">{rowParts.disasterText}</span>
+                          <span className="outliner-state-summary">{rowParts.requestText}</span>
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </aside>
+          )}
+        </div>
 
         {/* Floating Action/Uncertainty/Error Banner on top of map */}
         {(actionError || actionInfo || settleUncertainWeek !== null) && (
@@ -1082,7 +1176,7 @@ export const App: React.FC = () => {
       {showCredentialModal && (
         <div className="court-modal-backdrop" data-testid="credential-modal">
           <form className="court-modal-card" onSubmit={(e) => void handleConnectMonarchCredential(e)}>
-            <h3>接入朝堂 · 君主访问凭据</h3>
+            <h3>君主访问凭据</h3>
             <p className="modal-desc">
               请输入服务端运行时配置的君主 Bearer 访问凭据（<code>MONARCH_TOKEN</code>）。凭据仅保存在当前标签页 <code>sessionStorage</code> 中，前端不打包任何密钥。
             </p>
@@ -1131,7 +1225,7 @@ export const App: React.FC = () => {
       {showDebugModal && (
         <div className="court-modal-backdrop" data-testid="debug-credential-modal">
           <form className="court-modal-card" onSubmit={(e) => void handleConfirmDebugToken(e)}>
-            <h3>开启调试真值视图 · 双重鉴权</h3>
+            <h3>开启调试真值视图</h3>
             <p className="modal-desc">
               调试真值接口（<code>/api/debug/truth</code>）要求服务端开启 <code>ENABLE_DEBUG_TRUTH=1</code> 且携带独立的君主调试凭据（<code>MONARCH_DEBUG_TOKEN</code>）。退出调试模式时将立即移除全部真值数据。
             </p>

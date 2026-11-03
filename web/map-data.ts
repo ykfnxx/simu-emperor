@@ -39,8 +39,8 @@ export const MAP_VIEWBOX_HEIGHT = 288;
 
 export const LEFT_SHEET_OCCLUSION_RATIO = 0.34;
 export const LEFT_SHEET_SAFE_TARGET_RATIO = 0.44;
-export const RIGHT_OUTLINER_OCCLUSION_RATIO = 0.75;
-export const RIGHT_OUTLINER_SAFE_TARGET_RATIO = 0.66;
+export const RIGHT_OUTLINER_OCCLUSION_RATIO = 0.74;
+export const RIGHT_OUTLINER_SAFE_TARGET_RATIO = 0.65;
 export const TOP_HUD_OCCLUSION_RATIO = 0.18;
 export const TOP_HUD_SAFE_TARGET_RATIO = 0.28;
 export const BOTTOM_CONTROLS_OCCLUSION_RATIO = 0.78;
@@ -731,8 +731,8 @@ export function computeStateLayerPresentation(
       severityKey: rep.severity,
       badgeSubtitle:
         rep.relief_demand_grain > 0
-          ? `${rep.disaster_label} · 需赈${formatWan(rep.relief_demand_grain, '万石')}`
-          : `${rep.disaster_label} · 安稳`,
+          ? `${rep.disaster_label} 需赈${formatWan(rep.relief_demand_grain, '万石')}`
+          : `${rep.disaster_label} 安稳`,
     };
   }
   if (layer === 'grain') {
@@ -767,6 +767,85 @@ export function pickDefaultSelectedState(states: CourtStateView[]): StateId {
   const anyMild = states.find((s) => s.map_severity === 'mild');
   if (anyMild) return anyMild.state_id;
   return 'state_b';
+}
+
+/**
+ * Presentation-only trial calendar helpers.
+ * Week 1 maps to 1444-11-11 UTC and advances by +7 UTC calendar days per server week.
+ */
+const TRIAL_DISPLAY_EPOCH_UTC_MS = Date.UTC(1444, 10, 11);
+const MS_PER_TRIAL_WEEK = 7 * 86_400_000;
+
+function toTrialWeekUtcDate(weekNumber: number): Date {
+  return new Date(TRIAL_DISPLAY_EPOCH_UTC_MS + (weekNumber - 1) * MS_PER_TRIAL_WEEK);
+}
+
+export function formatWeekCalendarDate(weekNumber: number): string {
+  const dt = toTrialWeekUtcDate(weekNumber);
+  return `${dt.getUTCFullYear()}年${dt.getUTCMonth() + 1}月${dt.getUTCDate()}日`;
+}
+
+export function formatWeekCalendarIso(weekNumber: number): string {
+  const dt = toTrialWeekUtcDate(weekNumber);
+  const year = String(dt.getUTCFullYear()).padStart(4, '0');
+  const month = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(dt.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export interface HistoryWeekOption {
+  weekNumber: number;
+  dateLabel: string;
+  isCurrent: boolean;
+  isSelected: boolean;
+}
+
+export function buildAvailableHistoryWeekOptions(
+  currentActiveWeekNumber: number,
+  viewedWeekNumber: number,
+): HistoryWeekOption[] {
+  const options: HistoryWeekOption[] = [];
+  for (let w = 1; w <= currentActiveWeekNumber; w += 1) {
+    options.push({
+      weekNumber: w,
+      dateLabel: formatWeekCalendarDate(w),
+      isCurrent: w === currentActiveWeekNumber,
+      isSelected: w === viewedWeekNumber,
+    });
+  }
+  return options;
+}
+
+export interface OutlinerStateRowParts {
+  disasterText: string;
+  requestText: string;
+  isUnknown: boolean;
+}
+
+export function formatOutlinerStateParts(st: CourtStateView): OutlinerStateRowParts {
+  if (st.report_status === 'UNKNOWN' || !st.report) {
+    return {
+      disasterText: '未奏报（未知）',
+      requestText: '',
+      isUnknown: true,
+    };
+  }
+  const prop = st.proposal;
+  const grainReq = prop?.relief_central_grain ?? 0;
+  const silverReq = prop?.project_central_silver ?? 0;
+  let requestText = '无请拨';
+  if (grainReq > 0 && silverReq > 0) {
+    requestText = `请粮${formatWan(grainReq, '万石')} 请银${formatWan(silverReq, '万两')}`;
+  } else if (grainReq > 0) {
+    requestText = `请粮${formatWan(grainReq, '万石')}`;
+  } else if (silverReq > 0) {
+    requestText = `请银${formatWan(silverReq, '万两')}`;
+  }
+  return {
+    disasterText: st.report.disaster_label,
+    requestText,
+    isUnknown: false,
+  };
 }
 
 function computeSvgViewportTransform(
