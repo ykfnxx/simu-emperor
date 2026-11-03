@@ -62,3 +62,14 @@ export {
   type CharacterSessionOptions,
   openOrResumeCharacterSession,
 } from './character-session.ts';
+export { runCharacterCli } from './character-cli.ts';
+export { type CharacterCallerConfig, resolveCharacterConfig } from './character-config.ts';
+export { CharacterGameClient, type CharacterGameClientOptions } from './character-game-client.ts';
+export {
+  buildCharacterTurnPrompt, captureCharacterReplyTargets, parseCharacterTurnOutput,
+  CharacterModelOutputError, type CharacterTurnInput, type CharacterTurnOutput,
+} from './character-model-contract.ts';
+export {
+  CharacterCaller, CharacterCallerError, runCharacterOnce, runCharacterWatch,
+  type CharacterCycleResult, type CharacterRunnerDependencies,
+} from './character-runner.ts';
