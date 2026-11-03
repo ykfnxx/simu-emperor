@@ -1,4 +1,10 @@
+'use client';
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Settings } from 'lucide-react';
+import { Button } from '../components/kumo/components/button';
+import { Dialog } from '../components/kumo/components/dialog/dialog';
+import { Input } from '../components/kumo/components/input/input';
 import {
   formatWan,
   MAX_TRIAL_WEEKS,
@@ -65,16 +71,13 @@ function syncHistoryWeekToUrl(weekNumber: number | undefined): void {
 }
 
 export const App: React.FC = () => {
-  const [monarchToken, setMonarchToken] = useState<string>(() => getStoredMonarchToken());
-  const [tokenInput, setTokenInput] = useState<string>(() => getStoredMonarchToken());
-  const [showCredentialModal, setShowCredentialModal] = useState<boolean>(
-    () => getStoredMonarchToken().length === 0,
-  );
+  const [monarchToken, setMonarchToken] = useState<string>('');
+  const [tokenInput, setTokenInput] = useState<string>('');
+  const [showCredentialModal, setShowCredentialModal] = useState<boolean>(false);
+  const [storageHydrated, setStorageHydrated] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [requestedHistoryWeek, setRequestedHistoryWeek] = useState<number | undefined>(() =>
-    readInitialHistoryWeekFromUrl(),
-  );
+  const [requestedHistoryWeek, setRequestedHistoryWeek] = useState<number | undefined>(undefined);
   const [courtView, setCourtView] = useState<CourtViewResponse | null>(null);
   const [loadingCourt, setLoadingCourt] = useState<boolean>(false);
 
@@ -106,7 +109,7 @@ export const App: React.FC = () => {
   const [debugMode, setDebugMode] = useState<boolean>(false);
   const [debugTruth, setDebugTruth] = useState<DebugTruthResponse | null>(null);
   const [showDebugModal, setShowDebugModal] = useState<boolean>(false);
-  const [debugTokenInput, setDebugTokenInput] = useState<string>(() => getStoredDebugToken());
+  const [debugTokenInput, setDebugTokenInput] = useState<string>('');
   const [debugError, setDebugError] = useState<string | null>(null);
 
   // HUD Popover Menu states (Top-left SVG gear & Top-right history dropdown)
@@ -220,6 +223,20 @@ export const App: React.FC = () => {
   );
 
   useEffect(() => {
+    const storedMonarch = getStoredMonarchToken();
+    const storedDebug = getStoredDebugToken();
+    const initialWeek = readInitialHistoryWeekFromUrl();
+    latestCourtIntentRef.current = { token: storedMonarch, week: initialWeek };
+    setMonarchToken(storedMonarch);
+    setTokenInput(storedMonarch);
+    setDebugTokenInput(storedDebug);
+    setRequestedHistoryWeek(initialWeek);
+    setShowCredentialModal(storedMonarch.length === 0);
+    setStorageHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) return;
     if (skipNextCourtEffectRef.current) {
       skipNextCourtEffectRef.current = false;
       return;
@@ -227,7 +244,7 @@ export const App: React.FC = () => {
     if (monarchToken) {
       void loadCourtData(monarchToken, requestedHistoryWeek);
     }
-  }, [monarchToken, requestedHistoryWeek, loadCourtData]);
+  }, [storageHydrated, monarchToken, requestedHistoryWeek, loadCourtData]);
 
   // Fetch conversation messages when active conversation or viewed week changes
   const loadConversationMessages = useCallback(
@@ -344,8 +361,10 @@ export const App: React.FC = () => {
           setShowDebugModal(false);
           return;
         }
-        if (showCredentialModal && courtView) {
-          setShowCredentialModal(false);
+        if (showCredentialModal) {
+          if (courtView) {
+            setShowCredentialModal(false);
+          }
           return;
         }
         setSelectedStateId(null);
@@ -793,8 +812,9 @@ export const App: React.FC = () => {
           </div>
 
           <div className="top-bar-utilities">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               className="top-sync-btn"
               data-testid="sync-status-btn"
               disabled={!monarchToken || loadingCourt}
@@ -802,11 +822,12 @@ export const App: React.FC = () => {
               title="同步当前朝堂与会话状态"
             >
               同步
-            </button>
+            </Button>
 
             {!drawerOpen && courtView && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 className="top-reopen-btn"
                 data-testid="reopen-drawer-btn"
                 onClick={() => {
@@ -821,13 +842,16 @@ export const App: React.FC = () => {
                 }}
               >
                 展开奏报
-              </button>
+              </Button>
             )}
 
             <div className="gear-menu-wrap" ref={gearMenuWrapRef}>
-              <button
+              <Button
                 ref={gearTriggerRef}
                 type="button"
+                variant="ghost"
+                shape="square"
+                size="sm"
                 className={`top-gear-btn ${gearMenuOpen || debugMode ? 'is-active' : ''}`}
                 data-testid="utility-gear-btn"
                 aria-label="系统与调试设置"
@@ -839,21 +863,8 @@ export const App: React.FC = () => {
                   setGearMenuOpen((prev) => !prev);
                 }}
               >
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="3.2" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.08a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-                </svg>
-              </button>
+                <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
+              </Button>
 
               {gearMenuOpen && (
                 <div
@@ -861,8 +872,9 @@ export const App: React.FC = () => {
                   className="gear-popover-menu"
                   data-testid="utility-gear-menu"
                 >
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     aria-pressed={debugMode}
                     className={`gear-menu-item ${debugMode ? 'is-active' : ''}`}
                     data-testid="debug-truth-toggle"
@@ -873,9 +885,10 @@ export const App: React.FC = () => {
                   >
                     <span>调试真值视图</span>
                     <span className="gear-item-state">{debugMode ? '已开启' : '关闭'}</span>
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="ghost"
                     className="gear-menu-item"
                     data-testid="open-credential-modal-btn"
                     onClick={() => {
@@ -886,7 +899,7 @@ export const App: React.FC = () => {
                     }}
                   >
                     <span>君主访问凭据</span>
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -910,9 +923,10 @@ export const App: React.FC = () => {
               </time>
 
               <div className="history-dropdown-wrap" ref={historyMenuWrapRef}>
-                <button
+                <Button
                   ref={historyTriggerRef}
                   type="button"
+                  variant="ghost"
                   className={`history-dropdown-trigger ${historyMenuOpen ? 'is-open' : ''} ${isHistoryView ? 'is-history-active' : ''}`}
                   data-testid="history-dropdown-trigger"
                   aria-expanded={historyMenuOpen}
@@ -924,23 +938,8 @@ export const App: React.FC = () => {
                   }}
                 >
                   <span>往期</span>
-                  <svg
-                    className="chevron-icon"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 12 12"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M2.5 4.5L6 8L9.5 4.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
+                  <ChevronDown size={13} strokeWidth={1.8} className="chevron-icon" aria-hidden="true" />
+                </Button>
 
                 {historyMenuOpen && courtView && (
                   <div
@@ -949,9 +948,10 @@ export const App: React.FC = () => {
                     data-testid="history-dropdown-menu"
                   >
                     {historyWeekOptions.map((opt) => (
-                      <button
+                      <Button
                         key={opt.weekNumber}
                         type="button"
+                        variant="ghost"
                         aria-current={opt.isSelected ? 'date' : undefined}
                         className={`history-option-btn ${opt.isSelected ? 'is-selected' : ''} ${opt.isCurrent ? 'is-current' : ''}`}
                         data-testid={`timeline-week-${opt.weekNumber}`}
@@ -967,12 +967,13 @@ export const App: React.FC = () => {
                         ) : opt.isSelected ? (
                           <span className="history-option-tag">回看中</span>
                         ) : null}
-                      </button>
+                      </Button>
                     ))}
 
                     {isHistoryView && (
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
                         className="history-return-menu-btn"
                         data-testid="top-return-current-week-btn"
                         onClick={() => {
@@ -981,7 +982,7 @@ export const App: React.FC = () => {
                         }}
                       >
                         返回当前
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -990,32 +991,35 @@ export const App: React.FC = () => {
 
             <div className="date-turn-actions" data-testid="bottom-actions-area">
               {isHistoryView ? (
-                <button
+                <Button
                   type="button"
-                  className="court-action-btn btn-return-current"
+                  variant="ghost"
+                  className="court-action-btn btn-return-current w-full"
                   data-testid="bottom-return-current-week-btn"
                   onClick={() => handleSelectWeekTimeline(activeWeekNum)}
                 >
                   返回当前
-                </button>
+                </Button>
               ) : isTrialCompleted ? (
                 <div className="trial-completed-status" data-testid="trial-completed-badge">
                   试玩结束
                 </div>
               ) : (
                 <>
-                  <button
+                  <Button
                     type="button"
-                    className={`court-action-btn btn-lock-week ${viewedWeekPhase === 'OPEN' ? 'is-primary-cinnabar' : ''}`}
+                    variant="ghost"
+                    className={`court-action-btn btn-lock-week w-full ${viewedWeekPhase === 'OPEN' ? 'is-primary-cinnabar' : ''}`}
                     data-testid="lock-week-btn"
                     disabled={!courtView || viewedWeekPhase !== 'OPEN' || submittingAction}
                     onClick={() => void handleLockCurrentWeek()}
                   >
                     截止征询
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className={`court-action-btn btn-settle-week ${viewedWeekPhase === 'LOCKED' && approvalStatus.isReady ? 'is-primary-cinnabar' : ''}`}
+                    variant="ghost"
+                    className={`court-action-btn btn-settle-week w-full ${viewedWeekPhase === 'LOCKED' && approvalStatus.isReady ? 'is-primary-cinnabar' : ''}`}
                     data-testid="settle-week-btn"
                     disabled={
                       !courtView ||
@@ -1027,7 +1031,7 @@ export const App: React.FC = () => {
                     onClick={() => void handleSettleCurrentWeek()}
                   >
                     {submittingAction ? '结算中…' : '下一回合'}
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -1091,17 +1095,19 @@ export const App: React.FC = () => {
             <div className="banner-text">{actionError ?? actionInfo}</div>
             <div className="banner-actions">
               {settleUncertainWeek !== null && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   className="banner-sync-btn"
                   data-testid="sync-uncertain-settle-btn"
                   onClick={() => void handleSyncCurrentWeekState()}
                 >
                   同步当前周状态
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 className="banner-dismiss-btn"
                 onClick={() => {
                   setActionError(null);
@@ -1109,7 +1115,7 @@ export const App: React.FC = () => {
                 }}
               >
                 关闭
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1172,14 +1178,24 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Minimal Monarch Access Credential Modal */}
-      {showCredentialModal && (
-        <div className="court-modal-backdrop" data-testid="credential-modal">
-          <form className="court-modal-card" onSubmit={(e) => void handleConnectMonarchCredential(e)}>
-            <h3>君主访问凭据</h3>
-            <p className="modal-desc">
+      {/* Minimal Monarch Access Credential Modal (Controlled Kumo Dialog) */}
+      <Dialog.Root
+        open={showCredentialModal}
+        onOpenChange={(open) => {
+          if (!open && courtView) {
+            setShowCredentialModal(false);
+          }
+        }}
+      >
+        <Dialog className="court-modal-card" data-testid="credential-modal">
+          <form
+            className="court-modal-form"
+            onSubmit={(e) => void handleConnectMonarchCredential(e)}
+          >
+            <Dialog.Title className="court-modal-title">君主访问凭据</Dialog.Title>
+            <Dialog.Description className="modal-desc">
               请输入服务端运行时配置的君主 Bearer 访问凭据（<code>MONARCH_TOKEN</code>）。凭据仅保存在当前标签页 <code>sessionStorage</code> 中，前端不打包任何密钥。
-            </p>
+            </Dialog.Description>
             {authError && (
               <div className="inline-error-banner" data-testid="credential-error-msg" role="alert">
                 {authError}
@@ -1188,7 +1204,7 @@ export const App: React.FC = () => {
             <label className="modal-field-label" htmlFor="credential-input-field">
               君主访问凭据 (MONARCH_TOKEN)
             </label>
-            <input
+            <Input
               id="credential-input-field"
               name="monarchCredential"
               type="password"
@@ -1201,34 +1217,45 @@ export const App: React.FC = () => {
             />
             <div className="modal-actions-row">
               {courtView && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   className="secondary-court-btn"
                   onClick={() => setShowCredentialModal(false)}
                 >
                   取消
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="submit"
+                variant="ghost"
                 className="primary-court-btn"
                 data-testid="connect-credential-btn"
               >
                 连接并进入朝堂
-              </button>
+              </Button>
             </div>
           </form>
-        </div>
-      )}
+        </Dialog>
+      </Dialog.Root>
 
-      {/* Separate Debug Truth Credential Modal */}
-      {showDebugModal && (
-        <div className="court-modal-backdrop" data-testid="debug-credential-modal">
-          <form className="court-modal-card" onSubmit={(e) => void handleConfirmDebugToken(e)}>
-            <h3>开启调试真值视图</h3>
-            <p className="modal-desc">
+      {/* Separate Debug Truth Credential Modal (Controlled Kumo Dialog) */}
+      <Dialog.Root
+        open={showDebugModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            debugReqGuardRef.current.invalidate();
+            setShowDebugModal(false);
+            setDebugError(null);
+          }
+        }}
+      >
+        <Dialog className="court-modal-card" data-testid="debug-credential-modal">
+          <form className="court-modal-form" onSubmit={(e) => void handleConfirmDebugToken(e)}>
+            <Dialog.Title className="court-modal-title">开启调试真值视图</Dialog.Title>
+            <Dialog.Description className="modal-desc">
               调试真值接口（<code>/api/debug/truth</code>）要求服务端开启 <code>ENABLE_DEBUG_TRUTH=1</code> 且携带独立的君主调试凭据（<code>MONARCH_DEBUG_TOKEN</code>）。退出调试模式时将立即移除全部真值数据。
-            </p>
+            </Dialog.Description>
             {debugError && (
               <div className="inline-error-banner" data-testid="debug-error-msg" role="alert">
                 {debugError}
@@ -1237,7 +1264,7 @@ export const App: React.FC = () => {
             <label className="modal-field-label" htmlFor="debug-credential-input-field">
               君主调试凭据 (MONARCH_DEBUG_TOKEN)
             </label>
-            <input
+            <Input
               id="debug-credential-input-field"
               name="debugCredential"
               type="password"
@@ -1249,8 +1276,9 @@ export const App: React.FC = () => {
               onChange={(e) => setDebugTokenInput(e.target.value)}
             />
             <div className="modal-actions-row">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 className="secondary-court-btn"
                 data-testid="cancel-debug-modal-btn"
                 onClick={() => {
@@ -1260,18 +1288,19 @@ export const App: React.FC = () => {
                 }}
               >
                 关闭
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                variant="ghost"
                 className="primary-court-btn"
                 data-testid="confirm-debug-credential-btn"
               >
                 验证并开启真值视图
-              </button>
+              </Button>
             </div>
           </form>
-        </div>
-      )}
+        </Dialog>
+      </Dialog.Root>
     </div>
   );
 };

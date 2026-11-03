@@ -1,3 +1,6 @@
+@import "tailwindcss";
+@import "../components/kumo/styles/kumo.css";
+
 :root {
   /* Minimalist Cartographic Palette (Matches simple-ui-preview-v1.png & jiangshan-map) */
   --bg-atlas-canvas: #eae2d3;
@@ -26,6 +29,30 @@
   --accent-sage: #587854;
   --accent-sage-bg: rgba(88, 120, 84, 0.10);
   --accent-slate: #7a7067;
+
+  /* Kumo UI Semantic Token Bindings (Warm Ming Cartographic Theme) */
+  --text-color-kumo-default: var(--ink-primary);
+  --text-color-kumo-strong: var(--ink-primary);
+  --text-color-kumo-subtle: var(--ink-secondary);
+  --text-color-kumo-inactive: var(--ink-disabled);
+  --text-color-kumo-placeholder: var(--ink-muted);
+  --text-color-kumo-brand: var(--accent-cinnabar);
+  --text-color-kumo-danger: var(--accent-cinnabar);
+  --color-kumo-canvas: var(--bg-atlas-canvas);
+  --color-kumo-elevated: var(--surface-subtle);
+  --color-kumo-recessed: var(--surface-hover);
+  --color-kumo-base: var(--surface-panel-solid);
+  --color-kumo-tint: var(--surface-subtle);
+  --color-kumo-overlay: rgba(31, 28, 24, 0.42);
+  --color-kumo-control: var(--surface-panel-solid);
+  --color-kumo-fill: var(--surface-subtle);
+  --color-kumo-fill-hover: var(--surface-hover);
+  --color-kumo-brand: var(--accent-cinnabar);
+  --color-kumo-brand-hover: #8b3126;
+  --color-kumo-line: var(--border-strong);
+  --color-kumo-hairline: var(--border-hairline);
+  --color-kumo-focus: var(--accent-cinnabar);
+  --color-kumo-danger: var(--accent-cinnabar);
 
   /* Typography */
   --font-serif-cn: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif;
@@ -1105,15 +1132,23 @@ textarea:focus-visible,
 .drawer-close-btn {
   width: 28px;
   height: 28px;
+  padding: 0;
   border-radius: 5px;
   background: transparent;
   border: 1px solid transparent;
+  box-shadow: none;
   color: var(--ink-secondary);
   font-size: 15px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.drawer-close-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 
 .drawer-close-btn:hover {
@@ -1951,19 +1986,13 @@ textarea:focus-visible,
   cursor: pointer;
 }
 
-.court-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(31, 28, 24, 0.34);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+[data-backdrop] {
+  z-index: 55;
 }
 
 .court-modal-card {
-  width: 100%;
+  z-index: 60;
+  width: min(calc(100vw - 32px), 440px);
   max-width: 440px;
   padding: 18px 20px;
   background: var(--surface-panel-solid);
@@ -1974,10 +2003,18 @@ textarea:focus-visible,
   gap: 12px;
 }
 
-.court-modal-card h3 {
+.court-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.court-modal-card h3,
+.court-modal-title {
   margin: 0;
   font-family: var(--font-serif-cn);
   font-size: 17px;
+  font-weight: 700;
   color: var(--ink-primary);
 }
 
@@ -1995,12 +2032,67 @@ textarea:focus-visible,
 }
 
 .modal-text-input {
+  width: 100%;
+  height: auto;
   padding: 8px 11px;
   background: #ffffff;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
+  box-shadow: none;
   color: var(--ink-primary);
   font-size: 14px;
+}
+
+.chat-textarea {
+  height: auto;
+  box-shadow: none;
+}
+
+.top-sync-btn,
+.top-reopen-btn,
+.gear-menu-item,
+.history-dropdown-trigger,
+.history-option-btn,
+.history-return-menu-btn,
+.court-action-btn,
+.secondary-court-btn,
+.outline-cinnabar-btn,
+.primary-court-btn,
+.text-link-btn,
+.state-pill-btn,
+.map-layer-pill,
+.banner-sync-btn,
+.banner-dismiss-btn {
+  height: auto;
+  box-shadow: none;
+}
+
+.top-sync-btn,
+.top-reopen-btn,
+.history-return-menu-btn,
+.court-action-btn,
+.secondary-court-btn,
+.outline-cinnabar-btn,
+.primary-court-btn,
+.map-layer-pill,
+.map-zoom-btn,
+.map-reset-btn,
+.banner-sync-btn,
+.banner-dismiss-btn {
+  justify-content: center;
+}
+
+.court-action-btn,
+.history-return-menu-btn,
+.report-actions-row .secondary-court-btn,
+.report-actions-row .outline-cinnabar-btn {
+  width: 100%;
+}
+
+.date-turn-actions > span,
+.report-actions-row > span {
+  display: flex;
+  width: 100%;
 }
 
 .modal-actions-row {

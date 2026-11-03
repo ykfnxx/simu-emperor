@@ -1,4 +1,7 @@
+'use client';
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '../../components/kumo/components/button';
 import {
   formatWan,
   type CourtStateView,
@@ -6,7 +9,12 @@ import {
   type MapReportSeverity,
   type StateId,
 } from '../../src/contracts/index.ts';
-import terrainReliefUrl from '../assets/jiangshan/terrain_relief.webp';
+import terrainReliefAsset from '../assets/jiangshan/terrain_relief.webp';
+
+const terrainReliefUrl =
+  typeof terrainReliefAsset === 'string'
+    ? terrainReliefAsset
+    : terrainReliefAsset.src;
 import {
   BACKGROUND_REGION_GEOMETRIES,
   computeStateLayerPresentation,
@@ -713,38 +721,42 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             aria-label="舆图图层切换"
             data-testid="map-layer-switcher"
           >
-            <button
+            <Button
               type="button"
+              variant="ghost"
               className={`map-layer-pill ${activeLayer === 'disaster' ? 'active' : ''}`}
               aria-pressed={activeLayer === 'disaster'}
               data-testid="layer-btn-disaster"
               onClick={() => onChangeLayer('disaster')}
             >
               灾情
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               className={`map-layer-pill ${activeLayer === 'grain' ? 'active' : ''}`}
               aria-pressed={activeLayer === 'grain'}
               data-testid="layer-btn-grain"
               onClick={() => onChangeLayer('grain')}
             >
               存粮
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               className={`map-layer-pill ${activeLayer === 'silver' ? 'active' : ''}`}
               aria-pressed={activeLayer === 'silver'}
               data-testid="layer-btn-silver"
               onClick={() => onChangeLayer('silver')}
             >
               存银
-            </button>
+            </Button>
           </div>
 
           <div className="map-zoom-pill-group" role="group" aria-label="舆图视野控制">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               className="map-zoom-btn"
               data-testid="map-zoom-in-btn"
               title="放大地图"
@@ -752,9 +764,10 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               onClick={() => handleStepZoom(0.18)}
             >
               +
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               className="map-zoom-btn"
               data-testid="map-zoom-out-btn"
               title="缩小地图"
@@ -762,16 +775,17 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               onClick={() => handleStepZoom(-0.18)}
             >
               −
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
               className="map-reset-btn"
               data-testid="map-reset-camera-btn"
               title="复位视图"
               onClick={() => onChangeCamera(INITIAL_MAP_CAMERA)}
             >
               复位视图
-            </button>
+            </Button>
           </div>
         </div>
 

@@ -352,12 +352,14 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft 
   });
 
   it('does not bundle or hardcode any backend role credentials into production browser JS', () => {
-    const assetsDir = resolve(process.cwd(), 'dist/web/assets');
-    const files = readdirSync(assetsDir).filter((f) => f.endsWith('.js'));
+    const staticDir = resolve(process.cwd(), 'out/_next/static');
+    const files = readdirSync(staticDir, { recursive: true })
+      .map((entry) => String(entry))
+      .filter((f) => f.endsWith('.js'));
     expect(files.length).toBeGreaterThan(0);
 
     for (const file of files) {
-      const content = readFileSync(join(assetsDir, file), 'utf-8');
+      const content = readFileSync(join(staticDir, file), 'utf-8');
       expect(content).not.toContain('monarch-token');
       expect(content).not.toContain('monarch-debug-token');
       expect(content).not.toContain('officer-a-token');

@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/cloudflare/kumo",
+  "commit": "fedc8a771d499ccceb309ec45b2b11d74eea3963",
+  "referenceExtract": "periplus@8f7a3c1",
+  "license": "MIT",
+  "adaptations": [
+    "Only imported components (button, dialog, field, input, label, layer-card, loader, tooltip) and their transitive dependencies are included.",
+    "Lucide replaces Phosphor; clsx and tailwind-merge supply cn.",
+    "Motion animates Dialog; Base UI retains focus, modality and dismissal.",
+    "Upstream hook ordering and ref updates follow the project's React rules.",
+    "Unused LinkButton, Select, Collapsible, Tabs, SkeletonLine and FedRAMP theme are excluded.",
+    "Kumo semantic color tokens are bound to Simu-Emperor's warm cartographic palette in web/styles.css."
+  ]
+}
