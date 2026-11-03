@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   formatWan,
   type CourtStateView,
@@ -6,16 +6,19 @@ import {
   type MapReportSeverity,
   type StateId,
 } from '../../src/contracts/index.ts';
+import terrainReliefUrl from '../assets/jiangshan/terrain_relief.webp';
 import {
   BACKGROUND_REGION_GEOMETRIES,
   computeStateLayerPresentation,
+  computeSvgCameraViewBox,
+  getBackgroundGeographyLayer,
   getLayerLegendEntries,
-  getStateScreenCenterX,
+  getProjectedHydroLayer,
   INITIAL_MAP_CAMERA,
-  MAP_RIVER_PATHS,
-  MAP_VIEWBOX_HEIGHT,
-  MAP_VIEWBOX_WIDTH,
   PLAYABLE_PROVINCE_GEOMETRIES,
+  TERRAIN_RELIEF_RECT,
+  WATER_CAPTIONS,
+  zoomCameraAtClientPoint,
   type MapCameraState,
   type MapLayerKind,
 } from '../map-data.ts';
@@ -27,27 +30,43 @@ export interface MapViewportProps {
   activeLayer: MapLayerKind;
   camera: MapCameraState;
   debugTruth: DebugTruthResponse | null;
-  onSelectState: (stateId: StateId, viewportWidth: number) => void;
+  onSelectState: (stateId: StateId, viewportWidth: number, viewportHeight: number) => void;
   onClearSelection: () => void;
   onChangeLayer: (layer: MapLayerKind) => void;
-  onChangeCamera: (next: MapCameraState) => void;
+  onChangeCamera: React.Dispatch<React.SetStateAction<MapCameraState>>;
 }
 
-const SEVERITY_FILL_MAP: Record<MapReportSeverity, string> = {
-  urgent: '#b24338',
-  mild: '#e69d56',
-  stable: '#b8ca8d',
-  unknown: 'url(#unknown-hatch-pattern)',
-  background: '#ded5c3',
-};
+function getPolityWashFill(severity: Exclude<MapReportSeverity, 'background'>): string {
+  switch (severity) {
+    case 'urgent':
+      return '#B54434';
+    case 'mild':
+      return '#C88A3B';
+    case 'stable':
+      return '#7A9A76';
+    case 'unknown':
+      return '#9A9488';
+  }
+}
 
-const SEVERITY_STROKE_MAP: Record<MapReportSeverity, string> = {
-  urgent: '#6b1d15',
-  mild: '#8a521b',
-  stable: '#4f642c',
-  unknown: '#4a433c',
-  background: '#8d8272',
-};
+function getPolityBorderColor(
+  severity: Exclude<MapReportSeverity, 'background'>,
+  isSelected: boolean,
+): string {
+  if (isSelected) {
+    return '#8C2D22';
+  }
+  switch (severity) {
+    case 'urgent':
+      return '#8F3628';
+    case 'mild':
+      return '#946528';
+    case 'stable':
+      return '#586F54';
+    case 'unknown':
+      return '#7A7067';
+  }
+}
 
 export const MapViewport: React.FC<MapViewportProps> = ({
   states,
@@ -62,567 +81,620 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   onChangeCamera,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [viewportWidth, setViewportWidth] = useState<number>(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 1280,
-  );
-  const [hoveredStateId, setHoveredStateId] = useState<StateId | null>(null);
-  const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1440,
+    height: typeof window !== 'undefined' ? window.innerHeight : 900,
+  }));
+  const [dragging, setDragging] = useState(false);
+
+  const cameraRef = useRef<MapCameraState>(camera);
+  cameraRef.current = camera;
+
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStateRef = useRef<{
+    startDist: number;
+    baseCam: MapCameraState;
+    rect: { left: number; top: number; width: number; height: number };
+  } | null>(null);
 
   const dragRef = useRef<{
     active: boolean;
-    moved: boolean;
+    pointerId: number;
     startX: number;
     startY: number;
-    originPanX: number;
-    originPanY: number;
+    basePanX: number;
+    basePanY: number;
+    moved: boolean;
   }>({
     active: false,
-    moved: false,
+    pointerId: -1,
     startX: 0,
     startY: 0,
-    originPanX: 0,
-    originPanY: 0,
+    basePanX: 0,
+    basePanY: 0,
+    moved: false,
   });
-
-  const wheelStateRef = useRef<{
-    camera: MapCameraState;
-    viewportWidth: number;
-    onChangeCamera: (next: MapCameraState) => void;
-  }>({
-    camera,
-    viewportWidth,
-    onChangeCamera,
-  });
-  wheelStateRef.current = {
-    camera,
-    viewportWidth,
-    onChangeCamera,
-  };
 
   useEffect(() => {
     const updateSize = () => {
-      if (containerRef.current) {
-        setViewportWidth(containerRef.current.clientWidth || window.innerWidth);
-      } else {
-        setViewportWidth(window.innerWidth);
-      }
+      const rect = containerRef.current?.getBoundingClientRect();
+      setViewportSize({
+        width: rect?.width || window.innerWidth || 1440,
+        height: rect?.height || window.innerHeight || 900,
+      });
     };
     updateSize();
     window.addEventListener('resize', updateSize);
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-      observer = new ResizeObserver(() => updateSize());
-      observer.observe(containerRef.current);
-    }
-    return () => {
-      window.removeEventListener('resize', updateSize);
-      observer?.disconnect();
-    };
+    return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+  // Memoize static cartographic layers built from jiangshan-map outlines & hydrography
+  const backgroundGeo = useMemo(() => getBackgroundGeographyLayer(), []);
+  const hydroLayer = useMemo(() => getProjectedHydroLayer(), []);
+  const legendEntries = useMemo(() => getLayerLegendEntries(activeLayer), [activeLayer]);
 
-    const handleNativeWheel = (e: WheelEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('.map-layer-capsule') || target?.closest('.map-camera-controls')) {
-        return;
-      }
-      e.preventDefault();
-      const {
-        camera: currCam,
-        viewportWidth: currVw,
-        onChangeCamera: emitCamera,
-      } = wheelStateRef.current;
-      const rect = el.getBoundingClientRect();
-      const cursorX = rect ? e.clientX - rect.left : currVw / 2;
-      const cursorY = rect ? e.clientY - rect.top : 354;
+  const viewBoxString = useMemo(
+    () => computeSvgCameraViewBox(camera, viewportSize.width, viewportSize.height),
+    [camera, viewportSize.width, viewportSize.height],
+  );
 
-      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89;
-      const nextZoom = Math.min(2.4, Math.max(0.65, Number((currCam.zoom * zoomFactor).toFixed(3))));
-      if (nextZoom === currCam.zoom) return;
+  // Inverse square-root label scale so captions and town labels stay crisp across zoom levels
+  const labelScale = useMemo(
+    () => Number((1 / Math.sqrt(Math.max(0.65, Math.min(2.6, camera.zoom || 1)))).toFixed(3)),
+    [camera.zoom],
+  );
+  const showSecondaryTowns = camera.zoom >= 0.8;
 
-      const scaleRatio = nextZoom / currCam.zoom;
-      const nextPanX = Math.round((cursorX - (cursorX - currCam.panX) * scaleRatio) * 100) / 100;
-      const nextPanY = Math.round((cursorY - (cursorY - currCam.panY) * scaleRatio) * 100) / 100;
+  const stateById = (stateId: StateId): CourtStateView | undefined =>
+    states.find((s) => s.state_id === stateId);
 
-      emitCamera({
-        panX: nextPanX,
-        panY: nextPanY,
-        zoom: nextZoom,
-      });
+  const getContainerRect = () =>
+    containerRef.current?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      width: viewportSize.width,
+      height: viewportSize.height,
     };
-
-    el.addEventListener('wheel', handleNativeWheel, { passive: false });
-    return () => {
-      el.removeEventListener('wheel', handleNativeWheel);
-    };
-  }, []);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('.map-layer-capsule') || target.closest('.map-camera-controls')) {
+    if ((e.target as HTMLElement).closest('.map-bottom-right-controls')) {
       return;
     }
-    dragRef.current = {
-      active: true,
-      moved: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      originPanX: camera.panX,
-      originPanY: camera.panY,
-    };
+    if (e.pointerType === 'mouse' && e.button !== 0) {
+      return;
+    }
+
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (typeof e.currentTarget.setPointerCapture === 'function') {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+
+    if (activePointersRef.current.size === 1) {
+      pinchStateRef.current = null;
+      dragRef.current = {
+        active: true,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        basePanX: cameraRef.current.panX,
+        basePanY: cameraRef.current.panY,
+        moved: false,
+      };
+    } else if (activePointersRef.current.size === 2) {
+      dragRef.current.active = false;
+      dragRef.current.moved = true;
+      setDragging(true);
+      const pts = Array.from(activePointersRef.current.values());
+      const startDist = Math.max(10, Math.hypot(pts[1]!.x - pts[0]!.x, pts[1]!.y - pts[0]!.y));
+      pinchStateRef.current = {
+        startDist,
+        baseCam: cameraRef.current,
+        rect: getContainerRect(),
+      };
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setHoverPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
+    if (activePointersRef.current.has(e.pointerId)) {
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
-    if (!dragRef.current.active) return;
+
+    if (activePointersRef.current.size === 2 && pinchStateRef.current) {
+      const pts = Array.from(activePointersRef.current.values());
+      const dist = Math.max(10, Math.hypot(pts[1]!.x - pts[0]!.x, pts[1]!.y - pts[0]!.y));
+      const factor = dist / pinchStateRef.current.startDist;
+      const midX = (pts[0]!.x + pts[1]!.x) * 0.5;
+      const midY = (pts[0]!.y + pts[1]!.y) * 0.5;
+      const nextCam = zoomCameraAtClientPoint(
+        pinchStateRef.current.baseCam,
+        pinchStateRef.current.baseCam.zoom * factor,
+        midX,
+        midY,
+        pinchStateRef.current.rect,
+      );
+      cameraRef.current = nextCam;
+      onChangeCamera(nextCam);
+      return;
+    }
+
+    if (!dragRef.current.active || activePointersRef.current.size !== 1) {
+      return;
+    }
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+    if (!dragRef.current.moved && Math.hypot(dx, dy) > 4) {
       dragRef.current.moved = true;
-      onChangeCamera({
-        panX: Math.round(dragRef.current.originPanX + dx),
-        panY: Math.round(dragRef.current.originPanY + dy),
-        zoom: camera.zoom,
-      });
+      setDragging(true);
+    }
+    if (dragRef.current.moved) {
+      const maxPanX = Math.max(680, Math.round(viewportSize.width * cameraRef.current.zoom * 0.9));
+      const maxPanY = Math.max(480, Math.round(viewportSize.height * cameraRef.current.zoom * 0.9));
+      const nextPanX = Math.max(
+        -maxPanX,
+        Math.min(maxPanX, Math.round(dragRef.current.basePanX + dx)),
+      );
+      const nextPanY = Math.max(
+        -maxPanY,
+        Math.min(maxPanY, Math.round(dragRef.current.basePanY + dy)),
+      );
+      const nextCam = {
+        ...cameraRef.current,
+        panX: nextPanX,
+        panY: nextPanY,
+      };
+      cameraRef.current = nextCam;
+      onChangeCamera(nextCam);
     }
   };
 
-  const handlePointerUp = () => {
+  const endPointerDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (
+      typeof e.currentTarget.hasPointerCapture === 'function' &&
+      e.currentTarget.hasPointerCapture(e.pointerId)
+    ) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+
+    if (activePointersRef.current.size < 2) {
+      pinchStateRef.current = null;
+    }
+    if (activePointersRef.current.size === 1) {
+      const [remId, remPt] = Array.from(activePointersRef.current.entries())[0]!;
+      dragRef.current = {
+        active: true,
+        pointerId: remId,
+        startX: remPt.x,
+        startY: remPt.y,
+        basePanX: cameraRef.current.panX,
+        basePanY: cameraRef.current.panY,
+        moved: true,
+      };
+      return;
+    }
+
     dragRef.current.active = false;
-    setTimeout(() => {
-      dragRef.current.moved = false;
-    }, 0);
+    setDragging(false);
   };
 
-  const adjustZoom = (delta: number) => {
-    const nextZoom = Math.min(2.4, Math.max(0.65, Number((camera.zoom + delta).toFixed(2))));
-    if (nextZoom === camera.zoom) return;
-    const centerX = viewportWidth * (drawerOpen ? 0.375 : 0.5);
-    const centerY = 354;
-    const scaleRatio = nextZoom / camera.zoom;
-    onChangeCamera({
-      panX: Math.round((centerX - (centerX - camera.panX) * scaleRatio) * 100) / 100,
-      panY: Math.round((centerY - (centerY - camera.panY) * scaleRatio) * 100) / 100,
-      zoom: nextZoom,
-    });
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('.map-bottom-right-controls')) {
+      return;
+    }
+    const rect = containerRef.current?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      width: viewportSize.width,
+      height: viewportSize.height,
+    };
+    const delta = e.deltaY < 0 ? 0.14 : -0.14;
+    onChangeCamera((prev) =>
+      zoomCameraAtClientPoint(prev, prev.zoom + delta, e.clientX, e.clientY, rect),
+    );
   };
 
-  const legendEntries = getLayerLegendEntries(activeLayer);
-  const hoveredState = hoveredStateId
-    ? states.find((s) => s.state_id === hoveredStateId) ?? null
-    : null;
-  const hoveredPresentation = hoveredState
-    ? computeStateLayerPresentation(hoveredState, activeLayer)
-    : null;
+  const handleStepZoom = (delta: number) => {
+    const rect = containerRef.current?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      width: viewportSize.width,
+      height: viewportSize.height,
+    };
+    const centerClientX = rect.left + rect.width * 0.54;
+    const centerClientY = rect.top + rect.height * 0.5;
+    onChangeCamera((prev) =>
+      zoomCameraAtClientPoint(prev, prev.zoom + delta, centerClientX, centerClientY, rect),
+    );
+  };
 
-  const selectedScreenX =
-    selectedStateId !== null
-      ? Math.round(getStateScreenCenterX(selectedStateId, viewportWidth, camera))
-      : null;
-  const selectedScreenRatio =
-    selectedScreenX !== null && viewportWidth > 0
-      ? Number((selectedScreenX / viewportWidth).toFixed(3))
-      : null;
+  const handleBackgroundClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (dragRef.current.moved) {
+      return;
+    }
+    const target = e.target as Element;
+    if (
+      target.classList.contains('strategy-map-svg') ||
+      target.classList.contains('map-ocean-bg') ||
+      target.classList.contains('map-terrain-relief-img') ||
+      target.classList.contains('map-province-shape')
+    ) {
+      onClearSelection();
+    }
+  };
+
+  const selectedGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === selectedStateId);
 
   return (
     <div
       ref={containerRef}
-      className="map-viewport"
+      className={`map-viewport ${dragging ? 'is-dragging' : ''} ${drawerOpen ? 'is-drawer-open' : ''}`}
       data-testid="map-viewport"
-      data-active-layer={activeLayer}
-      data-selected-state={selectedStateId ?? ''}
-      data-drawer-open={drawerOpen ? 'true' : 'false'}
-      data-camera-pan-x={camera.panX}
-      data-camera-pan-y={camera.panY}
-      data-camera-zoom={camera.zoom}
-      data-selected-screen-x={selectedScreenX ?? ''}
-      data-selected-screen-ratio={selectedScreenRatio ?? ''}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
+      onPointerUp={endPointerDrag}
+      onPointerCancel={endPointerDrag}
+      onLostPointerCapture={endPointerDrag}
+      onWheel={handleWheel}
     >
       <div
         className="map-camera-stage"
-        style={{
-          transformOrigin: '0 0',
-          transform: `translate3d(${camera.panX}px, ${camera.panY}px, 0) scale(${camera.zoom})`,
-        }}
+        data-testid="map-camera-stage"
+        data-pan-x={camera.panX}
+        data-pan-y={camera.panY}
+        data-zoom={camera.zoom}
+        data-viewbox={viewBoxString}
       >
         <svg
-          className="strategy-map-svg"
-          viewBox={`0 0 ${MAP_VIEWBOX_WIDTH} ${MAP_VIEWBOX_HEIGHT}`}
-          preserveAspectRatio="none"
+          className="strategy-map-svg terrain-active"
+          viewBox={viewBoxString}
+          preserveAspectRatio="xMidYMid slice"
           role="img"
-          aria-label="江山州郡奏报舆图"
+          aria-label="江山舆图 · 三州疆域"
+          onClick={handleBackgroundClick}
         >
           <defs>
-            {/* Diagonal hatch pattern for playable states with UNKNOWN report status */}
-            <pattern
-              id="unknown-hatch-pattern"
-              width="14"
-              height="14"
-              patternUnits="userSpaceOnUse"
-              patternTransform="rotate(45)"
-            >
-              <rect width="14" height="14" fill="#847c72" />
-              <line x1="0" y1="0" x2="0" y2="14" stroke="#575048" strokeWidth="5" />
-            </pattern>
-
-            {/* Warm golden halo for the currently selected playable state */}
-            <filter id="selected-state-glow" x="-15%" y="-15%" width="130%" height="130%">
-              <feDropShadow dx="0" dy="0" stdDeviation="6" floodColor="#f7c86a" floodOpacity="0.95" />
-              <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#4b2c0d" floodOpacity="0.45" />
+            <filter id="label-halo" x="-20%" y="-20%" width="140%" height="140%">
+              <feMorphology operator="dilate" radius="1.2" in="SourceAlpha" result="dilated" />
+              <feFlood floodColor="#FAF7F2" floodOpacity="0.92" result="bg" />
+              <feComposite in="bg" in2="dilated" operator="in" result="outline" />
+              <feMerge>
+                <feMergeNode in="outline" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
             </filter>
 
-            <linearGradient id="parchment-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#e5dcc8" />
-              <stop offset="50%" stopColor="#ded4bf" />
-              <stop offset="100%" stopColor="#d4c7ae" />
+            <linearGradient id="terrain-fade-h" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" className="terrain-edge-stop" />
+              <stop offset="4.5%" className="terrain-edge-stop" stopOpacity="0" />
+              <stop offset="94.5%" className="terrain-edge-stop" stopOpacity="0" />
+              <stop offset="100%" className="terrain-edge-stop" />
             </linearGradient>
 
-            <linearGradient id="mountain-ink-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#6e685f" stopOpacity="0.58" />
-              <stop offset="65%" stopColor="#9c9384" stopOpacity="0.32" />
-              <stop offset="100%" stopColor="#ded4bf" stopOpacity="0.05" />
+            <linearGradient id="terrain-fade-v" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" className="terrain-edge-stop" />
+              <stop offset="4.5%" className="terrain-edge-stop" stopOpacity="0" />
+              <stop offset="94.5%" className="terrain-edge-stop" stopOpacity="0" />
+              <stop offset="100%" className="terrain-edge-stop" />
             </linearGradient>
+
+            {/* Diagonal hatch pattern for UNKNOWN / unreported states */}
+            <pattern
+              id="unknown-hatch-pattern"
+              width="6"
+              height="6"
+              patternTransform="rotate(45 0 0)"
+              patternUnits="userSpaceOnUse"
+            >
+              <rect width="6" height="6" fill="rgba(222, 216, 204, 0.32)" />
+              <line
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="6"
+                stroke="rgba(122, 112, 103, 0.45)"
+                strokeWidth="1.5"
+              />
+            </pattern>
           </defs>
 
-          {/* Base parchment paper background */}
+          {/* 1. Base rice-paper sea & georeferenced Jiangshan topographic hillshade */}
           <rect
-            x="0"
-            y="0"
-            width={MAP_VIEWBOX_WIDTH}
-            height={MAP_VIEWBOX_HEIGHT}
-            fill="url(#parchment-bg-grad)"
-            onClick={() => {
-              if (!dragRef.current.moved) {
-                onClearSelection();
-              }
-            }}
+            id="ocean-bg"
+            x="-2000"
+            y="-2000"
+            width="6000"
+            height="6000"
+            className="map-ocean-bg"
           />
 
-          {/* Subdued surrounding background geography (is_playable = false) */}
-          <g className="map-background-regions">
-            {BACKGROUND_REGION_GEOMETRIES.map((bg) => (
+          <g id="grp-terrain" className="map-terrain-group">
+            <image
+              id="terrain-relief-img"
+              href={terrainReliefUrl}
+              x={TERRAIN_RELIEF_RECT.x}
+              y={TERRAIN_RELIEF_RECT.y}
+              width={TERRAIN_RELIEF_RECT.width}
+              height={TERRAIN_RELIEF_RECT.height}
+              preserveAspectRatio="none"
+              className="map-terrain-relief-img"
+            />
+            <rect
+              x={TERRAIN_RELIEF_RECT.x}
+              y={TERRAIN_RELIEF_RECT.y}
+              width={TERRAIN_RELIEF_RECT.width}
+              height={TERRAIN_RELIEF_RECT.height}
+              fill="url(#terrain-fade-h)"
+              pointerEvents="none"
+            />
+            <rect
+              x={TERRAIN_RELIEF_RECT.x}
+              y={TERRAIN_RELIEF_RECT.y}
+              width={TERRAIN_RELIEF_RECT.width}
+              height={TERRAIN_RELIEF_RECT.height}
+              fill="url(#terrain-fade-v)"
+              pointerEvents="none"
+            />
+          </g>
+
+          {/* 2. Surrounding neutral landmass & deduplicated regional boundaries from jiangshan-map */}
+          <g id="grp-surrounding-provinces" className="map-surrounding-group">
+            {backgroundGeo.landmassShapes.map((d, idx) => (
+              <path key={idx} d={d} className="map-province-shape" />
+            ))}
+            {backgroundGeo.combinedBoundaries ? (
+              <path d={backgroundGeo.combinedBoundaries} className="map-province-boundary-casing" />
+            ) : null}
+            {backgroundGeo.interiorBoundaries ? (
               <path
-                key={bg.province_id}
-                d={bg.svgPath}
-                data-province-id={bg.province_id}
-                data-is-playable="false"
-                className="map-bg-polygon"
-                fill={SEVERITY_FILL_MAP.background}
-                stroke={SEVERITY_STROKE_MAP.background}
-                strokeWidth="1.5"
-                strokeDasharray="4 2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!dragRef.current.moved) {
-                    onClearSelection();
-                  }
-                }}
+                d={backgroundGeo.interiorBoundaries}
+                className="map-province-boundary-interior"
               />
-            ))}
+            ) : null}
+            {backgroundGeo.outerBoundaries ? (
+              <path d={backgroundGeo.outerBoundaries} className="map-province-boundary-outer" />
+            ) : null}
           </g>
 
-          {/* Classical ink-wash mountain ranges in background terrain (matching ui-layout-v1.png) */}
-          <g className="map-terrain-mountains" pointerEvents="none">
-            {/* Northwest mountain range */}
-            <path
-              d="M 8 142 Q 28 96 48 64 Q 68 92 86 112 Q 110 68 134 38 Q 158 78 178 106 Q 198 76 218 54 Q 242 94 264 126 Q 282 104 298 88 Q 318 118 342 146 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 8 142 Q 28 96 48 64 Q 68 92 86 112 Q 110 68 134 38 Q 158 78 178 106 Q 198 76 218 54 Q 242 94 264 126 Q 282 104 298 88 Q 318 118 342 146"
-              fill="none"
-              stroke="#6c6357"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 0 220 Q 20 186 38 164 Q 58 188 78 206 Q 98 174 118 152 Q 142 184 168 216 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 0 220 Q 20 186 38 164 Q 58 188 78 206 Q 98 174 118 152 Q 142 184 168 216"
-              fill="none"
-              stroke="#756b5e"
-              strokeWidth="1.3"
-              strokeLinecap="round"
-            />
-            {/* Southwest / South ridges */}
-            <path
-              d="M 44 570 Q 72 526 98 494 Q 122 528 146 552 Q 170 512 194 482 Q 224 524 252 558 Q 276 530 298 508 Q 324 542 352 574 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 44 570 Q 72 526 98 494 Q 122 528 146 552 Q 170 512 194 482 Q 224 524 252 558 Q 276 530 298 508 Q 324 542 352 574"
-              fill="none"
-              stroke="#6c6357"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 28 682 Q 56 638 84 608 Q 112 640 138 664 Q 164 624 188 594 Q 218 636 246 668 Q 278 638 308 614 Q 338 648 370 684 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 28 682 Q 56 638 84 608 Q 112 640 138 664 Q 164 624 188 594 Q 218 636 246 668 Q 278 638 308 614 Q 338 648 370 684"
-              fill="none"
-              stroke="#756b5e"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
-            {/* Southeast grand mountain range */}
-            <path
-              d="M 552 652 Q 584 598 614 558 Q 642 596 668 626 Q 698 576 728 534 Q 760 580 792 618 Q 824 580 854 550 Q 886 598 916 638 Q 942 606 968 580 Q 998 618 1032 656 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 552 652 Q 584 598 614 558 Q 642 596 668 626 Q 698 576 728 534 Q 760 580 792 618 Q 824 580 854 550 Q 886 598 916 638 Q 942 606 968 580 Q 998 618 1032 656"
-              fill="none"
-              stroke="#685f53"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 608 706 Q 642 656 674 620 Q 704 656 734 686 Q 766 638 796 600 Q 830 648 864 688 Q 896 648 928 618 Q 964 662 1002 706 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 608 706 Q 642 656 674 620 Q 704 656 734 686 Q 766 638 796 600 Q 830 648 864 688 Q 896 648 928 618 Q 964 662 1002 706"
-              fill="none"
-              stroke="#73695c"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
-            {/* Eastern hills */}
-            <path
-              d="M 880 364 Q 902 334 924 312 Q 944 338 964 356 Q 984 328 1004 304 Q 1028 334 1056 364 Z"
-              fill="url(#mountain-ink-grad)"
-              stroke="none"
-            />
-            <path
-              d="M 880 364 Q 902 334 924 312 Q 944 338 964 356 Q 984 328 1004 304 Q 1028 334 1056 364"
-              fill="none"
-              stroke="#786e60"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </g>
-
-          {/* River network */}
-          <g className="map-rivers" pointerEvents="none">
-            {MAP_RIVER_PATHS.map((river) => (
-              <g key={river.id}>
-                <path
-                  d={river.d}
-                  fill="none"
-                  stroke="#b7cbd6"
-                  strokeWidth={river.strokeWidth + 2}
-                  strokeLinecap="round"
-                  opacity="0.55"
-                />
-                <path
-                  d={river.d}
-                  fill="none"
-                  stroke="#6898b5"
-                  strokeWidth={river.strokeWidth}
-                  strokeLinecap="round"
-                  opacity="0.88"
-                />
-              </g>
-            ))}
-          </g>
-
-          {/* Background region labels */}
-          <g className="map-background-labels" pointerEvents="none">
-            {BACKGROUND_REGION_GEOMETRIES.filter((b) => b.showLabel).map((bg) => (
-              <g key={`label-${bg.province_id}`} transform={`translate(${bg.center.x}, ${bg.center.y})`}>
-                <text
-                  textAnchor="middle"
-                  y="-6"
-                  fill="#787065"
-                  fontSize="17"
-                  fontWeight="600"
-                  letterSpacing="1.5"
-                >
-                  {bg.display_title}
-                </text>
-                <text
-                  textAnchor="middle"
-                  y="16"
-                  fill="#877e72"
-                  fontSize="14"
-                  letterSpacing="1"
-                >
-                  {bg.display_subtitle}
-                </text>
-              </g>
-            ))}
-          </g>
-
-          {/* Playable states (甲州, 乙州, 丙州) */}
-          <g className="map-playable-states">
+          {/* 3. Playable State Territories (low-opacity watercolor washes + sub-boundaries) */}
+          <g id="grp-playable-polities" className="map-polities-group">
             {PLAYABLE_PROVINCE_GEOMETRIES.map((geom) => {
-              const stateData = states.find((s) => s.state_id === geom.state_id);
-              if (!stateData) return null;
-
-              const presentation = computeStateLayerPresentation(stateData, activeLayer);
+              const stateData = stateById(geom.state_id);
+              const pres = stateData
+                ? computeStateLayerPresentation(stateData, activeLayer)
+                : { severityKey: 'unknown' as const, badgeSubtitle: '本周未奏报（未知）' };
               const isSelected = selectedStateId === geom.state_id;
-              const isHovered = hoveredStateId === geom.state_id;
-              const fill = SEVERITY_FILL_MAP[presentation.severityKey];
-              const stroke = isSelected
-                ? '#f6d27a'
-                : isHovered
-                  ? '#3d2914'
-                  : SEVERITY_STROKE_MAP[presentation.severityKey];
-
-              const stateDebug = debugTruth?.states.find((s) => s.state_id === geom.state_id);
+              const washFill = getPolityWashFill(pres.severityKey);
+              const borderStroke = getPolityBorderColor(pres.severityKey, false);
 
               return (
                 <g
                   key={geom.state_id}
-                  className={`map-playable-province ${isSelected ? 'is-selected' : ''}`}
-                  data-testid={`map-state-${geom.state_id}`}
-                  data-state-id={geom.state_id}
-                  data-is-playable="true"
-                  data-report-status={stateData.report_status}
-                  data-visual-severity={presentation.severityKey}
-                  onMouseEnter={() => setHoveredStateId(geom.state_id)}
-                  onMouseLeave={() =>
-                    setHoveredStateId((prev) => (prev === geom.state_id ? null : prev))
-                  }
+                  className={`map-playable-province status-${pres.severityKey} ${isSelected ? 'is-selected' : ''}`}
+                  data-testid={`map-province-${geom.state_id}`}
+                  data-severity={pres.severityKey}
+                  data-selected={isSelected ? 'true' : 'false'}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${geom.state_name}（${pres.badgeSubtitle}）`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (!dragRef.current.moved) {
-                      const currentWidth =
-                        containerRef.current?.clientWidth || viewportWidth || 1280;
-                      onSelectState(geom.state_id, currentWidth);
+                    if (dragRef.current.moved) return;
+                    const vw =
+                      containerRef.current?.clientWidth ??
+                      (typeof window !== 'undefined' ? window.innerWidth : 1280);
+                    const vh =
+                      containerRef.current?.clientHeight ??
+                      (typeof window !== 'undefined' ? window.innerHeight : 800);
+                    onSelectState(geom.state_id, vw, vh);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      const vw =
+                        containerRef.current?.clientWidth ??
+                        (typeof window !== 'undefined' ? window.innerWidth : 1280);
+                      const vh =
+                        containerRef.current?.clientHeight ??
+                        (typeof window !== 'undefined' ? window.innerHeight : 800);
+                      onSelectState(geom.state_id, vw, vh);
                     }
                   }}
                 >
+                  {/* Watercolor wash over topographic hillshade */}
                   <path
-                    d={geom.svgPath}
-                    fill={fill}
-                    stroke={stroke}
-                    strokeWidth={isSelected ? 4 : isHovered ? 2.8 : 2}
-                    strokeLinejoin="round"
-                    filter={isSelected ? 'url(#selected-state-glow)' : undefined}
-                    style={{ cursor: 'pointer', transition: 'stroke-width 0.15s ease' }}
+                    d={geom.d}
+                    fill={washFill}
+                    className={`map-polity-wash status-${pres.severityKey}`}
                   />
 
-                  {/* Flood wave / Drought emblem above state label */}
-                  {presentation.showFloodWaveIcon && (
-                    <g
-                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 56})`}
-                      pointerEvents="none"
-                    >
-                      <circle cx="0" cy="0" r="18" fill="#8f2c22" stroke="#f5dec0" strokeWidth="1.8" />
-                      <path
-                        d="M -10 -3 Q -5 -8 0 -3 T 10 -3 M -10 4 Q -5 -1 0 4 T 10 4"
-                        fill="none"
-                        stroke="#fff6e8"
-                        strokeWidth="2.3"
-                        strokeLinecap="round"
-                      />
-                    </g>
+                  {/* Diagonal hatch overlay when report is UNKNOWN */}
+                  {pres.severityKey === 'unknown' && (
+                    <path
+                      d={geom.d}
+                      fill="url(#unknown-hatch-pattern)"
+                      className="map-polity-unknown-hatch"
+                    />
                   )}
 
-                  {presentation.showDroughtSunIcon && (
-                    <g
-                      transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y - 56})`}
-                      pointerEvents="none"
-                    >
-                      <circle cx="0" cy="0" r="16" fill="#c76e22" stroke="#f5dec0" strokeWidth="1.6" />
-                      <circle cx="0" cy="0" r="6.5" fill="#fff2d6" />
-                    </g>
+                  {/* Subtle internal prefecture/jun dashed division lines */}
+                  {geom.subBoundaryPath && (
+                    <path d={geom.subBoundaryPath} className="map-polity-sub-boundary" />
                   )}
 
-                  {/* State Name & Scroll Plate */}
+                  {/* Outer light paper casing + state boundary stroke */}
+                  <path d={geom.d} className="map-polity-casing" />
+                  <path
+                    d={geom.d}
+                    fill="none"
+                    stroke={borderStroke}
+                    className="map-polity-border"
+                  />
+                </g>
+              );
+            })}
+          </g>
+
+          {/* 4. Hydrography Layer (lakes & ranked rivers rendered over state washes, as in jiangshan-map) */}
+          <g id="grp-rivers" className="map-hydro-group" pointerEvents="none">
+            {hydroLayer.lakes.map((lk, idx) => (
+              <path
+                key={`lk-${idx}`}
+                d={lk.d}
+                className={lk.major ? 'hydro-lake rank-major' : 'hydro-lake'}
+              />
+            ))}
+            {hydroLayer.trunkCasingPaths.map((d, idx) => (
+              <path key={`rc-${idx}`} d={d} className="hydro-river-casing" />
+            ))}
+            {hydroLayer.rivers.map((riv, idx) => (
+              <path key={`rv-${idx}`} d={riv.d} className={`hydro-river ${riv.rankClass}`} />
+            ))}
+            {WATER_CAPTIONS.map((wc) => (
+              <text
+                key={wc.id}
+                transform={`translate(${wc.x},${wc.y}) scale(${labelScale}) rotate(${wc.rot})`}
+                className="hydro-label is-trunk"
+              >
+                {wc.name}
+              </text>
+            ))}
+          </g>
+
+          {/* 5. Selected State Crisp Cinnabar Highlight Outline */}
+          {selectedGeom && (
+            <g
+              id="grp-selected-outline"
+              className="map-selected-outline-group"
+              pointerEvents="none"
+            >
+              <path d={selectedGeom.d} className="map-selected-halo" />
+              <path d={selectedGeom.d} className="map-selected-border" />
+            </g>
+          )}
+
+          {/* 6. Non-Playable Surrounding Regional Captions, Town Markers, Prefecture Seats & State Titles */}
+          <g id="grp-captions" className="map-captions-group">
+            {BACKGROUND_REGION_GEOMETRIES.map((bg) => (
+              <g
+                key={bg.province_id}
+                className="map-bg-region-group"
+                data-testid={`map-background-${bg.province_id}`}
+                aria-disabled="true"
+                onClick={(e) => {
+                  // Clicking surrounding geographic background never switches active state
+                  e.stopPropagation();
+                }}
+              >
+                <title>{`${bg.region_name} · ${bg.map_status_label}`}</title>
+                <rect
+                  x={bg.labelPos.x - 28}
+                  y={bg.labelPos.y - 9}
+                  width="56"
+                  height="18"
+                  fill="transparent"
+                />
+                <text
+                  transform={`translate(${bg.labelPos.x},${bg.labelPos.y}) scale(${labelScale})`}
+                  className={`map-regional-caption ${bg.province_id === 'bg_south' || bg.display_caption === '东海湾' ? 'kind-sea' : 'kind-land'}`}
+                >
+                  {bg.display_caption}
+                </text>
+              </g>
+            ))}
+
+            {PLAYABLE_PROVINCE_GEOMETRIES.map((geom) => {
+              const stateData = stateById(geom.state_id);
+              const pres = stateData
+                ? computeStateLayerPresentation(stateData, activeLayer)
+                : { severityKey: 'unknown' as const, badgeSubtitle: '本周未奏报（未知）' };
+              const isSelected = selectedStateId === geom.state_id;
+              const debugState = debugTruth?.states.find((s) => s.state_id === geom.state_id);
+              const showBadgeSub =
+                activeLayer !== 'disaster' || pres.severityKey === 'unknown';
+
+              return (
+                <g
+                  key={`annot-${geom.state_id}`}
+                  className={`map-state-annotations ${isSelected ? 'is-selected' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (dragRef.current.moved) return;
+                    const vw =
+                      containerRef.current?.clientWidth ??
+                      (typeof window !== 'undefined' ? window.innerWidth : 1280);
+                    const vh =
+                      containerRef.current?.clientHeight ??
+                      (typeof window !== 'undefined' ? window.innerHeight : 800);
+                    onSelectState(geom.state_id, vw, vh);
+                  }}
+                >
+                  {/* Secondary sub-towns */}
+                  {showSecondaryTowns &&
+                    geom.towns.map((town) => (
+                      <g
+                        key={town.name}
+                        transform={`translate(${town.x},${town.y}) scale(${labelScale})`}
+                        className="map-town-marker"
+                      >
+                        <circle cx="0" cy="0" r="0.85" className="map-town-dot" />
+                        <text x="1.9" y="0.25" className="map-town-label">
+                          {town.name}
+                        </text>
+                      </g>
+                    ))}
+
+                  {/* Prefecture Seat Marker (○ / ◎) */}
                   <g
-                    transform={`translate(${geom.labelAnchor.x}, ${geom.labelAnchor.y})`}
-                    pointerEvents="none"
+                    transform={`translate(${geom.seat.x - 9},${geom.seat.y}) scale(${labelScale})`}
+                    className={`map-seat-marker ${isSelected ? 'is-selected' : ''}`}
+                  >
+                    <circle
+                      cx="0"
+                      cy="0"
+                      r={isSelected ? '1.9' : '1.35'}
+                      className="map-seat-outer-ring"
+                    />
+                    {isSelected && <circle cx="0" cy="0" r="0.8" className="map-seat-inner-dot" />}
+                    <text x="3.1" y="0.3" className="map-seat-label">
+                      {geom.seat.name}
+                    </text>
+                  </g>
+
+                  {/* Primary Classical Serif State Title */}
+                  <g
+                    transform={`translate(${geom.center.x},${geom.center.y - 2}) scale(${labelScale})`}
+                    className="map-state-title-group"
                   >
                     <text
+                      x="0"
+                      y="0"
                       textAnchor="middle"
-                      y="-8"
-                      fill={presentation.severityKey === 'unknown' ? '#f7f1e6' : '#241a10'}
-                      stroke={presentation.severityKey === 'unknown' ? '#2b251f' : '#efe5d2'}
-                      strokeWidth="0.6"
-                      fontSize="24"
-                      fontWeight="800"
-                      letterSpacing="2"
+                      className={`map-state-title status-${pres.severityKey} ${isSelected ? 'is-selected' : ''}`}
                     >
                       {geom.state_name}
                     </text>
 
-                    {/* Scroll plaque for report status / metric */}
-                    <rect
-                      x="-84"
-                      y="4"
-                      width="168"
-                      height="28"
-                      rx="5"
-                      fill={isSelected ? '#fbf1dc' : '#f4e8cf'}
-                      stroke={isSelected ? '#9e3424' : '#7b5f3d'}
-                      strokeWidth={isSelected ? '2' : '1.4'}
-                    />
                     <text
+                      x="0"
+                      y="6.4"
                       textAnchor="middle"
-                      y="23"
-                      fill={
-                        presentation.severityKey === 'urgent'
-                          ? '#8c1f16'
-                          : presentation.severityKey === 'unknown'
-                            ? '#49423b'
-                            : '#332415'
-                      }
-                      fontSize="13.5"
-                      fontWeight="700"
+                      className={`map-state-sub-caption ${showBadgeSub ? 'is-visible' : 'is-compact'}`}
+                      data-testid={`map-badge-sub-${geom.state_id}`}
                     >
-                      {presentation.badgeSubtitle}
+                      {pres.badgeSubtitle}
                     </text>
 
-                    {/* Debug truth overlay badge when debug mode is active */}
-                    {stateDebug && (
-                      <g transform="translate(0, 38)">
-                        <rect
-                          x="-92"
-                          y="0"
-                          width="184"
-                          height="22"
-                          rx="4"
-                          fill="#1f2937"
-                          stroke="#f59e0b"
-                          strokeWidth="1.2"
-                        />
-                        <text
-                          textAnchor="middle"
-                          y="15"
-                          fill="#fde68a"
-                          fontSize="11.5"
-                          fontWeight="600"
-                        >
-                          {`[真值] 可支配粮${formatWan(stateDebug.truth.disposable_grain, '万石')} · 银${formatWan(stateDebug.truth.disposable_silver, '万两')}`}
-                        </text>
-                      </g>
+                    {debugState && (
+                      <text
+                        x="0"
+                        y="12.5"
+                        textAnchor="middle"
+                        className="map-state-debug-caption"
+                        data-testid={`map-debug-truth-${geom.state_id}`}
+                      >
+                        [真值 粮{formatWan(debugState.truth.disposable_grain, '万石')}/银
+                        {formatWan(debugState.truth.disposable_silver, '万两')}]
+                      </text>
                     )}
                   </g>
                 </g>
@@ -632,97 +704,87 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         </svg>
       </div>
 
-      {/* Hover lightweight floating tooltip */}
-      {hoveredState && hoveredPresentation && (
-        <div
-          className="map-hover-tooltip"
-          data-testid="map-hover-tooltip"
-          style={{
-            left: `${Math.min(viewportWidth - 280, Math.max(16, hoverPos.x + 14))}px`,
-            top: `${Math.max(16, hoverPos.y - 24)}px`,
-          }}
-        >
-          {hoveredPresentation.tooltipLines.map((line, idx) => (
-            <div key={idx} className={idx === 0 ? 'tooltip-title' : 'tooltip-line'}>
-              {line}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Compact Camera Controls (Top-Left of map canvas) */}
-      <div className="map-camera-controls" aria-label="地图视角控制">
-        <button
-          type="button"
-          className="camera-btn"
-          title="放大地图"
-          onClick={() => adjustZoom(0.2)}
-        >
-          ＋
-        </button>
-        <button
-          type="button"
-          className="camera-btn"
-          title="缩小地图"
-          onClick={() => adjustZoom(-0.2)}
-        >
-          －
-        </button>
-        <button
-          type="button"
-          className="camera-btn camera-btn-text"
-          title="重置地图中心与缩放"
-          onClick={() => onChangeCamera(INITIAL_MAP_CAMERA)}
-        >
-          重置视角
-        </button>
-      </div>
-
-      {/* Bottom-Left Compact Layer Capsule & 5-State Honest Legend */}
-      <div className="map-layer-capsule" data-testid="map-layer-capsule">
-        <div className="layer-switcher-row" role="tablist" aria-label="地图图层切换">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeLayer === 'disaster'}
-            className={`layer-tab-btn ${activeLayer === 'disaster' ? 'active' : ''}`}
-            data-testid="layer-btn-disaster"
-            onClick={() => onChangeLayer('disaster')}
+      {/* Lower-Right Compact Map Controls & Honest 5-State Legend (Matches simple-ui-preview-v1.png) */}
+      <div className="map-bottom-right-controls" data-testid="map-controls-dock">
+        <div className="map-control-row">
+          <div
+            className="map-layer-pill-group"
+            role="group"
+            aria-label="舆图图层切换"
+            data-testid="map-layer-switcher"
           >
-            灾情赈济
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeLayer === 'grain'}
-            className={`layer-tab-btn ${activeLayer === 'grain' ? 'active' : ''}`}
-            data-testid="layer-btn-grain"
-            onClick={() => onChangeLayer('grain')}
-          >
-            存粮上报
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeLayer === 'silver'}
-            className={`layer-tab-btn ${activeLayer === 'silver' ? 'active' : ''}`}
-            data-testid="layer-btn-silver"
-            onClick={() => onChangeLayer('silver')}
-          >
-            存银上报
-          </button>
-        </div>
-
-        <div className="legend-items-row" data-testid="map-legend-items">
-          {legendEntries.map((item) => (
-            <span
-              key={item.key}
-              className="legend-chip"
-              data-legend-key={item.key}
-              title={item.detailLabel}
+            <button
+              type="button"
+              className={`map-layer-pill ${activeLayer === 'disaster' ? 'active' : ''}`}
+              aria-pressed={activeLayer === 'disaster'}
+              data-testid="layer-btn-disaster"
+              onClick={() => onChangeLayer('disaster')}
             >
-              <span className={`legend-swatch swatch-${item.key}`} />
-              <span className="legend-text">{item.shortLabel}</span>
+              灾情
+            </button>
+            <button
+              type="button"
+              className={`map-layer-pill ${activeLayer === 'grain' ? 'active' : ''}`}
+              aria-pressed={activeLayer === 'grain'}
+              data-testid="layer-btn-grain"
+              onClick={() => onChangeLayer('grain')}
+            >
+              存粮
+            </button>
+            <button
+              type="button"
+              className={`map-layer-pill ${activeLayer === 'silver' ? 'active' : ''}`}
+              aria-pressed={activeLayer === 'silver'}
+              data-testid="layer-btn-silver"
+              onClick={() => onChangeLayer('silver')}
+            >
+              存银
+            </button>
+          </div>
+
+          <div className="map-zoom-pill-group" role="group" aria-label="舆图视野控制">
+            <button
+              type="button"
+              className="map-zoom-btn"
+              data-testid="map-zoom-in-btn"
+              title="放大地图"
+              aria-label="放大地图"
+              onClick={() => handleStepZoom(0.18)}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="map-zoom-btn"
+              data-testid="map-zoom-out-btn"
+              title="缩小地图"
+              aria-label="缩小地图"
+              onClick={() => handleStepZoom(-0.18)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className="map-reset-btn"
+              data-testid="map-reset-camera-btn"
+              title="复位视图"
+              onClick={() => onChangeCamera(INITIAL_MAP_CAMERA)}
+            >
+              复位视图
+            </button>
+          </div>
+        </div>
+
+        <div className="map-legend-card" data-testid="map-layer-legend" aria-label="舆图图例">
+          {legendEntries.map((entry) => (
+            <span
+              key={entry.key}
+              className="legend-item"
+              data-testid={`legend-item-${entry.key}`}
+              title={entry.detailLabel}
+            >
+              <i className={`legend-swatch swatch-${entry.key}`} />
+              <span>{entry.shortLabel}</span>
             </span>
           ))}
         </div>

@@ -4,6 +4,7 @@ import {
   MAX_TRIAL_WEEKS,
   type ApprovalDecision,
   type ChatMessageView,
+  type CourtStateView,
   type CourtViewResponse,
   type DebugTruthResponse,
   type OfficerId,
@@ -61,22 +62,39 @@ function syncHistoryWeekToUrl(weekNumber: number | undefined): void {
   window.history.replaceState({}, '', url.toString());
 }
 
-function formatTopPhaseTitle(
-  weekNumber: number,
-  weekPhase: WeekPhase,
-  isHistoryView: boolean,
+function formatWeekPillText(
+  weekNum: number,
+  activeWeekNum: number,
+  activeWeekPhase: WeekPhase,
 ): string {
-  if (isHistoryView) {
-    return `第${weekNumber}周 · 已归档（历史回看）`;
+  if (weekNum < activeWeekNum) {
+    return `第${weekNum}周·已归档`;
   }
-  switch (weekPhase) {
-    case 'OPEN':
-      return `第${weekNumber}周 · 征询中`;
-    case 'LOCKED':
-      return `第${weekNumber}周 · 已截止待批复`;
-    case 'ARCHIVED':
-      return `第${weekNumber}周 · 已归档（四周试玩完结）`;
+  if (weekNum === activeWeekNum) {
+    if (activeWeekPhase === 'OPEN') return `第${weekNum}周·征询中`;
+    if (activeWeekPhase === 'LOCKED') return `第${weekNum}周·待批复`;
+    return `第${weekNum}周·已归档`;
   }
+  return `第${weekNum}周`;
+}
+
+function formatOutlinerStateSummary(st: CourtStateView): string {
+  if (st.report_status === 'UNKNOWN' || !st.report) {
+    return '未奏报（未知）';
+  }
+  const prop = st.proposal;
+  const grainReq = prop?.relief_central_grain ?? 0;
+  const silverReq = prop?.project_central_silver ?? 0;
+  if (grainReq > 0 && silverReq > 0) {
+    return `${st.report.disaster_label} · 请粮${formatWan(grainReq, '万石')}/请银${formatWan(silverReq, '万两')}`;
+  }
+  if (grainReq > 0) {
+    return `${st.report.disaster_label} · 请粮${formatWan(grainReq, '万石')}`;
+  }
+  if (silverReq > 0) {
+    return `${st.report.disaster_label} · 请银${formatWan(silverReq, '万两')}`;
+  }
+  return `${st.report.disaster_label} · 无请拨`;
 }
 
 export const App: React.FC = () => {
@@ -93,7 +111,7 @@ export const App: React.FC = () => {
   const [courtView, setCourtView] = useState<CourtViewResponse | null>(null);
   const [loadingCourt, setLoadingCourt] = useState<boolean>(false);
 
-  // Map & Drawer UI states
+  // Map & Left Sheet UI states
   const [activeLayer, setActiveLayer] = useState<MapLayerKind>('disaster');
   const [camera, setCamera] = useState<MapCameraState>(INITIAL_MAP_CAMERA);
   const [selectedStateId, setSelectedStateId] = useState<StateId | null>(null);
@@ -179,7 +197,6 @@ export const App: React.FC = () => {
         const view = await fetchCourtView(tokenToUse, weekQuery, ticket.signal);
         if (isStale()) return null;
 
-        // If requested week equals active week, normalize URL and state to current week view
         if (weekQuery !== undefined && !view.viewed_week.is_history_view) {
           latestCourtIntentRef.current = { token: tokenToUse, week: undefined };
           skipNextCourtEffectRef.current = true;
@@ -310,7 +327,7 @@ export const App: React.FC = () => {
     };
   }, [debugMode, courtView]);
 
-  // Esc key clears selected state and closes right drawer (Section 4.1)
+  // Esc key clears selected state and closes left sheet
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -332,10 +349,12 @@ export const App: React.FC = () => {
   }, [showDebugModal, showCredentialModal, courtView]);
 
   const handleSelectStateFromMap = useCallback(
-    (stateId: StateId, viewportWidth: number) => {
+    (stateId: StateId, viewportWidth: number, viewportHeight: number) => {
       setSelectedStateId(stateId);
       setDrawerOpen(true);
-      setCamera((prevCam) => computeMinimalOcclusionPan(stateId, viewportWidth, prevCam));
+      setCamera((prevCam) =>
+        computeMinimalOcclusionPan(stateId, viewportWidth, prevCam, true, viewportHeight),
+      );
     },
     [],
   );
@@ -344,7 +363,8 @@ export const App: React.FC = () => {
     setSelectedStateId(stateId);
     setDrawerOpen(true);
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    setCamera((prevCam) => computeMinimalOcclusionPan(stateId, vw, prevCam));
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    setCamera((prevCam) => computeMinimalOcclusionPan(stateId, vw, prevCam, true, vh));
   }, []);
 
   const handleClearMapSelection = useCallback(() => {
@@ -463,7 +483,6 @@ export const App: React.FC = () => {
         return;
       }
       if (err instanceof NetworkUncertainError) {
-        // Section 2.3: Never automatically resend on network uncertainty; keep draft and prompt sync.
         setSettleUncertainWeek(targetWeek);
         setActionError(
           '未收到结算响应（结果未确认），请点击【同步当前周状态】查询进度',
@@ -478,7 +497,6 @@ export const App: React.FC = () => {
           );
         }
       } else {
-        // Explicit business validation rollback (e.g. insufficient true central balance): preserve draft choices!
         setActionError(err instanceof Error ? err.message : '批复结算未通过');
       }
     } finally {
@@ -525,7 +543,7 @@ export const App: React.FC = () => {
       } else {
         setApprovalDraft(loadWeekApprovalDraft(uncertainWeek));
         setActionInfo(
-          `尚未观察到第 ${uncertainWeek} 周完成结算；可稍候再次同步，或重新点击【批复并结算本周】`,
+          `尚未观察到第 ${uncertainWeek} 周完成结算；可稍候再次同步，或重新点击【批复结算】`,
         );
       }
     }
@@ -571,7 +589,6 @@ export const App: React.FC = () => {
 
   const handleToggleDebugSwitch = async () => {
     if (debugMode) {
-      // Remove truth immediately on exit and abort any in-flight debug request
       debugReqGuardRef.current.invalidate();
       setDebugMode(false);
       setDebugTruth(null);
@@ -704,114 +721,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="simu-emperor-shell" data-testid="simu-emperor-shell">
-      {/* Top Bar: exact 44px height */}
-      <header className="court-top-bar" data-testid="court-top-bar">
-        <div className="top-bar-left">
-          <span className="imperial-week-title" data-testid="top-week-phase-label">
-            {courtView
-              ? formatTopPhaseTitle(viewedWeekNum, viewedWeekPhase, isHistoryView)
-              : 'Simu-Emperor · 待接入朝堂'}
-          </span>
-
-          {isHistoryView && (
-            <button
-              type="button"
-              className="top-return-current-btn"
-              data-testid="top-return-current-week-btn"
-              onClick={() => handleSelectWeekTimeline(activeWeekNum)}
-            >
-              返回当前周（第{activeWeekNum}周）
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="top-util-btn"
-            data-testid="sync-status-btn"
-            disabled={!monarchToken || loadingCourt}
-            onClick={() => void handleSyncCurrentWeekState()}
-            title="同步当前周与会话状态"
-          >
-            同步状态
-          </button>
-        </div>
-
-        <div className="top-bar-center" data-testid="top-central-summary">
-          {centralRep ? (
-            centralRep.report_status === 'REPORTED' &&
-            centralRep.gross_silver !== null &&
-            centralRep.gross_grain !== null ? (
-              <span>
-                中央可调拨银：<strong>{formatWan(centralRep.gross_silver, '万两')}</strong>
-                <span className="top-divider">|</span>
-                可调拨粮：<strong>{formatWan(centralRep.gross_grain, '万石')}</strong>
-                <span className="top-divider">|</span>
-                <span className="top-source-badge">第{viewedWeekNum}周度支奏报</span>
-              </span>
-            ) : (
-              <span>
-                中央可调拨银：<strong className="top-unknown-val">本周未奏报（未知）</strong>
-                <span className="top-divider">|</span>
-                可调拨粮：<strong className="top-unknown-val">本周未奏报（未知）</strong>
-                <span className="top-divider">|</span>
-                <span className="top-source-badge">第{viewedWeekNum}周未奏报</span>
-              </span>
-            )
-          ) : (
-            <span>请先输入君主访问凭据以读取朝堂奏报</span>
-          )}
-
-          {debugMode && debugTruth && (
-            <span className="top-debug-pill" data-testid="top-debug-truth-pill">
-              [真值 银{formatWan(debugTruth.central_truth.gross_silver, '万两')} / 粮
-              {formatWan(debugTruth.central_truth.gross_grain, '万石')}]
-            </span>
-          )}
-        </div>
-
-        <div className="top-bar-right">
-          <div className="debug-switch-wrap">
-            <span className="debug-switch-label">调试真值视图</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={debugMode}
-              aria-label="调试真值视图"
-              className={`debug-toggle-switch ${debugMode ? 'on' : 'off'}`}
-              data-testid="debug-truth-toggle"
-              onClick={() => void handleToggleDebugSwitch()}
-            >
-              <span className="switch-knob" />
-            </button>
-          </div>
-
-          {!drawerOpen && courtView && (
-            <button
-              type="button"
-              className="top-util-btn"
-              data-testid="reopen-drawer-btn"
-              onClick={() => setDrawerOpen(true)}
-            >
-              展开奏折抽屉
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="top-credential-badge"
-            data-testid="open-credential-modal-btn"
-            onClick={() => {
-              setTokenInput(monarchToken);
-              setAuthError(null);
-              setShowCredentialModal(true);
-            }}
-          >
-            访问凭据
-          </button>
-        </div>
-      </header>
-
-      {/* Main Workspace (100vh - 92px): Full Continuous Map + Optional Single 25% Right Drawer */}
+      {/* Full-Viewport Geographic Map Workspace (Jiangshan-map cartographic layer) */}
       <main className="court-main-workspace">
         <MapViewport
           states={courtView?.states ?? []}
@@ -825,6 +735,257 @@ export const App: React.FC = () => {
           onChangeLayer={setActiveLayer}
           onChangeCamera={setCamera}
         />
+
+        {/* Single Unified Top HUD Bar (Matches simple-ui-preview-v1.png: Left Treasury, Center Week Pills, Right Actions) */}
+        <header className="court-top-bar" data-testid="court-top-bar">
+          {/* Left: Central Reported Treasury & Source Pill */}
+          <div className="top-bar-left" data-testid="top-central-summary">
+            {centralRep ? (
+              centralRep.report_status === 'REPORTED' &&
+              centralRep.gross_silver !== null &&
+              centralRep.gross_grain !== null ? (
+                <>
+                  <span className="treasury-metric">
+                    <span className="treasury-label">朝廷存银</span>{' '}
+                    <strong className="treasury-value">
+                      {formatWan(centralRep.gross_silver, '万两')}
+                    </strong>
+                  </span>
+                  <span className="top-divider">|</span>
+                  <span className="treasury-metric">
+                    <span className="treasury-label">朝廷存粮</span>{' '}
+                    <strong className="treasury-value">
+                      {formatWan(centralRep.gross_grain, '万石')}
+                    </strong>
+                  </span>
+                  <span className="top-source-pill">来源：第{viewedWeekNum}周度支奏报</span>
+                </>
+              ) : (
+                <>
+                  <span className="treasury-metric">
+                    <span className="treasury-label">朝廷存银</span>{' '}
+                    <strong className="treasury-value top-unknown-val">本周未奏报（未知）</strong>
+                  </span>
+                  <span className="top-divider">|</span>
+                  <span className="treasury-metric">
+                    <span className="treasury-label">朝廷存粮</span>{' '}
+                    <strong className="treasury-value top-unknown-val">本周未奏报（未知）</strong>
+                  </span>
+                  <span className="top-source-pill is-unknown">
+                    来源：第{viewedWeekNum}周未奏报
+                  </span>
+                </>
+              )
+            ) : (
+              <span className="treasury-placeholder">请先输入君主访问凭据以读取朝堂奏报</span>
+            )}
+
+            {debugMode && debugTruth && (
+              <span className="top-debug-pill" data-testid="top-debug-truth-pill">
+                [真值 银{formatWan(debugTruth.central_truth.gross_silver, '万两')} / 粮
+                {formatWan(debugTruth.central_truth.gross_grain, '万石')}]
+              </span>
+            )}
+          </div>
+
+          {/* Center: 4-Week Connected Timeline Pills */}
+          <div
+            className="top-bar-center"
+            data-testid="court-bottom-bar"
+            role="navigation"
+            aria-label="四周进度轴"
+          >
+            <div className="week-timeline-pills">
+              {([1, 2, 3, 4] as const).map((weekNum, idx) => {
+                const isPastArchived =
+                  weekNum < activeWeekNum ||
+                  (weekNum === activeWeekNum && activeWeekPhase === 'ARCHIVED');
+                const isCurrentActive =
+                  weekNum === activeWeekNum && activeWeekPhase !== 'ARCHIVED';
+                const isViewed = weekNum === viewedWeekNum;
+                const isFuture = weekNum > activeWeekNum;
+
+                return (
+                  <React.Fragment key={weekNum}>
+                    {idx > 0 && (
+                      <span className="week-chevron" aria-hidden="true">
+                        ›
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={isFuture || !courtView}
+                      className={`timeline-step-btn ${isViewed ? 'is-viewed' : ''} ${isPastArchived ? 'is-archived' : ''} ${isCurrentActive ? 'is-current' : ''}`}
+                      data-testid={`timeline-week-${weekNum}`}
+                      onClick={() => handleSelectWeekTimeline(weekNum)}
+                    >
+                      <span
+                        className="step-label"
+                        data-testid={isViewed ? 'top-week-phase-label' : undefined}
+                      >
+                        {formatWeekPillText(weekNum, activeWeekNum, activeWeekPhase)}
+                      </span>
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {isHistoryView && (
+              <button
+                type="button"
+                className="top-return-current-btn"
+                data-testid="top-return-current-week-btn"
+                onClick={() => handleSelectWeekTimeline(activeWeekNum)}
+              >
+                返回第{activeWeekNum}周
+              </button>
+            )}
+
+            {isTrialCompleted && !isHistoryView && (
+              <span className="trial-completed-status" data-testid="trial-completed-badge">
+                四周已完结
+              </span>
+            )}
+          </div>
+
+          {/* Right: Sync, Lock, Settle & Utility Controls */}
+          <div className="top-bar-right" data-testid="bottom-actions-area">
+            <button
+              type="button"
+              className="top-util-btn"
+              data-testid="sync-status-btn"
+              disabled={!monarchToken || loadingCourt}
+              onClick={() => void handleSyncCurrentWeekState()}
+              title="同步当前周与会话状态"
+            >
+              同步
+            </button>
+
+            {isHistoryView ? (
+              <button
+                type="button"
+                className="court-action-btn btn-return-current"
+                data-testid="bottom-return-current-week-btn"
+                onClick={() => handleSelectWeekTimeline(activeWeekNum)}
+              >
+                返回当前周
+              </button>
+            ) : isTrialCompleted ? null : (
+              <>
+                <button
+                  type="button"
+                  className={`court-action-btn btn-lock-week ${viewedWeekPhase === 'OPEN' ? 'is-primary-cinnabar' : ''}`}
+                  data-testid="lock-week-btn"
+                  disabled={!courtView || viewedWeekPhase !== 'OPEN' || submittingAction}
+                  onClick={() => void handleLockCurrentWeek()}
+                >
+                  截止征询
+                </button>
+                <button
+                  type="button"
+                  className={`court-action-btn btn-settle-week ${viewedWeekPhase === 'LOCKED' && approvalStatus.isReady ? 'is-primary-cinnabar' : ''}`}
+                  data-testid="settle-week-btn"
+                  disabled={
+                    !courtView ||
+                    viewedWeekPhase !== 'LOCKED' ||
+                    !approvalStatus.isReady ||
+                    submittingAction ||
+                    settleUncertainWeek !== null
+                  }
+                  onClick={() => void handleSettleCurrentWeek()}
+                >
+                  {submittingAction ? '结算中…' : '批复结算'}
+                </button>
+              </>
+            )}
+
+            {!drawerOpen && courtView && (
+              <button
+                type="button"
+                className="top-util-btn"
+                data-testid="reopen-drawer-btn"
+                onClick={() => {
+                  const targetState = selectedStateId ?? pickDefaultSelectedState(courtView.states);
+                  setSelectedStateId(targetState);
+                  setDrawerOpen(true);
+                  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+                  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+                  setCamera((prevCam) =>
+                    computeMinimalOcclusionPan(targetState, vw, prevCam, true, vh),
+                  );
+                }}
+              >
+                展开奏报
+              </button>
+            )}
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={debugMode}
+              aria-label="调试真值视图"
+              className={`top-text-link ${debugMode ? 'is-active' : ''}`}
+              data-testid="debug-truth-toggle"
+              onClick={() => void handleToggleDebugSwitch()}
+              title="开启/关闭调试真值视图"
+            >
+              {debugMode ? '真值·开' : '调试'}
+            </button>
+
+            <button
+              type="button"
+              className="top-text-link"
+              data-testid="open-credential-modal-btn"
+              onClick={() => {
+                setTokenInput(monarchToken);
+                setAuthError(null);
+                setShowCredentialModal(true);
+              }}
+            >
+              凭证
+            </button>
+          </div>
+        </header>
+
+        {/* Concise Right Outliner (Matches simple-ui-preview-v1.png: 各州奏报（第N周） + 3 state rows) */}
+        {courtView && (
+          <aside
+            className="right-court-outliner"
+            data-testid="eu4-right-outliner"
+            aria-label={`各州奏报（第${viewedWeekNum}周）`}
+          >
+            <div className="outliner-header">
+              <span>各州奏报（第{viewedWeekNum}周）</span>
+            </div>
+
+            <div className="outliner-state-list" data-testid="pending-requests-summary">
+              {courtView.states.map((st) => {
+                const isSel = selectedStateId === st.state_id && drawerOpen;
+                return (
+                  <button
+                    key={st.state_id}
+                    type="button"
+                    className={`outliner-state-row ${isSel ? 'is-selected' : ''}`}
+                    data-testid={`outliner-state-${st.state_id}`}
+                    onClick={() => {
+                      handleSelectStateFromDrawer(st.state_id);
+                      setActiveTab('report');
+                    }}
+                  >
+                    <span className="outliner-state-left">
+                      <span className={`pill-dot dot-${st.map_severity}`} />
+                      <strong>{st.state_name}</strong>
+                    </span>
+                    <span className="outliner-state-summary">
+                      {formatOutlinerStateSummary(st)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+        )}
 
         {/* Floating Action/Uncertainty/Error Banner on top of map */}
         {(actionError || actionInfo || settleUncertainWeek !== null) && (
@@ -842,7 +1003,7 @@ export const App: React.FC = () => {
                   data-testid="sync-uncertain-settle-btn"
                   onClick={() => void handleSyncCurrentWeekState()}
                 >
-                  【同步当前周状态】
+                  同步当前周状态
                 </button>
               )}
               <button
@@ -859,6 +1020,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
+        {/* Closable Left Report/Chat/Approval Sheet */}
         {courtView && (
           <RightDrawer
             isOpen={drawerOpen}
@@ -916,106 +1078,13 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Bottom Bar: exact 48px height */}
-      <footer className="court-bottom-bar" data-testid="court-bottom-bar">
-        <div className="bottom-timeline-track" role="navigation" aria-label="四周进度轴">
-          {([1, 2, 3, 4] as const).map((weekNum) => {
-            const isPastArchived =
-              weekNum < activeWeekNum ||
-              (weekNum === activeWeekNum && activeWeekPhase === 'ARCHIVED');
-            const isCurrentActive =
-              weekNum === activeWeekNum && activeWeekPhase !== 'ARCHIVED';
-            const isViewed = weekNum === viewedWeekNum;
-            const isFuture = weekNum > activeWeekNum;
-
-            let labelSuffix = '';
-            if (weekNum === activeWeekNum && activeWeekPhase === 'ARCHIVED') {
-              labelSuffix = ' (已归档·完结)';
-            } else if (isPastArchived) {
-              labelSuffix = ' (已归档)';
-            } else if (isCurrentActive) {
-              labelSuffix = ' (当前)';
-            }
-
-            return (
-              <React.Fragment key={weekNum}>
-                {weekNum > 1 && <span className="timeline-connector" />}
-                <button
-                  type="button"
-                  disabled={isFuture || !courtView}
-                  className={`timeline-step-btn ${isViewed ? 'is-viewed' : ''} ${isPastArchived ? 'is-archived' : ''} ${isCurrentActive ? 'is-current' : ''}`}
-                  data-testid={`timeline-week-${weekNum}`}
-                  onClick={() => handleSelectWeekTimeline(weekNum)}
-                >
-                  <span className="step-node">
-                    {isPastArchived ? '✓' : isCurrentActive ? '◉' : '○'}
-                  </span>
-                  <span className="step-label">
-                    第{weekNum}周{labelSuffix}
-                  </span>
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
-
-        <div className="bottom-actions-area" data-testid="bottom-actions-area">
-          {isHistoryView ? (
-            <div className="history-bottom-bar-status">
-              <span className="history-badge">第{viewedWeekNum}周历史回看（只读）</span>
-              <button
-                type="button"
-                className="primary-court-btn"
-                data-testid="bottom-return-current-week-btn"
-                onClick={() => handleSelectWeekTimeline(activeWeekNum)}
-              >
-                返回当前周（第{activeWeekNum}周）
-              </button>
-            </div>
-          ) : isTrialCompleted ? (
-            <div className="trial-completed-status" data-testid="trial-completed-badge">
-              四周试玩已全部归档完结
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="court-action-btn btn-lock-week"
-                data-testid="lock-week-btn"
-                disabled={
-                  !courtView || viewedWeekPhase !== 'OPEN' || submittingAction
-                }
-                onClick={() => void handleLockCurrentWeek()}
-              >
-                截止本周征询
-              </button>
-              <button
-                type="button"
-                className="court-action-btn btn-settle-week"
-                data-testid="settle-week-btn"
-                disabled={
-                  !courtView ||
-                  viewedWeekPhase !== 'LOCKED' ||
-                  !approvalStatus.isReady ||
-                  submittingAction ||
-                  settleUncertainWeek !== null
-                }
-                onClick={() => void handleSettleCurrentWeek()}
-              >
-                {submittingAction ? '结算提交中…' : '批复并结算本周'}
-              </button>
-            </>
-          )}
-        </div>
-      </footer>
-
-      {/* Minimal Monarch Access Credential Modal (sessionStorage only, no bundled secrets) */}
+      {/* Minimal Monarch Access Credential Modal */}
       {showCredentialModal && (
         <div className="court-modal-backdrop" data-testid="credential-modal">
           <form className="court-modal-card" onSubmit={(e) => void handleConnectMonarchCredential(e)}>
             <h3>接入朝堂 · 君主访问凭据</h3>
             <p className="modal-desc">
-              请输入服务端运行时配置的君主 Bearer 访问凭据（<code>MONARCH_TOKEN</code>）。凭据仅保存在当前标签页 <code>sessionStorage</code> 中，前端绝不硬编码或打包任何密钥。
+              请输入服务端运行时配置的君主 Bearer 访问凭据（<code>MONARCH_TOKEN</code>）。凭据仅保存在当前标签页 <code>sessionStorage</code> 中，前端不打包任何密钥。
             </p>
             {authError && (
               <div className="inline-error-banner" data-testid="credential-error-msg" role="alert">
@@ -1064,7 +1133,7 @@ export const App: React.FC = () => {
           <form className="court-modal-card" onSubmit={(e) => void handleConfirmDebugToken(e)}>
             <h3>开启调试真值视图 · 双重鉴权</h3>
             <p className="modal-desc">
-              调试真值接口（<code>/api/debug/truth</code>）要求服务端开启 <code>ENABLE_DEBUG_TRUTH=1</code> 且请求携带独立的君主调试凭据（<code>MONARCH_DEBUG_TOKEN</code>）。退出调试模式时将立即移除全部真值数据。
+              调试真值接口（<code>/api/debug/truth</code>）要求服务端开启 <code>ENABLE_DEBUG_TRUTH=1</code> 且携带独立的君主调试凭据（<code>MONARCH_DEBUG_TOKEN</code>）。退出调试模式时将立即移除全部真值数据。
             </p>
             {debugError && (
               <div className="inline-error-banner" data-testid="debug-error-msg" role="alert">

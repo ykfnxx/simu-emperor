@@ -1,0 +1,540 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T14:38:24+08:00",
+  "title": "Design System: Simu-Emperor",
+  "extensions": {
+    "colorMeta": {
+      "accent-cinnabar": {
+        "role": "primary",
+        "displayName": "Cinnabar Accent",
+        "canonical": "#9e3a2e",
+        "tonalRamp": [
+          "#2d0c08",
+          "#4b1711",
+          "#6a221a",
+          "#8b3126",
+          "#9e3a2e",
+          "#bf665b",
+          "#dfb0a9",
+          "#f9ecea"
+        ]
+      },
+      "accent-cinnabar-hover": {
+        "role": "primary",
+        "displayName": "Cinnabar Deep Hover",
+        "canonical": "#8b3126",
+        "tonalRamp": [
+          "#280a06",
+          "#44140e",
+          "#631f17",
+          "#8b3126",
+          "#a4463b",
+          "#c37268",
+          "#e2b5af",
+          "#f8ebe9"
+        ]
+      },
+      "accent-cinnabar-bg": {
+        "role": "primary",
+        "displayName": "Cinnabar Wash Tint",
+        "canonical": "rgba(158, 58, 46, 0.08)",
+        "tonalRamp": [
+          "#3c1814",
+          "#5c2721",
+          "#7d3830",
+          "#9e3a2e",
+          "#be6d63",
+          "#daa29b",
+          "#eed1cd",
+          "#fbf3f2"
+        ]
+      },
+      "accent-ochre": {
+        "role": "secondary",
+        "displayName": "Ochre Warning Accent",
+        "canonical": "#b87328",
+        "tonalRamp": [
+          "#2e1b06",
+          "#4f300d",
+          "#734615",
+          "#965c1e",
+          "#b87328",
+          "#cf9656",
+          "#e5c299",
+          "#f9efe2"
+        ]
+      },
+      "accent-ochre-bg": {
+        "role": "secondary",
+        "displayName": "Ochre Wash Tint",
+        "canonical": "rgba(184, 115, 40, 0.10)",
+        "tonalRamp": [
+          "#3a240c",
+          "#5c3a15",
+          "#825320",
+          "#b87328",
+          "#cc9352",
+          "#e0b98a",
+          "#f0dcc2",
+          "#fbf4eb"
+        ]
+      },
+      "accent-sage": {
+        "role": "tertiary",
+        "displayName": "Sage Stable Accent",
+        "canonical": "#587854",
+        "tonalRamp": [
+          "#162015",
+          "#273725",
+          "#395037",
+          "#496446",
+          "#587854",
+          "#7e9b7a",
+          "#b0c3ad",
+          "#ebf1ea"
+        ]
+      },
+      "accent-sage-bg": {
+        "role": "tertiary",
+        "displayName": "Sage Wash Tint",
+        "canonical": "rgba(88, 120, 84, 0.10)",
+        "tonalRamp": [
+          "#1c271b",
+          "#30422e",
+          "#445d41",
+          "#587854",
+          "#7d9979",
+          "#a6baa3",
+          "#cedace",
+          "#f1f5f0"
+        ]
+      },
+      "accent-slate": {
+        "role": "tertiary",
+        "displayName": "Slate Unknown Accent",
+        "canonical": "#7a7067",
+        "tonalRamp": [
+          "#201d1a",
+          "#36312d",
+          "#4d4640",
+          "#635b53",
+          "#7a7067",
+          "#9b928a",
+          "#c2bcb6",
+          "#efedea"
+        ]
+      },
+      "bg-atlas-canvas": {
+        "role": "neutral",
+        "displayName": "Atlas Rice-Paper Canvas",
+        "canonical": "#eae2d3",
+        "tonalRamp": [
+          "#28231c",
+          "#463e33",
+          "#685d4e",
+          "#8d806e",
+          "#b3a692",
+          "#d2c8b6",
+          "#eae2d3",
+          "#f8f5ef"
+        ]
+      },
+      "bg-ocean-paper": {
+        "role": "neutral",
+        "displayName": "Ocean Rice-Paper Ground",
+        "canonical": "#e5decb",
+        "tonalRamp": [
+          "#27231a",
+          "#453e30",
+          "#675d49",
+          "#8b7f67",
+          "#b0a48b",
+          "#cfc5af",
+          "#e5decb",
+          "#f6f3ec"
+        ]
+      },
+      "surface-panel": {
+        "role": "neutral",
+        "displayName": "Floating Ivory Panel",
+        "canonical": "rgba(250, 247, 242, 0.96)",
+        "tonalRamp": [
+          "#292520",
+          "#49433a",
+          "#6d6458",
+          "#948a7c",
+          "#bcb2a3",
+          "#ded6c9",
+          "#f2ece1",
+          "#faf7f2"
+        ]
+      },
+      "surface-panel-solid": {
+        "role": "neutral",
+        "displayName": "Solid Ivory Surface",
+        "canonical": "#faf7f2",
+        "tonalRamp": [
+          "#292520",
+          "#49433a",
+          "#6d6458",
+          "#948a7c",
+          "#bcb2a3",
+          "#ded6c9",
+          "#f2ece1",
+          "#faf7f2"
+        ]
+      },
+      "surface-subtle": {
+        "role": "neutral",
+        "displayName": "Subtle Warm Stone",
+        "canonical": "#f2ece1",
+        "tonalRamp": [
+          "#28241e",
+          "#484137",
+          "#6b6254",
+          "#918676",
+          "#b9ae9d",
+          "#dad1c2",
+          "#f2ece1",
+          "#faf7f2"
+        ]
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "Warm Hover Surface",
+        "canonical": "#eae2d3",
+        "tonalRamp": [
+          "#28231c",
+          "#463e33",
+          "#685d4e",
+          "#8d806e",
+          "#b3a692",
+          "#d2c8b6",
+          "#eae2d3",
+          "#f8f5ef"
+        ]
+      },
+      "surface-disabled": {
+        "role": "neutral",
+        "displayName": "Disabled Surface Stone",
+        "canonical": "#e2dcd0",
+        "tonalRamp": [
+          "#26231e",
+          "#433e36",
+          "#645d52",
+          "#887f72",
+          "#ada496",
+          "#cbc3b6",
+          "#e2dcd0",
+          "#f5f2ed"
+        ]
+      },
+      "border-hairline": {
+        "role": "neutral",
+        "displayName": "Panel Hairline Border",
+        "canonical": "#dcd4c6",
+        "tonalRamp": [
+          "#26221c",
+          "#433d33",
+          "#645b4e",
+          "#887d6d",
+          "#ada291",
+          "#cac1b1",
+          "#dcd4c6",
+          "#f3efe8"
+        ]
+      },
+      "border-row-divider": {
+        "role": "neutral",
+        "displayName": "Internal Row Divider",
+        "canonical": "#eae3d5",
+        "tonalRamp": [
+          "#28241d",
+          "#463f34",
+          "#685e4f",
+          "#8d816f",
+          "#b3a794",
+          "#d2c8b8",
+          "#eae3d5",
+          "#f8f5f0"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Interactive Control Border",
+        "canonical": "#c2b8a6",
+        "tonalRamp": [
+          "#25211b",
+          "#423b30",
+          "#625849",
+          "#857966",
+          "#a89c88",
+          "#c2b8a6",
+          "#dfd8cb",
+          "#f4f1eb"
+        ]
+      },
+      "border-disabled": {
+        "role": "neutral",
+        "displayName": "Disabled Control Border",
+        "canonical": "#d2cabd",
+        "tonalRamp": [
+          "#25221d",
+          "#423c34",
+          "#625a4f",
+          "#857c6f",
+          "#a9a092",
+          "#d2cabd",
+          "#e5dfd6",
+          "#f6f3ef"
+        ]
+      },
+      "ink-primary": {
+        "role": "neutral",
+        "displayName": "Primary Warm Ink",
+        "canonical": "#1f1c18",
+        "tonalRamp": [
+          "#1f1c18",
+          "#38332c",
+          "#544d43",
+          "#72695c",
+          "#938879",
+          "#b6ac9d",
+          "#dad2c6",
+          "#f4f1ec"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Secondary Metadata Ink",
+        "canonical": "#685f54",
+        "tonalRamp": [
+          "#221f1b",
+          "#3b362f",
+          "#524b42",
+          "#685f54",
+          "#897f72",
+          "#afa598",
+          "#d5cec4",
+          "#f2efeb"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Muted Hint Ink",
+        "canonical": "#8c8275",
+        "tonalRamp": [
+          "#24201c",
+          "#3e3932",
+          "#595248",
+          "#736a5e",
+          "#8c8275",
+          "#afa69a",
+          "#d4cdc4",
+          "#f2efeb"
+        ]
+      },
+      "ink-disabled": {
+        "role": "neutral",
+        "displayName": "Disabled Control Ink",
+        "canonical": "#766d61",
+        "tonalRamp": [
+          "#23201c",
+          "#3d3831",
+          "#585147",
+          "#766d61",
+          "#968c7f",
+          "#b8afa3",
+          "#dbd4cb",
+          "#f3f0ec"
+        ]
+      },
+      "pure-white": {
+        "role": "neutral",
+        "displayName": "Pure White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#262626",
+          "#454545",
+          "#666666",
+          "#8a8a8a",
+          "#b0b0b0",
+          "#d4d4d4",
+          "#ededed",
+          "#ffffff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display State Title (Songti)",
+        "purpose": "Selected state header title (.sheet-state-title) at the top of the left state sheet (27px desktop, 24px <=1320px, 21px <=960px)."
+      },
+      "headline": {
+        "displayName": "Section & Treasury Headline (Songti)",
+        "purpose": "Top HUD central treasury numbers (.treasury-value), memorial summary header (.summary-title), and modal headings (17px)."
+      },
+      "title": {
+        "displayName": "Editorial Tab, KV & Outliner Title (Songti)",
+        "purpose": "Sheet navigation tabs (.drawer-tab-btn), report key-value labels and figures (.sheet-kv-row dt, .kv-val), and right outliner header/rows (15px-16.5px)."
+      },
+      "body": {
+        "displayName": "Operational & Memorial Body (Sans)",
+        "purpose": "Memorial summary prose (.report-summary-box), primary/secondary court buttons, and chat stream messages (14px-15px)."
+      },
+      "label": {
+        "displayName": "HUD Pill & Control Label (Sans)",
+        "purpose": "Top HUD buttons, week timeline step pills (.timeline-step-btn), channel pills, approval decision radio pills, and map legend labels (12px-13.5px)."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel-sheet",
+        "value": "0 4px 16px rgba(31, 28, 24, 0.06)",
+        "purpose": "Soft ambient lift on the closable left state sheet (.left-court-sheet)."
+      },
+      {
+        "name": "panel-outliner",
+        "value": "0 3px 12px rgba(31, 28, 24, 0.05)",
+        "purpose": "Subtle ambient elevation on the right concise state outliner (.right-court-outliner)."
+      },
+      {
+        "name": "map-control",
+        "value": "0 2px 8px rgba(31, 28, 24, 0.04)",
+        "purpose": "Low-profile elevation on lower-right map layer pills, zoom buttons, and the 5-state legend card."
+      },
+      {
+        "name": "floating-banner",
+        "value": "0 4px 12px rgba(31, 28, 24, 0.08)",
+        "purpose": "Elevated alert shadow on the top-center floating status/error banner (.court-floating-banner)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ui-fast",
+        "value": "120ms ease",
+        "purpose": "Standard transition for button backgrounds, border colors, drawer tabs, outliner rows, and SVG sub-caption opacity."
+      },
+      {
+        "name": "wash-fade",
+        "value": "150ms ease",
+        "purpose": "Fill-opacity transition on playable SVG territory watercolor washes (.map-polity-wash) between rest (0.30), selected (0.36), and hover (0.38)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "desktop-medium",
+        "value": "1460px"
+      },
+      {
+        "name": "desktop-compact",
+        "value": "1320px"
+      },
+      {
+        "name": "mobile",
+        "value": "960px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Cinnabar Action Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary court phase and submission CTA (截止征询, 批复结算, 发旨) with solid cinnabar fill and high-contrast muted stone disabled state.",
+      "html": "<div class=\"ds-btn-row\"><button type=\"button\" class=\"ds-btn-primary\">截止征询</button><button type=\"button\" class=\"ds-btn-primary\" disabled>批复结算</button></div>",
+      "css": ".ds-btn-row { display: inline-flex; gap: 10px; align-items: center; } .ds-btn-primary { padding: 8px 14px; background: var(--accent-cinnabar, #9e3a2e); border: 1px solid var(--accent-cinnabar, #9e3a2e); border-radius: 6px; color: #ffffff; font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; } .ds-btn-primary:hover:not(:disabled) { background: #8b3126; border-color: #8b3126; } .ds-btn-primary:active:not(:disabled) { background: #7a2920; } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; } .ds-btn-primary:disabled { background: var(--surface-disabled, #e2dcd0); border-color: var(--border-disabled, #d2cabd); color: var(--ink-disabled, #766d61); opacity: 1; cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary & Cinnabar Outline Footer Buttons",
+      "kind": "button",
+      "refersTo": "button-outline-cinnabar",
+      "description": "Side-by-side 2-column footer actions at the bottom of the state report tab (传讯X州官员 and 审阅X州提案).",
+      "html": "<div class=\"ds-report-actions\"><button type=\"button\" class=\"ds-btn-secondary\">传讯乙州官员</button><button type=\"button\" class=\"ds-btn-outline-cinnabar\">审阅乙州提案</button></div>",
+      "css": ".ds-report-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 364px; padding-top: 12px; border-top: 1px solid var(--border-row-divider, #eae3d5); } .ds-btn-secondary, .ds-btn-outline-cinnabar { padding: 10px 14px; background: var(--surface-panel-solid, #faf7f2); border: 1px solid var(--border-strong, #c2b8a6); border-radius: 6px; color: var(--ink-primary, #1f1c18); font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 15px; font-weight: 600; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; } .ds-btn-outline-cinnabar { border-color: var(--accent-cinnabar, #9e3a2e); color: var(--accent-cinnabar, #9e3a2e); } .ds-btn-secondary:hover { background: var(--surface-subtle, #f2ece1); } .ds-btn-outline-cinnabar:hover { background: var(--accent-cinnabar-bg, rgba(158, 58, 46, 0.08)); } .ds-btn-secondary:focus-visible, .ds-btn-outline-cinnabar:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Four-Week Timeline Step Pills",
+      "kind": "nav",
+      "refersTo": "timeline-step-pill",
+      "description": "Connected 4-week progress and history-view navigation pills flanked by 1px vertical dividers in the top HUD bar.",
+      "html": "<nav class=\"ds-timeline-bar\" aria-label=\"四周进度轴\"><button type=\"button\" class=\"ds-timeline-pill\">第1周·已归档</button><span class=\"ds-timeline-chevron\">›</span><button type=\"button\" class=\"ds-timeline-pill is-viewed\">第2周·征询中</button><span class=\"ds-timeline-chevron\">›</span><button type=\"button\" class=\"ds-timeline-pill\" disabled>第3周</button></nav>",
+      "css": ".ds-timeline-bar { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--surface-panel, rgba(250, 247, 242, 0.96)); border-left: 1px solid var(--border-strong, #c2b8a6); border-right: 1px solid var(--border-strong, #c2b8a6); } .ds-timeline-chevron { color: var(--ink-muted, #8c8275); font-size: 14px; user-select: none; } .ds-timeline-pill { padding: 5px 12px; background: var(--surface-panel-solid, #faf7f2); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 5px; color: var(--ink-secondary, #685f54); font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 13.5px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; } .ds-timeline-pill:hover:not(:disabled) { background: var(--surface-subtle, #f2ece1); color: var(--ink-primary, #1f1c18); } .ds-timeline-pill.is-viewed { border-color: var(--accent-cinnabar, #9e3a2e); color: var(--accent-cinnabar, #9e3a2e); font-weight: 700; background: #fdfaf7; } .ds-timeline-pill:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; } .ds-timeline-pill:disabled { background: #f3eee4; color: var(--ink-muted, #8c8275); opacity: 0.65; cursor: not-allowed; }"
+    },
+    {
+      "name": "State Sheet 3-Tab Bar (Songti)",
+      "kind": "nav",
+      "refersTo": "drawer-tab",
+      "description": "Three equal-width classical Songti text tabs with a 2.5px cinnabar active underline.",
+      "html": "<div class=\"ds-tabs-bar\" role=\"tablist\"><button type=\"button\" role=\"tab\" aria-selected=\"true\" class=\"ds-tab-btn is-active\">本州奏报</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" class=\"ds-tab-btn\">朝堂会话</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" class=\"ds-tab-btn\">提案批复</button></div>",
+      "css": ".ds-tabs-bar { display: grid; grid-template-columns: repeat(3, 1fr); width: 364px; padding: 0 12px; background: var(--surface-panel-solid, #faf7f2); border-bottom: 1px solid var(--border-hairline, #dcd4c6); } .ds-tab-btn { padding: 12px 6px 13px; background: transparent; border: none; border-bottom: 2.5px solid transparent; color: var(--ink-secondary, #685f54); font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); font-size: 16px; font-weight: 600; text-align: center; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; } .ds-tab-btn:hover { color: var(--ink-primary, #1f1c18); } .ds-tab-btn.is-active { color: var(--accent-cinnabar, #9e3a2e); border-bottom-color: var(--accent-cinnabar, #9e3a2e); font-weight: 700; } .ds-tab-btn:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: -2px; }"
+    },
+    {
+      "name": "Right Outliner State Row",
+      "kind": "card",
+      "refersTo": "outliner-row",
+      "description": "Single-line Songti state status and request summary row inside the 324px right court outliner.",
+      "html": "<div class=\"ds-outliner-list\"><button type=\"button\" class=\"ds-outliner-row is-selected\"><span class=\"ds-outliner-left\"><span class=\"ds-dot ds-dot-urgent\"></span><strong>乙州</strong></span><span class=\"ds-outliner-summary\">洪灾 · 请粮2.0万石</span></button><button type=\"button\" class=\"ds-outliner-row\"><span class=\"ds-outliner-left\"><span class=\"ds-dot ds-dot-mild\"></span><strong>丙州</strong></span><span class=\"ds-outliner-summary\">旱灾 · 请粮1.0万石/请银1.5万两</span></button></div>",
+      "css": ".ds-outliner-list, .ds-outliner-row { box-sizing: border-box; } .ds-outliner-list { display: flex; flex-direction: column; gap: 4px; width: 324px; padding: 14px 16px; background: var(--surface-panel, rgba(250, 247, 242, 0.96)); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 9px; box-shadow: 0 3px 12px rgba(31, 28, 24, 0.05); } .ds-outliner-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 10px; background: transparent; border: 1px solid transparent; border-bottom-color: var(--border-row-divider, #eae3d5); border-radius: 6px; color: var(--ink-primary, #1f1c18); font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); font-size: 15px; cursor: pointer; text-align: left; transition: background 120ms ease, border-color 120ms ease; } .ds-outliner-row:last-child { border-bottom-color: transparent; } .ds-outliner-row:hover { background: var(--surface-subtle, #f2ece1); } .ds-outliner-row.is-selected { background: #f9f3ee; border-color: var(--accent-cinnabar, #9e3a2e); } .ds-outliner-row:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; } .ds-outliner-left { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); } .ds-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; } .ds-dot-urgent { background: var(--accent-cinnabar, #9e3a2e); } .ds-dot-mild { background: var(--accent-ochre, #b87328); } .ds-outliner-summary { font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); font-size: 14px; font-weight: 500; color: var(--ink-secondary, #685f54); font-variant-numeric: tabular-nums; text-align: right; line-height: 1.35; white-space: nowrap; } .ds-outliner-row.is-selected .ds-outliner-summary { color: var(--ink-primary, #1f1c18); font-weight: 700; }"
+    },
+    {
+      "name": "Memorial Report Key-Value Rows",
+      "kind": "card",
+      "refersTo": "floating-sheet-card",
+      "description": "Hairline-separated Songti key-value rows displaying reported state disaster severity, disposable grain/silver, and central requests.",
+      "html": "<dl class=\"ds-kv-list\"><div class=\"ds-kv-row\"><dt>灾情状态</dt><dd class=\"ds-kv-val ds-status-urgent\">洪灾</dd></div><div class=\"ds-kv-row\"><dt>可支配存粮</dt><dd class=\"ds-kv-stack\"><strong class=\"ds-kv-val\">1.0万石</strong><span class=\"ds-kv-note\">已扣本周支出</span></dd></div><div class=\"ds-kv-row\"><dt>向朝廷请拨</dt><dd class=\"ds-kv-val\">请粮 <strong>2.0万石</strong> / 请银 <strong>0.0万两</strong></dd></div></dl>",
+      "css": ".ds-kv-list { margin: 0; width: 364px; padding: 4px 16px; background: var(--surface-panel-solid, #faf7f2); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 9px; display: flex; flex-direction: column; } .ds-kv-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border-row-divider, #eae3d5); } .ds-kv-row:last-child { border-bottom: none; } .ds-kv-row dt { color: var(--ink-primary, #1f1c18); font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); font-size: 16px; font-weight: 600; white-space: nowrap; } .ds-kv-row dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; } .ds-kv-val { font-family: var(--font-serif-cn, \"Songti SC\", \"STSong\", \"Noto Serif SC\", serif); font-size: 16.5px; font-weight: 700; color: var(--ink-primary, #1f1c18); } .ds-status-urgent { color: var(--accent-cinnabar, #9e3a2e); } .ds-kv-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; } .ds-kv-note { font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 12.5px; color: var(--ink-secondary, #685f54); }"
+    },
+    {
+      "name": "Approval Decision Radio Pills",
+      "kind": "chip",
+      "refersTo": "decision-radio-pill",
+      "description": "Binary monarch approval draft toggles (拟批准 in sage green, 拟驳回 in cinnabar red) for locked weekly proposals.",
+      "html": "<div class=\"ds-decision-group\" role=\"radiogroup\" aria-label=\"中央请拨批复\"><label class=\"ds-radio-pill is-approve\"><input type=\"radio\" name=\"ds-dec\" checked readOnly /><span>拟批准</span></label><label class=\"ds-radio-pill is-reject\"><input type=\"radio\" name=\"ds-dec\" readOnly /><span>拟驳回</span></label></div>",
+      "css": ".ds-decision-group { display: flex; gap: 8px; width: 320px; } .ds-radio-pill { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 10px; background: var(--surface-subtle, #f2ece1); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 5px; color: var(--ink-primary, #1f1c18); font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 13px; font-weight: 600; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; } .ds-radio-pill:hover { background: var(--surface-hover, #eae2d3); } .ds-radio-pill.is-approve { background: var(--accent-sage-bg, rgba(88, 120, 84, 0.10)); border-color: var(--accent-sage, #587854); color: var(--accent-sage, #587854); } .ds-radio-pill.is-reject { background: var(--accent-cinnabar-bg, rgba(158, 58, 46, 0.08)); border-color: var(--accent-cinnabar, #9e3a2e); color: var(--accent-cinnabar, #9e3a2e); } .ds-radio-pill:focus-within { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Chat Composer Box",
+      "kind": "input",
+      "refersTo": "chat-input",
+      "description": "Court conversation textarea paired with the primary cinnabar 发旨 action button.",
+      "html": "<div class=\"ds-composer\"><textarea class=\"ds-textarea\" rows=\"2\" placeholder=\"向乙州官员垂询政务…\"></textarea><button type=\"button\" class=\"ds-send-btn\">发旨</button></div>",
+      "css": ".ds-composer { display: flex; gap: 8px; align-items: stretch; width: 364px; } .ds-textarea { flex: 1; min-width: 0; padding: 7px 10px; background: var(--surface-panel-solid, #faf7f2); border: 1px solid var(--border-strong, #c2b8a6); border-radius: 6px; color: var(--ink-primary, #1f1c18); font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 14px; resize: none; } .ds-textarea:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; } .ds-send-btn { padding: 10px 14px; background: var(--accent-cinnabar, #9e3a2e); border: 1px solid var(--accent-cinnabar, #9e3a2e); border-radius: 6px; color: #ffffff; font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); font-size: 15px; font-weight: 600; cursor: pointer; transition: background 120ms ease; } .ds-send-btn:hover { background: #8b3126; } .ds-send-btn:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Map Layer Switcher & 5-State Legend",
+      "kind": "custom",
+      "refersTo": "map-layer-switcher",
+      "description": "Lower-right cartographic layer switcher (灾情, 存粮, 存银) and 5-state legend distinguishing unreported diagonal hatch from 0 and background regions.",
+      "html": "<div class=\"ds-map-dock\"><div class=\"ds-layer-group\" role=\"group\" aria-label=\"舆图图层切换\"><button type=\"button\" class=\"ds-layer-pill is-active\">灾情</button><button type=\"button\" class=\"ds-layer-pill\">存粮</button><button type=\"button\" class=\"ds-layer-pill\">存银</button></div><div class=\"ds-legend-card\"><span class=\"ds-legend-item\"><i class=\"ds-swatch ds-sw-urgent\"></i>水患</span><span class=\"ds-legend-item\"><i class=\"ds-swatch ds-sw-mild\"></i>旱灾</span><span class=\"ds-legend-item\"><i class=\"ds-swatch ds-sw-stable\"></i>平稳</span><span class=\"ds-legend-item\"><i class=\"ds-swatch ds-sw-unknown\"></i>未奏报</span><span class=\"ds-legend-item\"><i class=\"ds-swatch ds-sw-bg\"></i>周边地域</span></div></div>",
+      "css": ".ds-map-dock { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 9px; font-family: var(--font-sans-cn, \"PingFang SC\", \"Noto Sans SC\", sans-serif); } .ds-layer-group { display: inline-flex; align-items: center; padding: 3px; background: var(--surface-panel, rgba(250, 247, 242, 0.96)); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 7px; box-shadow: 0 2px 8px rgba(31, 28, 24, 0.04); } .ds-layer-pill { padding: 5px 16px; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--ink-primary, #1f1c18); font-size: 14px; font-weight: 500; cursor: pointer; } .ds-layer-pill:hover { background: var(--surface-subtle, #f2ece1); } .ds-layer-pill.is-active { background: #fdfaf7; border-color: var(--accent-cinnabar, #9e3a2e); color: var(--accent-cinnabar, #9e3a2e); font-weight: 700; } .ds-layer-pill:focus-visible { outline: 2px solid var(--accent-cinnabar, #9e3a2e); outline-offset: 2px; } .ds-legend-card { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 7px 14px; background: var(--surface-panel, rgba(250, 247, 242, 0.96)); border: 1px solid var(--border-hairline, #dcd4c6); border-radius: 7px; box-shadow: 0 2px 8px rgba(31, 28, 24, 0.04); } .ds-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-primary, #1f1c18); } .ds-swatch { width: 14px; height: 11px; border-radius: 2px; border: 1px solid rgba(31, 28, 24, 0.25); display: inline-block; } .ds-sw-urgent { background: rgba(181, 68, 52, 0.72); } .ds-sw-mild { background: rgba(200, 138, 59, 0.72); } .ds-sw-stable { background: rgba(122, 154, 118, 0.72); } .ds-sw-unknown { background: repeating-linear-gradient(-45deg, #dbd5c8, #dbd5c8 2px, #8e8579 2px, #8e8579 3.5px); } .ds-sw-bg { background: #e6dfcf; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Simple cartographic interface",
+    "overview": "Simu-Emperor uses a simple light historical-cartographic interface where Paradox EU4 supplies the spatial layout only and the visual language is adapted from DeanChensj/jiangshan-map (commit a9cd67c). A continuous full-viewport (100vw × 100vh) SVG map serves as the primary workspace, layering georeferenced shaded relief (terrain_relief.webp), modern reference provincial and coastline boundaries, ranked blue hydrography, and low-opacity multiply watercolor washes across three fictional playable jurisdictions (甲州, 乙州, 丙州) and surrounding non-playable background geography.\n\nFloating UI chrome is kept light and restrained so geography remains dominant. A single 52px top HUD bar, a closable 404px left state sheet, a concise 324px right state outliner, and a compact lower-right map control dock sit on warm ivory panels (rgba(250, 247, 242, 0.96)) separated by 1px stone hairlines (#dcd4c6) and row dividers (#eae3d5). Classical Chinese Songti (--font-serif-cn) carries state titles, top treasury figures, sheet tabs, report key-value rows, outliner rows, and map annotations, while clean sans-serif (--font-sans-cn) handles operational buttons, timeline pills, chat streams, and form controls. Cinnabar (#9e3a2e) marks active selection and primary actions. The system rejects ornate gilded frames, heraldic crests, fantasy illustrations, and dark slate chrome.",
+    "keyCharacteristics": [
+      "Full-viewport (100vw × 100vh) georeferenced SVG map adapted from DeanChensj/jiangshan-map with Mercator projection, shaded relief (terrain_relief.webp at 0.72 opacity), ranked blue rivers and lakes, and 2D occlusion-aware SVG viewBox camera math.",
+      "EU4-inspired four-zone spatial layout (unified top HUD bar, closable left state sheet, concise right state outliner, lower-right map layer and camera controls) rendered in flat warm ivory panels without heavy game chrome.",
+      "Strict report-only visual encoding across disaster, grain, and silver layers using multiply watercolor washes (urgent cinnabar #b54434, mild ochre #c88a3b, stable sage #7a9a76) and a 45-degree slate diagonal hatch for unreported (UNKNOWN) states.",
+      "Dual-type hierarchy pairing classical Songti serif (--font-serif-cn) for editorial headings, tabs, key-value report rows, outliner summaries, and map labels with neutral sans-serif (--font-sans-cn) for operational controls and chat.",
+      "Responsive adaptation across 1586×992, 1440×900 (<=1460px), 1280×800 (<=1320px), and 390×844 mobile (<=960px), where the left sheet becomes an opaque full-width pane that suppresses background map bleed while open."
+    ],
+    "rules": [],
+    "dos": [
+      "Do keep the interactive geographic map at 100vw × 100vh with low-opacity multiply washes (fill-opacity: 0.30, 0.36 selected, 0.38 hover) so terrain relief and hydrography remain legible underneath.",
+      "Do render unreported states (UNKNOWN) with the diagonal hatch pattern (#unknown-hatch-pattern) and explicit '本周未奏报（未知）' text rather than substituting 0 or background fills.",
+      "Do use --font-serif-cn for state titles, top bar treasury metrics, drawer tabs, report key-value rows (.sheet-kv-row), and outliner state rows (.outliner-state-row), paired with tabular-nums on all resource figures.",
+      "Do reserve --accent-cinnabar (#9e3a2e) for active phase/Action CTAs (截止征询, 批复结算, 发旨), selected tabs/pills, selected state borders (#8c2d22), and urgent disaster/shortage statuses.",
+      "Do use the solid muted disabled tokens (background #e2dcd0, border #d2cabd, text #766d61, opacity: 1) on disabled action and primary buttons instead of translucent washed-out fills.",
+      "Do maintain single-line state summaries (white-space: nowrap) in .right-court-outliner across 1586px, 1440px, and 1280px desktop breakpoints."
+    ],
+    "donts": [
+      "Don't introduce ornate EU4-style gilded frames, heraldic crests, hanging pennants, decorative province paintings, or dark slate/charcoal panels.",
+      "Don't display server truth values on the map, top bar, or state sheet unless Debug Truth mode is explicitly authenticated and active.",
+      "Don't allow map labels, sub-captions, or lower-right map controls to bleed through or clip behind the open state sheet on <=960px mobile viewports.",
+      "Don't use CSS transform scaling on the map container; perform all zoom and pan updates through the SVG viewBox and labelScale so strokes and typography stay crisp.",
+      "Don't invent custom metaphors, fictional dynasty names, or non-standard accounting terms in UI copy; use the standard ledger labels (账面, 可支配, 未知)."
+    ]
+  }
+}
