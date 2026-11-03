@@ -172,6 +172,35 @@ stale game/appointment/turn/phase or resource conflicts `409`. No silent clamp,
 retry, replacement identity, empty-success response or invented fact is allowed.
 Failed mutations leave ledger, progress, messages and active date unchanged.
 
+Formal late output uses `STALE_TURN` (turn advanced) or `WRONG_PHASE` (same turn
+closed). `STALE_APPOINTMENT` covers revoked or mismatched appointment context;
+it is checked first. `STALE_GAME` rejects an old game's context. These are all
+`409`. The caller can still deliver a legal late chat after the first two errors,
+but cannot redirect an expired appointment or game to the current incumbent.
+
+Court `central` shows the selected turn's available central stock; an archived
+turn shows its ending balance. Its settlement includes the actual central spend.
+Province `facts` in a brief are opening facts; `last_settlement` carries the
+current terminal result or the most recently settled turn. Read APIs never apply
+income or benefits again.
+
+## Backend persistence
+
+The bounded four-turn game is stored as one JSON document in a SQLite singleton
+row. Each mutation obtains `BEGIN IMMEDIATE`, reads the current document, checks
+the operation, and writes it back before commit. This keeps appointment changes,
+plan withdrawal, cutoff and ledger settlement in the same transaction without
+an in-memory authority cache. Reads reconstruct court knowledge from signed
+reports, not from private facts. Old trial databases are explicitly rejected;
+the integration starts a fresh database instead of migrating old snapshots.
+
+`GameplayStore` and `createGameplayApp` provide the new implementation for
+integration and contract tests. This increment does not change `src/server.ts`
+or the old production app; the production switch and old write-path removal
+remain a separate integration step alongside the clients. The new app factory
+serves API routes only, leaving the existing frontend static-serving ownership
+with the frontend migration.
+
 The contract PR leaves existing routes untouched so frontend migration and caller
 session work can proceed independently. The backend cutover changes these
 payloads together with its deterministic tests. Consumers switch imports to this
