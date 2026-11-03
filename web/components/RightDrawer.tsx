@@ -99,7 +99,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
   activeTab,
   viewedWeek,
   currentActiveWeek,
-  activeLayer,
   states,
   selectedStateId,
   centralReport,
@@ -153,14 +152,61 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
     !submittingAction;
   const canSendChat = !viewedWeek.is_history_view && !isTrialCompleted;
 
+  const headerSubtitleText =
+    currentState.report_status === 'REPORTED' && currentState.report
+      ? `第${viewedWeek.week_number}周官员奏报 · ${currentState.report.disaster_label}`
+      : `第${viewedWeek.week_number}周 · 本周未奏报（未知）`;
+
   return (
     <aside
-      className="right-drawer"
+      className={`left-court-sheet right-drawer is-tab-${activeTab}`}
       data-testid="right-drawer"
-      aria-label="朝堂操作抽屉"
+      aria-label="朝堂政务面板"
     >
-      {/* Top 3-Tab Header */}
-      <div className="drawer-tabs-bar" role="tablist">
+      {/* Top Sheet Header (Matches simple-ui-preview-v1.png: Large serif state name + subtitle + compact state switcher + close ×) */}
+      <div className="left-sheet-header">
+        <div className="sheet-title-group">
+          <h2 className="sheet-state-title">{currentState.state_name}</h2>
+          <span className="sheet-header-sep">|</span>
+          <span className="sheet-header-subtitle">{headerSubtitleText}</span>
+        </div>
+
+        <div className="sheet-header-actions">
+          <div className="state-pill-selector" role="group" aria-label="选择查看州">
+            {STATE_IDS.map((sid) => {
+              const s = states.find((item) => item.state_id === sid);
+              if (!s) return null;
+              const isCurr = currentState.state_id === sid;
+              return (
+                <button
+                  key={sid}
+                  type="button"
+                  className={`state-pill-btn ${isCurr ? 'active' : ''}`}
+                  data-testid={`drawer-state-pill-${sid}`}
+                  title={`切换至${s.state_name}`}
+                  onClick={() => onSelectState(sid)}
+                >
+                  <span className={`pill-dot dot-${s.map_severity}`} />
+                  <span>{s.state_name.replace('州', '')}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            className="drawer-close-btn"
+            title="收起面板 (Esc)"
+            aria-label="收起面板"
+            onClick={onCloseDrawer}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* 3 Equal-Width Text Tabs with Cinnabar Active Underline */}
+      <div className="drawer-tabs-bar" role="tablist" aria-label="政务分栏">
         <button
           type="button"
           role="tab"
@@ -191,160 +237,173 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
         >
           提案批复
         </button>
-        <button
-          type="button"
-          className="drawer-close-btn"
-          title="收起右侧抽屉 (Esc)"
-          aria-label="收起右侧抽屉"
-          onClick={onCloseDrawer}
-        >
-          ✕
-        </button>
       </div>
 
-      {/* Tab 1: 本州奏报 */}
+      {/* Tab 1: 本州奏报 (Clean hairline rows matching simple-ui-preview-v1.png) */}
       {activeTab === 'report' && (
         <div className="drawer-tab-panel" data-testid="panel-state-report">
-          <div className="state-pill-selector" role="group" aria-label="选择查看州">
-            {STATE_IDS.map((sid) => {
-              const s = states.find((item) => item.state_id === sid);
-              if (!s) return null;
-              const isCurr = currentState.state_id === sid;
-              return (
-                <button
-                  key={sid}
-                  type="button"
-                  className={`state-pill-btn ${isCurr ? 'active' : ''}`}
-                  data-testid={`drawer-state-pill-${sid}`}
-                  onClick={() => onSelectState(sid)}
-                >
-                  <span>{s.state_name}</span>
-                  <span className={`pill-dot dot-${s.map_severity}`} />
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="scroll-title-banner">
-            <h2>
-              {currentState.state_name}官员 · 第{viewedWeek.week_number}周奏报
-            </h2>
-            <div className="scroll-subtitle">
-              <span>{currentState.officer_title}</span>
-              <span>·</span>
-              <span>
-                {currentState.report_status === 'REPORTED'
-                  ? `第${viewedWeek.week_number}周已呈报${viewedWeek.week_phase !== 'OPEN' ? '（已截止冻结）' : ''}`
-                  : '本周未奏报（未知）'}
-              </span>
-            </div>
-          </div>
-
-          {currentState.report_status === 'UNKNOWN' || !currentState.report ? (
-            <div className="unknown-report-card" data-testid="state-report-unknown">
-              <div className="unknown-badge-header">本周未奏报（未知）</div>
-              <dl className="report-metrics-list">
-                <div className="metric-row">
-                  <dt>本地可支配粮</dt>
-                  <dd className="unknown-val">本周未奏报（未知）</dd>
-                </div>
-                <div className="metric-row">
-                  <dt>本地可支配银</dt>
-                  <dd className="unknown-val">本周未奏报（未知）</dd>
-                </div>
-                <div className="metric-row">
-                  <dt>灾情与需赈粮</dt>
-                  <dd className="unknown-val">本周未奏报（未知）</dd>
-                </div>
-                <div className="metric-row">
-                  <dt>申请中央拨款</dt>
-                  <dd className="unknown-val">
-                    {currentState.proposal && currentState.proposal.is_default_zero
-                      ? '未交提案（截止按默认 0 冻结）'
-                      : '本周未奏报（未知）'}
-                  </dd>
-                </div>
-              </dl>
-              <p className="report-summary-box unknown-summary">
-                该州官员尚未呈交第 {viewedWeek.week_number} 周正式奏报。普通模式严格遵循奏报可见性，绝不将未知状态当作 0，亦不读取服务端真实库存。
-              </p>
-            </div>
-          ) : (
-            <div className="reported-card" data-testid="state-report-content">
-              <dl className="report-metrics-list">
-                <div className="metric-row metric-row-stacked">
-                  <dd data-testid="report-disposable-grain">
-                    {currentState.report.disposable_grain_label}
-                  </dd>
-                </div>
-                <div className="metric-row metric-row-stacked">
-                  <dd data-testid="report-disposable-silver">
-                    {currentState.report.disposable_silver_label}
-                  </dd>
-                </div>
-                <div className="metric-row">
-                  <dt>{currentState.report.disaster_label}需赈粮</dt>
-                  <dd data-testid="report-relief-demand">
-                    {formatWan(currentState.report.relief_demand_grain, '万石')}
-                  </dd>
-                </div>
-                <div className="metric-row">
-                  <dt>申请中央拨粮</dt>
-                  <dd data-testid="report-request-grain">
-                    {currentState.proposal
-                      ? formatWan(currentState.proposal.relief_central_grain, '万石')
-                      : '0.0万石'}
-                  </dd>
-                </div>
-                <div className="metric-row">
-                  <dt>申请中央工程银</dt>
-                  <dd data-testid="report-request-silver">
-                    {currentState.proposal
-                      ? formatWan(currentState.proposal.project_central_silver, '万两')
-                      : '0.0万两'}
-                  </dd>
-                </div>
-              </dl>
-
-              <div className="report-summary-box" data-testid="report-summary-text">
-                {currentState.report.summary}
-              </div>
-            </div>
-          )}
-
-          {/* Debug Truth Comparison Box (Only rendered when Debug Truth View is active) */}
-          {stateDebug && (
-            <div className="debug-truth-card" data-testid="drawer-debug-truth-card">
-              <div className="debug-card-header">
-                【调试真值视图】{currentState.state_name}第{viewedWeek.week_number}周权威真值与奏报差额
-              </div>
-              <div className="debug-grid">
-                <div>真值：{stateDebug.truth.disposable_grain_label}</div>
-                <div>
-                  存粮奏报差额：{formatSignedWan(stateDebug.diff.gross_grain_diff, '万石')}
-                </div>
-                <div>真值：{stateDebug.truth.disposable_silver_label}</div>
-                <div>
-                  存银奏报差额：{formatSignedWan(stateDebug.diff.gross_silver_diff, '万两')}
-                </div>
-                <div>
-                  权威需赈粮：{formatWan(stateDebug.truth.relief_demand_grain, '万石')}（奏报差额：{formatSignedWan(stateDebug.diff.relief_demand_grain_diff, '万石')}）
-                </div>
-                <div>
-                  水渠状态：{stateDebug.truth.canal_built ? '已完工（每周+1.0万石）' : '未建'}
-                </div>
-                {stateDebug.settlement && (
-                  <div className="debug-settlement-line">
-                    周末结余银：{formatWan(stateDebug.settlement.ending_silver, '万两')} · 结余粮：
-                    {formatWan(stateDebug.settlement.ending_grain, '万石')} · 未满足赈济需求：
-                    {formatWan(stateDebug.settlement.unmet_relief_demand_grain, '万石')}
+          <div className="sheet-scroll-body">
+            {currentState.report_status === 'UNKNOWN' || !currentState.report ? (
+              <div className="unknown-report-card" data-testid="state-report-unknown">
+                <dl className="sheet-kv-list">
+                  <div className="sheet-kv-row">
+                    <dt>灾情状态</dt>
+                    <dd className="kv-val status-unknown">本周未奏报（未知）</dd>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
+                  <div className="sheet-kv-row">
+                    <dt>可支配存粮</dt>
+                    <dd className="kv-val status-unknown" data-testid="report-disposable-grain">
+                      本周未奏报（未知）
+                    </dd>
+                  </div>
+                  <div className="sheet-kv-row">
+                    <dt>可支配存银</dt>
+                    <dd className="kv-val status-unknown" data-testid="report-disposable-silver">
+                      本周未奏报（未知）
+                    </dd>
+                  </div>
+                  <div className="sheet-kv-row">
+                    <dt>本州赈灾需求</dt>
+                    <dd className="kv-val status-unknown" data-testid="report-relief-demand">
+                      本周未奏报（未知）
+                    </dd>
+                  </div>
+                  <div className="sheet-kv-row">
+                    <dt>向朝廷请拨</dt>
+                    <dd className="kv-val status-unknown">
+                      {currentState.proposal && currentState.proposal.is_default_zero
+                        ? '未交提案（截止按默认 0 冻结）'
+                        : '本周未奏报（未知）'}
+                    </dd>
+                  </div>
+                </dl>
 
-          {/* Cross-tab action buttons (Section 1.2 item 3) */}
+                <div className="sheet-summary-section">
+                  <div className="summary-header-row">
+                    <span className="summary-title">奏折摘要</span>
+                    <span className="summary-source">来源：第{viewedWeek.week_number}周</span>
+                  </div>
+                  <p className="report-summary-box unknown-summary" data-testid="report-summary-text">
+                    尚未收到该州官员第 {viewedWeek.week_number} 周正式奏报（未知状态绝不当作 0）。
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="reported-card" data-testid="state-report-content">
+                <dl className="sheet-kv-list">
+                  <div className="sheet-kv-row">
+                    <dt>灾情状态</dt>
+                    <dd className={`kv-val status-${currentState.report.severity}`}>
+                      {currentState.report.disaster_label}
+                    </dd>
+                  </div>
+
+                  <div className="sheet-kv-row is-multiline">
+                    <dt>可支配存粮</dt>
+                    <dd
+                      className="kv-val-stack"
+                      data-testid="report-disposable-grain"
+                      title={currentState.report.disposable_grain_label}
+                    >
+                      <strong className="kv-main-num">
+                        {formatWan(currentState.report.disposable_grain, '万石')}
+                      </strong>
+                      <span className="kv-sub-note">已扣本周支出</span>
+                    </dd>
+                  </div>
+
+                  <div className="sheet-kv-row">
+                    <dt>可支配存银</dt>
+                    <dd
+                      className="kv-val"
+                      data-testid="report-disposable-silver"
+                      title={currentState.report.disposable_silver_label}
+                    >
+                      {formatWan(currentState.report.disposable_silver, '万两')}
+                    </dd>
+                  </div>
+
+                  <div className="sheet-kv-row">
+                    <dt>本州赈灾需求</dt>
+                    <dd className="kv-val" data-testid="report-relief-demand">
+                      {formatWan(currentState.report.relief_demand_grain, '万石')}
+                    </dd>
+                  </div>
+
+                  <div className="sheet-kv-row">
+                    <dt>向朝廷请拨</dt>
+                    <dd
+                      className="kv-val"
+                      title={
+                        currentState.proposal
+                          ? `本州自筹：赈粮 ${formatWan(currentState.proposal.relief_local_grain, '万石')} · 工程银 ${formatWan(currentState.proposal.project_local_silver, '万两')}`
+                          : undefined
+                      }
+                    >
+                      请粮{' '}
+                      <strong data-testid="report-request-grain">
+                        {currentState.proposal
+                          ? formatWan(currentState.proposal.relief_central_grain, '万石')
+                          : '0.0万石'}
+                      </strong>{' '}
+                      / 请银{' '}
+                      <strong data-testid="report-request-silver">
+                        {currentState.proposal
+                          ? formatWan(currentState.proposal.project_central_silver, '万两')
+                          : '0.0万两'}
+                      </strong>
+                    </dd>
+                  </div>
+                </dl>
+
+                {/* Memorial Summary Section */}
+                <div className="sheet-summary-section">
+                  <div className="summary-header-row">
+                    <span className="summary-title">奏折摘要</span>
+                    <span className="summary-source">来源：第{viewedWeek.week_number}周</span>
+                  </div>
+                  <div className="report-summary-box" data-testid="report-summary-text">
+                    {currentState.report.summary}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Debug Truth Comparison Box (Only rendered when Debug Truth View is active) */}
+            {stateDebug && (
+              <div className="debug-truth-card" data-testid="drawer-debug-truth-card">
+                <div className="debug-card-header">
+                  调试真值：{currentState.state_name}第{viewedWeek.week_number}周真值与差额
+                </div>
+                <div className="debug-grid">
+                  <div>真值：{stateDebug.truth.disposable_grain_label}</div>
+                  <div>
+                    存粮差额：{formatSignedWan(stateDebug.diff.gross_grain_diff, '万石')}
+                  </div>
+                  <div>真值：{stateDebug.truth.disposable_silver_label}</div>
+                  <div>
+                    存银差额：{formatSignedWan(stateDebug.diff.gross_silver_diff, '万两')}
+                  </div>
+                  <div>
+                    权威需赈粮：{formatWan(stateDebug.truth.relief_demand_grain, '万石')}（差额：
+                    {formatSignedWan(stateDebug.diff.relief_demand_grain_diff, '万石')}）
+                  </div>
+                  <div>
+                    水渠状态：{stateDebug.truth.canal_built ? '已完工（每周+1.0万石）' : '未建'}
+                  </div>
+                  {stateDebug.settlement && (
+                    <div className="debug-settlement-line">
+                      周末结余银：{formatWan(stateDebug.settlement.ending_silver, '万两')} · 结余粮：
+                      {formatWan(stateDebug.settlement.ending_grain, '万石')} · 未满足赈济需求：
+                      {formatWan(stateDebug.settlement.unmet_relief_demand_grain, '万石')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom 2 Side-by-Side Action Buttons (Matches simple-ui-preview-v1.png) */}
           <div className="report-actions-row">
             <button
               type="button"
@@ -352,61 +411,16 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               data-testid="summon-state-officer-btn"
               onClick={() => onSummonStateOfficer(currentState.state_id)}
             >
-              召见该州官员
+              传讯{currentState.state_name}官员
             </button>
             <button
               type="button"
-              className="secondary-court-btn"
+              className="outline-cinnabar-btn"
               data-testid="goto-approval-tab-btn"
               onClick={() => onChangeTab('approval')}
             >
-              前往提案批复
+              审阅{currentState.state_name}提案
             </button>
-          </div>
-
-          {/* Bottom Summary Card of Pending Requests (matching ui-layout-v1.png) */}
-          <div className="pending-requests-summary-card" data-testid="pending-requests-summary">
-            <div className="pending-requests-title">
-              {viewedWeek.week_phase === 'OPEN'
-                ? '待锁定申请'
-                : viewedWeek.week_phase === 'LOCKED'
-                  ? '已冻结待批申请'
-                  : '本周申请与批复摘要'}
-            </div>
-            <div className="pending-requests-list">
-              {states.map((st) => {
-                const prop = st.proposal;
-                const showSilver = activeLayer === 'silver';
-                const grainReq = prop?.relief_central_grain ?? 0;
-                const silverReq = prop?.project_central_silver ?? 0;
-
-                let summaryText: string;
-                if (!prop) {
-                  summaryText = '尚未提交提案';
-                } else if (showSilver) {
-                  summaryText =
-                    silverReq > 0
-                      ? `请银${formatWan(silverReq, '万两')}${grainReq > 0 ? ` · 请粮${formatWan(grainReq, '万石')}` : ''}`
-                      : grainReq > 0
-                        ? `无请银 · 请粮${formatWan(grainReq, '万石')}`
-                        : '无中央拨款申请';
-                } else {
-                  summaryText =
-                    grainReq > 0
-                      ? `请粮${formatWan(grainReq, '万石')}${silverReq > 0 ? ` · 请银${formatWan(silverReq, '万两')}` : ''}`
-                      : silverReq > 0
-                        ? `请银${formatWan(silverReq, '万两')}`
-                        : '无中央拨款申请';
-                }
-
-                return (
-                  <div key={st.state_id} className="pending-request-row">
-                    <span className="pending-state-name">{st.state_name}</span>
-                    <span className="pending-state-amount">{summaryText}</span>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       )}
@@ -427,7 +441,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   data-testid={`channel-btn-${conv.conversation_id}`}
                   onClick={() => onSelectConversation(conv.conversation_id)}
                 >
-                  [{conv.title}]
+                  {conv.title}
                 </button>
               );
             })}
@@ -436,8 +450,8 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
           <div className="chat-channel-subheader">
             <span>
               {activeConversation?.kind === 'court_group'
-                ? '朝议群聊 · 仅被勾选 @点名 的官员触发唤醒'
-                : `${activeConversation?.title ?? ''} · 单聊入库即唤醒该州官员`}
+                ? '朝议群聊 · 勾选 @点名 唤醒对应官员'
+                : `${activeConversation?.title ?? ''} · 发送即唤醒该州官员`}
             </span>
             <button
               type="button"
@@ -451,7 +465,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
           {viewedWeek.is_history_view && (
             <div className="history-readonly-notice" data-testid="chat-history-readonly-banner">
-              历史回看只读：仅展示截止至第 {viewedWeek.week_number} 周的会话记录，不展示后续周次消息。
+              历史回看只读：仅展示截止至第 {viewedWeek.week_number} 周的会话记录。
             </div>
           )}
 
@@ -491,13 +505,16 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                       <div className="bubble-mentions-row">
                         点名唤醒：
                         {msg.mentions
-                          .map((oid) => PLAYABLE_STATES[
-                            oid === 'officer_a'
-                              ? 'state_a'
-                              : oid === 'officer_b'
-                                ? 'state_b'
-                                : 'state_c'
-                          ].state_name + '牧')
+                          .map(
+                            (oid) =>
+                              PLAYABLE_STATES[
+                                oid === 'officer_a'
+                                  ? 'state_a'
+                                  : oid === 'officer_b'
+                                    ? 'state_b'
+                                    : 'state_c'
+                              ].state_name + '牧',
+                          )
                           .join('、')}
                       </div>
                     )}
@@ -539,7 +556,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
           {activeConversation?.kind === 'court_group' && canSendChat && (
             <div className="group-mentions-bar" data-testid="group-mentions-bar">
               <div className="mentions-checkbox-row">
-                <span className="mentions-label">@点名唤醒：</span>
+                <span className="mentions-label">@点名：</span>
                 {OFFICER_IDS.map((oid) => {
                   const stId =
                     oid === 'officer_a'
@@ -563,8 +580,8 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               </div>
               <div className="mentions-rule-hint">
                 {groupMentionsDraft.length === 0
-                  ? '未勾选 @点名：将作为朝廷通告留存，未点名不触发即时回复'
-                  : `已勾选 ${groupMentionsDraft.length} 名官员：发送后将唤醒所选官员会话`}
+                  ? '未勾选 @点名：将作为朝廷通告留存，不触发即时回复'
+                  : `已勾选 ${groupMentionsDraft.length} 名官员：发送后将唤醒所选官员`}
               </div>
             </div>
           )}
@@ -608,284 +625,288 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
       {/* Tab 3: 提案批复 */}
       {activeTab === 'approval' && (
         <div className="drawer-tab-panel approval-tab-panel" data-testid="panel-proposal-approval">
-          {/* Central Budget Reference Card */}
-          <div className="central-budget-card" data-testid="approval-central-budget-card">
-            <div className="central-budget-header">
-              <span>中央账面可调拨存量（奏报口径）</span>
-              <span className="central-source-tag">
-                第{viewedWeek.week_number}周 · {centralReport.status_label}
-              </span>
-            </div>
-            <div className="central-budget-numbers">
-              <div className="central-num-box">
-                <span className="num-label">中央可调拨银</span>
-                <strong className="num-val" data-testid="approval-central-silver">
-                  {centralReport.report_status === 'REPORTED' && centralReport.gross_silver !== null
-                    ? formatWan(centralReport.gross_silver, '万两')
-                    : '本周未奏报（未知）'}
-                </strong>
+          <div className="sheet-scroll-body">
+            {/* Central Budget Reference Card */}
+            <div className="central-budget-card" data-testid="approval-central-budget-card">
+              <div className="central-budget-header">
+                <span>中央可调拨存量（奏报口径）</span>
+                <span className="central-source-tag">
+                  第{viewedWeek.week_number}周 · {centralReport.status_label}
+                </span>
               </div>
-              <div className="central-num-box">
-                <span className="num-label">中央可调拨粮</span>
-                <strong className="num-val" data-testid="approval-central-grain">
-                  {centralReport.report_status === 'REPORTED' && centralReport.gross_grain !== null
-                    ? formatWan(centralReport.gross_grain, '万石')
-                    : '本周未奏报（未知）'}
-                </strong>
-              </div>
-            </div>
-
-            {debugTruth && (
-              <div className="central-debug-row" data-testid="approval-central-debug">
-                【调试真值】中央真值银 {formatWan(debugTruth.central_truth.gross_silver, '万两')}（差额 {formatSignedWan(debugTruth.central_diff.gross_silver_diff, '万两')}） · 真值粮{' '}
-                {formatWan(debugTruth.central_truth.gross_grain, '万石')}（差额 {formatSignedWan(debugTruth.central_diff.gross_grain_diff, '万石')}）
-              </div>
-            )}
-
-            {viewedWeek.week_phase === 'LOCKED' && !viewedWeek.is_history_view && (
-              <div className="draft-summary-strip" data-testid="approval-draft-summary">
-                <div>
-                  前端草稿拟批：银 <strong>{formatWan(approvalStatus.draftApprovedSilver, '万两')}</strong> · 粮{' '}
-                  <strong>{formatWan(approvalStatus.draftApprovedGrain, '万石')}</strong>
+              <div className="central-budget-numbers">
+                <div className="central-num-box">
+                  <span className="num-label">可调拨银</span>
+                  <strong className="num-val" data-testid="approval-central-silver">
+                    {centralReport.report_status === 'REPORTED' && centralReport.gross_silver !== null
+                      ? formatWan(centralReport.gross_silver, '万两')
+                      : '本周未奏报（未知）'}
+                  </strong>
                 </div>
-                <div
-                  className={`draft-status-tag ${approvalStatus.isReady ? 'ready' : 'incomplete'}`}
-                  data-testid="approval-draft-status"
-                  data-substate={approvalStatus.subState}
-                >
-                  {approvalStatus.isReady
-                    ? `已表态 ${approvalStatus.decidedCount}/${approvalStatus.requiredCount} 项（可点击底栏批复结算）`
-                    : `尚有 ${approvalStatus.requiredCount - approvalStatus.decidedCount} 笔申请未表态`}
+                <div className="central-num-box">
+                  <span className="num-label">可调拨粮</span>
+                  <strong className="num-val" data-testid="approval-central-grain">
+                    {centralReport.report_status === 'REPORTED' && centralReport.gross_grain !== null
+                      ? formatWan(centralReport.gross_grain, '万石')
+                      : '本周未奏报（未知）'}
+                  </strong>
                 </div>
               </div>
-            )}
 
-            {viewedWeek.week_phase === 'OPEN' && (
-              <div className="phase-hint-strip">
-                当前处于本周征询阶段。请先点击底栏【截止本周征询】冻结各州提案后，再勾选批复。
-              </div>
-            )}
+              {debugTruth && (
+                <div className="central-debug-row" data-testid="approval-central-debug">
+                  调试真值：银 {formatWan(debugTruth.central_truth.gross_silver, '万两')}（差额{' '}
+                  {formatSignedWan(debugTruth.central_diff.gross_silver_diff, '万两')}） · 粮{' '}
+                  {formatWan(debugTruth.central_truth.gross_grain, '万石')}（差额{' '}
+                  {formatSignedWan(debugTruth.central_diff.gross_grain_diff, '万石')}）
+                </div>
+              )}
 
-            {viewedWeek.week_phase === 'ARCHIVED' && (
-              <div className="phase-hint-strip archived">
-                第 {viewedWeek.week_number} 周已归档封存，以下为本周结算后的正式批复记录（只读）。
-              </div>
-            )}
-          </div>
-
-          {/* State Proposals List */}
-          <div className="proposals-state-list">
-            {states.map((st) => {
-              const prop = st.proposal;
-              const stDraft = approvalDraft[st.state_id];
-              const stSettled = settlement?.states[st.state_id] ?? null;
-
-              const projLocal = prop?.project_local_silver ?? 0;
-              const projCentral = prop?.project_central_silver ?? 0;
-              const reliefLocal = prop?.relief_local_grain ?? 0;
-              const reliefCentral = prop?.relief_central_grain ?? 0;
-
-              const projDecision =
-                viewedWeek.week_phase === 'ARCHIVED'
-                  ? stSettled?.project_central_decision
-                  : stDraft?.project_central_silver;
-              const reliefDecision =
-                viewedWeek.week_phase === 'ARCHIVED'
-                  ? stSettled?.relief_central_decision
-                  : stDraft?.relief_central_grain;
-
-              return (
-                <div
-                  key={st.state_id}
-                  className="state-proposal-card"
-                  data-testid={`proposal-card-${st.state_id}`}
-                >
-                  <div className="state-proposal-header">
-                    <strong>
-                      {st.state_name}（{st.officer_title}）
-                    </strong>
-                    <span className="proposal-origin-tag">
-                      {!prop
-                        ? '尚未提交提案'
-                        : prop.is_default_zero
-                          ? `第${prop.week_number}周未交提案 · 默认全0冻结`
-                          : `第${prop.week_number}周正式提案`}
-                    </span>
+              {viewedWeek.week_phase === 'LOCKED' && !viewedWeek.is_history_view && (
+                <div className="draft-summary-strip" data-testid="approval-draft-summary">
+                  <div>
+                    草稿拟批：银 <strong>{formatWan(approvalStatus.draftApprovedSilver, '万两')}</strong>{' '}
+                    · 粮 <strong>{formatWan(approvalStatus.draftApprovedGrain, '万石')}</strong>
                   </div>
+                  <div
+                    className={`draft-status-tag ${approvalStatus.isReady ? 'ready' : 'incomplete'}`}
+                    data-testid="approval-draft-status"
+                    data-substate={approvalStatus.subState}
+                  >
+                    {approvalStatus.isReady
+                      ? `已表态 ${approvalStatus.decidedCount}/${approvalStatus.requiredCount} 项（可点击批复结算）`
+                      : `尚有 ${approvalStatus.requiredCount - approvalStatus.decidedCount} 笔申请未表态`}
+                  </div>
+                </div>
+              )}
 
-                  {/* Item 1: Canal Project (Threshold 2.0万两) */}
-                  <div className="proposal-line-item">
-                    <div className="line-item-title">
-                      <span>① 修水渠工程（门槛型 · 满额2.0万两）</span>
-                      {stSettled && (
-                        <span className="settled-exec-tag">
-                          {stSettled.project_executed ? '工程已执行' : '工程未执行'}
+              {viewedWeek.week_phase === 'OPEN' && (
+                <div className="phase-hint-strip">
+                  当前处于征询阶段。请先点击【截止征询】冻结各州提案后，再勾选批复。
+                </div>
+              )}
+
+              {viewedWeek.week_phase === 'ARCHIVED' && (
+                <div className="phase-hint-strip archived">
+                  第 {viewedWeek.week_number} 周已归档封存，以下为正式批复记录（只读）。
+                </div>
+              )}
+            </div>
+
+            {/* State Proposals List */}
+            <div className="proposals-state-list">
+              {states.map((st) => {
+                const prop = st.proposal;
+                const stDraft = approvalDraft[st.state_id];
+                const stSettled = settlement?.states[st.state_id] ?? null;
+
+                const projLocal = prop?.project_local_silver ?? 0;
+                const projCentral = prop?.project_central_silver ?? 0;
+                const reliefLocal = prop?.relief_local_grain ?? 0;
+                const reliefCentral = prop?.relief_central_grain ?? 0;
+
+                const projDecision =
+                  viewedWeek.week_phase === 'ARCHIVED'
+                    ? stSettled?.project_central_decision
+                    : stDraft?.project_central_silver;
+                const reliefDecision =
+                  viewedWeek.week_phase === 'ARCHIVED'
+                    ? stSettled?.relief_central_decision
+                    : stDraft?.relief_central_grain;
+
+                return (
+                  <div
+                    key={st.state_id}
+                    className="state-proposal-card"
+                    data-testid={`proposal-card-${st.state_id}`}
+                  >
+                    <div className="state-proposal-header">
+                      <strong>
+                        {st.state_name}（{st.officer_title}）
+                      </strong>
+                      <span className="proposal-origin-tag">
+                        {!prop
+                          ? '尚未提交提案'
+                          : prop.is_default_zero
+                            ? `第${prop.week_number}周未交提案 · 默认全0冻结`
+                            : `第${prop.week_number}周正式提案`}
+                      </span>
+                    </div>
+
+                    {/* Item 1: Canal Project (Threshold 2.0万两) */}
+                    <div className="proposal-line-item">
+                      <div className="line-item-title">
+                        <span>① 修水渠工程（满额 2.0万两）</span>
+                        {stSettled && (
+                          <span className="settled-exec-tag">
+                            {stSettled.project_executed ? '工程已执行' : '工程未执行'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="line-item-Breakdown">
+                        <span>本地配套银：{formatWan(projLocal, '万两')}</span>
+                        <span>＋</span>
+                        <span className={projCentral > 0 ? 'highlight-request' : ''}>
+                          请中央工程银：{formatWan(projCentral, '万两')}
                         </span>
+                      </div>
+                      {projCentral > 0 && (
+                        <div className="line-item-rule-note">
+                          若驳回中央请银，工程取消，本地配套银 {formatWan(projLocal, '万两')} 退回本州。
+                        </div>
+                      )}
+
+                      {projCentral > 0 ? (
+                        viewedWeek.week_phase === 'ARCHIVED' ? (
+                          <div className="archived-decision-badge">
+                            批复结果：
+                            <strong
+                              className={
+                                projDecision === 'APPROVED' ? 'dec-approved' : 'dec-rejected'
+                              }
+                            >
+                              {projDecision === 'APPROVED' ? '已批准' : '已驳回'}
+                            </strong>
+                          </div>
+                        ) : (
+                          <div
+                            className="decision-radio-group"
+                            role="radiogroup"
+                            aria-label={`${st.state_name}中央工程请银批复`}
+                          >
+                            <label
+                              className={`radio-pill ${projDecision === 'APPROVED' ? 'selected-approve' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name={`proj_${st.state_id}_w${viewedWeek.week_number}`}
+                                disabled={!canEditApprovals}
+                                checked={projDecision === 'APPROVED'}
+                                data-testid={`radio-${st.state_id}-project-APPROVED`}
+                                onChange={() =>
+                                  onSetApprovalDecision(
+                                    st.state_id,
+                                    'project_central_silver',
+                                    'APPROVED',
+                                  )
+                                }
+                              />
+                              <span>拟批准</span>
+                            </label>
+                            <label
+                              className={`radio-pill ${projDecision === 'REJECTED' ? 'selected-reject' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name={`proj_${st.state_id}_w${viewedWeek.week_number}`}
+                                disabled={!canEditApprovals}
+                                checked={projDecision === 'REJECTED'}
+                                data-testid={`radio-${st.state_id}-project-REJECTED`}
+                                onChange={() =>
+                                  onSetApprovalDecision(
+                                    st.state_id,
+                                    'project_central_silver',
+                                    'REJECTED',
+                                  )
+                                }
+                              />
+                              <span>拟驳回</span>
+                            </label>
+                          </div>
+                        )
+                      ) : (
+                        <div className="no-central-request-tag">
+                          {projLocal === 20_000
+                            ? '本州全额自筹 2.0万两，无需中央拨银'
+                            : '无中央工程请银（无需批复）'}
+                        </div>
                       )}
                     </div>
-                    <div className="line-item-Breakdown">
-                      <span>本地工程配套银：{formatWan(projLocal, '万两')}</span>
-                      <span>＋</span>
-                      <span className={projCentral > 0 ? 'highlight-request' : ''}>
-                        请中央工程银：{formatWan(projCentral, '万两')}
-                      </span>
-                    </div>
-                    {projCentral > 0 && (
-                      <div className="line-item-rule-note">
-                        若驳回中央请银，工程整体取消，本地配套银 {formatWan(projLocal, '万两')} 全额退回本州不扣除。
-                      </div>
-                    )}
 
-                    {projCentral > 0 ? (
-                      viewedWeek.week_phase === 'ARCHIVED' ? (
-                        <div className="archived-decision-badge">
-                          批复结果：
-                          <strong
-                            className={
-                              projDecision === 'APPROVED' ? 'dec-approved' : 'dec-rejected'
-                            }
-                          >
-                            {projDecision === 'APPROVED' ? '已批准' : '已驳回'}
-                          </strong>
+                    {/* Item 2: Disaster Relief Grain (Additive) */}
+                    <div className="proposal-line-item">
+                      <div className="line-item-title">
+                        <span>② 灾害赈济粮（累加型）</span>
+                      </div>
+                      <div className="line-item-Breakdown">
+                        <span>本地自主赈粮：{formatWan(reliefLocal, '万石')}</span>
+                        <span>＋</span>
+                        <span className={reliefCentral > 0 ? 'highlight-request' : ''}>
+                          请中央拨赈粮：{formatWan(reliefCentral, '万石')}
+                        </span>
+                      </div>
+                      {reliefLocal > 0 && (
+                        <div className="line-item-rule-note">
+                          无论中央请粮是否获批，本地自主赈粮 {formatWan(reliefLocal, '万石')} 结算时照常扣除。
                         </div>
+                      )}
+
+                      {reliefCentral > 0 ? (
+                        viewedWeek.week_phase === 'ARCHIVED' ? (
+                          <div className="archived-decision-badge">
+                            批复结果：
+                            <strong
+                              className={
+                                reliefDecision === 'APPROVED' ? 'dec-approved' : 'dec-rejected'
+                              }
+                            >
+                              {reliefDecision === 'APPROVED' ? '已批准' : '已驳回'}
+                            </strong>
+                          </div>
+                        ) : (
+                          <div
+                            className="decision-radio-group"
+                            role="radiogroup"
+                            aria-label={`${st.state_name}中央请拨赈粮批复`}
+                          >
+                            <label
+                              className={`radio-pill ${reliefDecision === 'APPROVED' ? 'selected-approve' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name={`relief_${st.state_id}_w${viewedWeek.week_number}`}
+                                disabled={!canEditApprovals}
+                                checked={reliefDecision === 'APPROVED'}
+                                data-testid={`radio-${st.state_id}-relief-APPROVED`}
+                                onChange={() =>
+                                  onSetApprovalDecision(
+                                    st.state_id,
+                                    'relief_central_grain',
+                                    'APPROVED',
+                                  )
+                                }
+                              />
+                              <span>拟批准</span>
+                            </label>
+                            <label
+                              className={`radio-pill ${reliefDecision === 'REJECTED' ? 'selected-reject' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
+                            >
+                              <input
+                                type="radio"
+                                name={`relief_${st.state_id}_w${viewedWeek.week_number}`}
+                                disabled={!canEditApprovals}
+                                checked={reliefDecision === 'REJECTED'}
+                                data-testid={`radio-${st.state_id}-relief-REJECTED`}
+                                onChange={() =>
+                                  onSetApprovalDecision(
+                                    st.state_id,
+                                    'relief_central_grain',
+                                    'REJECTED',
+                                  )
+                                }
+                              />
+                              <span>拟驳回</span>
+                            </label>
+                          </div>
+                        )
                       ) : (
-                        <div
-                          className="decision-radio-group"
-                          role="radiogroup"
-                          aria-label={`${st.state_name}中央工程请银批复`}
-                        >
-                          <label
-                            className={`radio-pill ${projDecision === 'APPROVED' ? 'selected-approve' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
-                          >
-                            <input
-                              type="radio"
-                              name={`proj_${st.state_id}_w${viewedWeek.week_number}`}
-                              disabled={!canEditApprovals}
-                              checked={projDecision === 'APPROVED'}
-                              data-testid={`radio-${st.state_id}-project-APPROVED`}
-                              onChange={() =>
-                                onSetApprovalDecision(
-                                  st.state_id,
-                                  'project_central_silver',
-                                  'APPROVED',
-                                )
-                              }
-                            />
-                            <span>拟批准</span>
-                          </label>
-                          <label
-                            className={`radio-pill ${projDecision === 'REJECTED' ? 'selected-reject' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
-                          >
-                            <input
-                              type="radio"
-                              name={`proj_${st.state_id}_w${viewedWeek.week_number}`}
-                              disabled={!canEditApprovals}
-                              checked={projDecision === 'REJECTED'}
-                              data-testid={`radio-${st.state_id}-project-REJECTED`}
-                              onChange={() =>
-                                onSetApprovalDecision(
-                                  st.state_id,
-                                  'project_central_silver',
-                                  'REJECTED',
-                                )
-                              }
-                            />
-                            <span>拟驳回</span>
-                          </label>
-                        </div>
-                      )
-                    ) : (
-                      <div className="no-central-request-tag">
-                        {projLocal === 20_000
-                          ? '本州全额自筹 2.0万两，无需中央拨银'
-                          : '无中央工程请银（无需批复）'}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Item 2: Disaster Relief Grain (Additive) */}
-                  <div className="proposal-line-item">
-                    <div className="line-item-title">
-                      <span>② 灾害赈济粮（累加型 · 救一石算一石）</span>
+                        <div className="no-central-request-tag">无中央请拨赈粮（无需批复）</div>
+                      )}
                     </div>
-                    <div className="line-item-Breakdown">
-                      <span>本地自主赈粮：{formatWan(reliefLocal, '万石')}</span>
-                      <span>＋</span>
-                      <span className={reliefCentral > 0 ? 'highlight-request' : ''}>
-                        请中央拨赈粮：{formatWan(reliefCentral, '万石')}
-                      </span>
-                    </div>
-                    {reliefLocal > 0 && (
-                      <div className="line-item-rule-note">
-                        无论中央请粮是否获批，本地自主赈粮 {formatWan(reliefLocal, '万石')} 结算时一律照常扣除救灾。
-                      </div>
-                    )}
-
-                    {reliefCentral > 0 ? (
-                      viewedWeek.week_phase === 'ARCHIVED' ? (
-                        <div className="archived-decision-badge">
-                          批复结果：
-                          <strong
-                            className={
-                              reliefDecision === 'APPROVED' ? 'dec-approved' : 'dec-rejected'
-                            }
-                          >
-                            {reliefDecision === 'APPROVED' ? '已批准' : '已驳回'}
-                          </strong>
-                        </div>
-                      ) : (
-                        <div
-                          className="decision-radio-group"
-                          role="radiogroup"
-                          aria-label={`${st.state_name}中央请拨赈粮批复`}
-                        >
-                          <label
-                            className={`radio-pill ${reliefDecision === 'APPROVED' ? 'selected-approve' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
-                          >
-                            <input
-                              type="radio"
-                              name={`relief_${st.state_id}_w${viewedWeek.week_number}`}
-                              disabled={!canEditApprovals}
-                              checked={reliefDecision === 'APPROVED'}
-                              data-testid={`radio-${st.state_id}-relief-APPROVED`}
-                              onChange={() =>
-                                onSetApprovalDecision(
-                                  st.state_id,
-                                  'relief_central_grain',
-                                  'APPROVED',
-                                )
-                              }
-                            />
-                            <span>拟批准</span>
-                          </label>
-                          <label
-                            className={`radio-pill ${reliefDecision === 'REJECTED' ? 'selected-reject' : ''} ${!canEditApprovals ? 'disabled' : ''}`}
-                          >
-                            <input
-                              type="radio"
-                              name={`relief_${st.state_id}_w${viewedWeek.week_number}`}
-                              disabled={!canEditApprovals}
-                              checked={reliefDecision === 'REJECTED'}
-                              data-testid={`radio-${st.state_id}-relief-REJECTED`}
-                              onChange={() =>
-                                onSetApprovalDecision(
-                                  st.state_id,
-                                  'relief_central_grain',
-                                  'REJECTED',
-                                )
-                              }
-                            />
-                            <span>拟驳回</span>
-                          </label>
-                        </div>
-                      )
-                    ) : (
-                      <div className="no-central-request-tag">无中央请拨赈粮（无需批复）</div>
-                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

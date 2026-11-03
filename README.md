@@ -5,8 +5,10 @@
 ## 核心文档
 
 - **产品定义**：见 [PRODUCT.md](PRODUCT.md)
-- **交互与规则设计（v2.1）**：见 [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md)
+- **视觉与设计系统**：见 [DESIGN.md](DESIGN.md)（及 `.impeccable/design.json` 扩展元数据）
+- **交互与规则设计（v2.2）**：见 [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md)
 - **架构与开发规范**：见 [CLAUDE.md](CLAUDE.md)
+- **第三方地图许可说明**：见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ## 环境要求
 
@@ -67,11 +69,16 @@ npm run run-one-officer -- --env-file .env.officer --watch
 ```text
 simu-emperor/
 ├── PRODUCT.md                         # 产品目标与边界定义
+├── DESIGN.md                          # 视觉设计系统规范与 YAML 设计变量定义
 ├── CLAUDE.md                          # 架构与开发规范
+├── THIRD_PARTY_NOTICES.md             # 第三方地图代码与资源（jiangshan-map GPL-3.0）说明
+├── .impeccable/
+│   ├── design.json                    # DESIGN.md schemaVersion 2 组件与扩展元数据
+│   └── surfaces/web-app-tsx.md        # 主地图朝堂界面（web/App.tsx）界面说明
 ├── .env.example                       # 服务端环境变量模板
 ├── .env.officer.example               # 单官员外部调用器环境变量模板
 ├── docs/design/
-│   ├── restart-ui-interactions.md     # v2.1 地图交互与官员通信设计方案
+│   ├── restart-ui-interactions.md     # v2.2 地图交互与官员通信设计方案
 │   └── assets/ui-layout-v1.png        # 界面布局基线示意图
 ├── src/
 │   ├── contracts/index.ts             # 服务端、前端与 OAR 官员调用器共享类型契约
@@ -88,7 +95,7 @@ simu-emperor/
 │   │   └── state-store.ts             # data/runtime/officers/<officer_id> 持久化状态
 │   ├── app.ts                         # Hono HTTP 路由、权限校验与前端静态资源托管
 │   └── server.ts                      # Node HTTP 服务入口
-├── web/                               # React/Vite 地图主界面、单侧抽屉、草稿与会话 UI
+├── web/                               # React/Vite 简约地图界面、左侧政务面板、右侧总览与会话 UI
 └── tests/
     ├── engine.test.ts                 # 账目核算、快照冻结、原子结算回滚测试
     ├── api.test.ts                    # HTTP 契约、权限隔离、会话与回执协议测试

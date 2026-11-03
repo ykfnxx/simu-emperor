@@ -13,14 +13,30 @@ import {
 } from '../web/client-api.ts';
 import {
   BACKGROUND_REGION_GEOMETRIES,
+  BOTTOM_CONTROLS_OCCLUSION_RATIO,
   computeMinimalOcclusionPan,
   computeStateLayerPresentation,
+  computeSvgCameraViewBox,
+  getBackgroundGeographyLayer,
   getLayerLegendEntries,
+  getProjectedHydroLayer,
   getStateScreenCenterX,
+  getStateScreenCenterY,
   INITIAL_MAP_CAMERA,
+  LEFT_SHEET_OCCLUSION_RATIO,
+  LEFT_SHEET_SAFE_TARGET_RATIO,
+  MAP_VIEWBOX_ORIGIN_X,
+  MAP_VIEWBOX_ORIGIN_Y,
   MAP_VIEWBOX_WIDTH,
+  MercatorProjector,
   pickDefaultSelectedState,
   PLAYABLE_PROVINCE_GEOMETRIES,
+  PROJECTOR,
+  RIGHT_OUTLINER_OCCLUSION_RATIO,
+  RIGHT_OUTLINER_SAFE_TARGET_RATIO,
+  TERRAIN_RELIEF_RECT,
+  TOP_HUD_OCCLUSION_RATIO,
+  zoomCameraAtClientPoint,
 } from '../web/map-data.ts';
 
 class MemoryStorage implements Storage {
@@ -45,7 +61,7 @@ class MemoryStorage implements Storage {
   }
 }
 
-describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft State (v2.1)', () => {
+describe('Simu-Emperor Frontend Map Geometry, Layers, Dual-Occluder Pan & Draft State (v2.2 EU4)', () => {
   beforeEach(() => {
     const mockStorage = new MemoryStorage();
     Object.defineProperty(globalThis, 'window', {
@@ -55,7 +71,7 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft Stat
     });
   });
 
-  it('defines 3 playable states and subdued background regions with 5-state legends across all 3 layers (Scenarios 01, 03)', () => {
+  it('defines 3 playable states, 5-state legends across all 3 layers, and strictly report-driven banner art roles (Scenarios 01, 03)', () => {
     expect(PLAYABLE_PROVINCE_GEOMETRIES.map((p) => p.state_id)).toEqual([
       'state_a',
       'state_b',
@@ -75,7 +91,7 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft Stat
       ]);
       const unknownEntry = legend.find((l) => l.key === 'unknown')!;
       const bgEntry = legend.find((l) => l.key === 'background')!;
-      expect(unknownEntry.detailLabel).toContain('斜纹深灰');
+      expect(unknownEntry.detailLabel).toContain('斜纹灰');
       expect(unknownEntry.detailLabel).toContain('本周未奏报（未知');
       expect(bgEntry.detailLabel).toContain('地理背景区（未启用）');
     }
@@ -156,38 +172,79 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft Stat
     store.close();
   });
 
-  it('keeps camera still when selected state is within 0%~72% width and pans horizontally to 60% without changing zoom when occluded in 72%~100% (Scenario 02)', () => {
+  it('fits all 3 playable states in the [34%, 78%] corridor at default camera and pans minimally away from both Left Sheet (<34%) and Right Outliner (>78%) occluders (Scenario 02)', () => {
     for (const viewportWidth of [1280, 1440]) {
-      // 1. At default camera, state_a, state_b, state_c are all inside 0%~72% -> camera does not move
+      // 1. At INITIAL_MAP_CAMERA, all 3 playable states lie inside [38%, 75%] and require zero pan
       for (const stateId of ['state_a', 'state_b', 'state_c'] as const) {
-        const nextCam = computeMinimalOcclusionPan(stateId, viewportWidth, INITIAL_MAP_CAMERA);
+        const screenX = getStateScreenCenterX(stateId, viewportWidth, INITIAL_MAP_CAMERA);
+        const ratio = screenX / viewportWidth;
+        expect(ratio).toBeGreaterThanOrEqual(LEFT_SHEET_OCCLUSION_RATIO);
+        expect(ratio).toBeLessThanOrEqual(RIGHT_OUTLINER_OCCLUSION_RATIO);
+
+        const nextCam = computeMinimalOcclusionPan(stateId, viewportWidth, INITIAL_MAP_CAMERA, true);
         expect(nextCam).toEqual(INITIAL_MAP_CAMERA);
       }
 
-      // 2. When camera is panned/zoomed so state_c (丙州) sits at x = 80% of viewport width (occluded by right 25% drawer)
-      const stateCGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === 'state_c')!;
-      const baseC = (stateCGeom.center.x / MAP_VIEWBOX_WIDTH) * viewportWidth;
-      const customZoom = 1.25;
-      const occludedScreenX = 0.8 * viewportWidth;
-      const occludedCam = {
-        panX: occludedScreenX - baseC * customZoom,
-        panY: -42,
-        zoom: customZoom,
+      // 2. When camera is panned/zoomed so state_a (甲州) sits at x = 22% of viewport width (occluded by Left Sheet < 38%)
+      const stateAGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === 'state_a')!;
+      const baseA = (stateAGeom.center.x / MAP_VIEWBOX_WIDTH) * viewportWidth;
+      const customZoomLeft = 1.2;
+      const leftOccludedScreenX = 0.22 * viewportWidth;
+      const leftOccludedCam = {
+        panX: leftOccludedScreenX - baseA * customZoomLeft,
+        panY: 18,
+        zoom: customZoomLeft,
       };
 
-      expect(getStateScreenCenterX('state_c', viewportWidth, occludedCam)).toBeCloseTo(
-        occludedScreenX,
-        1,
+      const pannedFromLeft = computeMinimalOcclusionPan('state_a', viewportWidth, leftOccludedCam, true);
+      expect(pannedFromLeft.zoom).toBe(customZoomLeft);
+      expect(pannedFromLeft.panY).toBe(18);
+      const afterLeftScreenX = getStateScreenCenterX('state_a', viewportWidth, pannedFromLeft);
+      expect(afterLeftScreenX / viewportWidth).toBeCloseTo(LEFT_SHEET_SAFE_TARGET_RATIO, 2);
+
+      // 3. When camera is panned/zoomed so state_c (丙州) sits at x = 84% of viewport width (occluded by Right Outliner > 75%)
+      const stateCGeom = PLAYABLE_PROVINCE_GEOMETRIES.find((p) => p.state_id === 'state_c')!;
+      const baseC = (stateCGeom.center.x / MAP_VIEWBOX_WIDTH) * viewportWidth;
+      const customZoomRight = 1.25;
+      const rightOccludedScreenX = 0.84 * viewportWidth;
+      const rightOccludedCam = {
+        panX: rightOccludedScreenX - baseC * customZoomRight,
+        panY: -42,
+        zoom: customZoomRight,
+      };
+
+      const pannedFromRight = computeMinimalOcclusionPan('state_c', viewportWidth, rightOccludedCam, true);
+      expect(pannedFromRight.zoom).toBe(customZoomRight);
+      const afterRightScreenX = getStateScreenCenterX('state_c', viewportWidth, pannedFromRight);
+      const afterRightScreenY = getStateScreenCenterY(
+        'state_c',
+        viewportWidth,
+        Math.round(viewportWidth * 0.625),
+        pannedFromRight,
       );
+      expect(afterRightScreenX / viewportWidth).toBeCloseTo(RIGHT_OUTLINER_SAFE_TARGET_RATIO, 2);
+      expect(afterRightScreenY / Math.round(viewportWidth * 0.625)).toBeLessThanOrEqual(
+        BOTTOM_CONTROLS_OCCLUSION_RATIO + 0.001,
+      );
+    }
 
-      const pannedCam = computeMinimalOcclusionPan('state_c', viewportWidth, occludedCam);
-      // Zoom and panY MUST remain completely unchanged
-      expect(pannedCam.zoom).toBe(customZoom);
-      expect(pannedCam.panY).toBe(-42);
-
-      // New horizontal screen position of state_c center MUST be at 60% of viewport width
-      const afterScreenX = getStateScreenCenterX('state_c', viewportWidth, pannedCam);
-      expect(afterScreenX / viewportWidth).toBeCloseTo(0.6, 2);
+    // 4. At max zoom (2.58) across 1280x800, 1440x900, and 1586x992, selecting any state pans BOTH panX and panY into the visible corridor
+    for (const [vw, vh] of [
+      [1280, 800],
+      [1440, 900],
+      [1586, 992],
+    ] as const) {
+      const highZoomCam = { panX: -540, panY: -220, zoom: 2.58 };
+      for (const stateId of ['state_a', 'state_b', 'state_c'] as const) {
+        const panned = computeMinimalOcclusionPan(stateId, vw, highZoomCam, true, vh);
+        expect(panned.zoom).toBe(2.58);
+        const sx = getStateScreenCenterX(stateId, vw, panned, vh);
+        const sy = getStateScreenCenterY(stateId, vw, vh, panned);
+        expect(sx / vw).toBeGreaterThanOrEqual(LEFT_SHEET_OCCLUSION_RATIO - 0.001);
+        expect(sx / vw).toBeLessThanOrEqual(RIGHT_OUTLINER_OCCLUSION_RATIO + 0.001);
+        expect(sy / vh).toBeGreaterThanOrEqual(TOP_HUD_OCCLUSION_RATIO - 0.001);
+        expect(sy / vh).toBeLessThanOrEqual(BOTTOM_CONTROLS_OCCLUSION_RATIO + 0.001);
+      }
     }
   });
 
@@ -351,5 +408,65 @@ describe('Simu-Emperor Frontend Map Geometry, Layers, Occlusion Pan & Draft Stat
     expect(loading).toBe(false);
 
     store.close();
+  });
+
+  it('builds georeferenced jiangshan-map Mercator territories, hydrography, and pure SVG viewBox camera math with 0.0 upstream registration drift', () => {
+    expect(PROJECTOR).toBeInstanceOf(MercatorProjector);
+    const [lng, lat] = PROJECTOR.toGeo(202.0, 128.9);
+    const [sx, sy] = PROJECTOR.toScreen(lng, lat);
+    expect(sx).toBeCloseTo(202.0, 1);
+    expect(sy).toBeCloseTo(128.9, 1);
+
+    // Exact registration against upstream jiangshan-map MercatorProjector(1000, 700, { west: 66, east: 142, south: 14, north: 55 })
+    const rawUpstream = new MercatorProjector(
+      1000,
+      700,
+      { west: 66, east: 142, south: 14, north: 55 },
+      0,
+      0,
+    );
+    const expectedRawAnchors: Array<{ lng: number; lat: number; rawX: number; rawY: number }> = [
+      { lng: 104, lat: 34.5, rawX: 500.0, rawY: 393.9586 },
+      { lng: 120, lat: 30, rawX: 710.5263, rawY: 464.0023 },
+      { lng: 116, lat: 40, rawX: 657.8947, rawY: 302.9684 },
+      { lng: 110, lat: 25, rawX: 578.9474, rawY: 538.2085 },
+    ];
+    for (const anchor of expectedRawAnchors) {
+      const [ux, uy] = rawUpstream.toScreen(anchor.lng, anchor.lat);
+      expect(ux).toBeCloseTo(anchor.rawX, 3);
+      expect(uy).toBeCloseTo(anchor.rawY, 3);
+
+      const [px, py] = PROJECTOR.toScreen(anchor.lng, anchor.lat);
+      const drift = Math.hypot(px - (ux - MAP_VIEWBOX_ORIGIN_X), py - (uy - MAP_VIEWBOX_ORIGIN_Y));
+      expect(drift).toBeLessThan(0.01);
+    }
+
+    expect(TERRAIN_RELIEF_RECT).toEqual({
+      x: -80 - MAP_VIEWBOX_ORIGIN_X,
+      y: -40 - MAP_VIEWBOX_ORIGIN_Y,
+      width: 1160,
+      height: 780,
+    });
+
+    const bgGeo = getBackgroundGeographyLayer();
+    expect(bgGeo.landmassShapes.length).toBeGreaterThan(20);
+    expect(bgGeo.interiorBoundaries.startsWith('M')).toBe(true);
+    expect(bgGeo.outerBoundaries.startsWith('M')).toBe(true);
+
+    const hydro = getProjectedHydroLayer();
+    expect(hydro.lakes.length).toBeGreaterThan(0);
+    expect(hydro.trunkCasingPaths.length).toBeGreaterThan(0);
+    expect(hydro.rivers.some((r) => r.rankClass === 'rank-trunk')).toBe(true);
+
+    expect(computeSvgCameraViewBox(INITIAL_MAP_CAMERA, 1440, 900)).toBe('0.00 0.00 460.00 288.00');
+    const zoomedCam = zoomCameraAtClientPoint(INITIAL_MAP_CAMERA, 1.4, 720, 450, {
+      left: 0,
+      top: 0,
+      width: 1440,
+      height: 900,
+    });
+    expect(zoomedCam.zoom).toBe(1.4);
+    expect(zoomedCam.panX).toBe(-288);
+    expect(zoomedCam.panY).toBe(-180);
   });
 });
