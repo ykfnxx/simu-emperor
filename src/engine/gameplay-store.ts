@@ -654,7 +654,9 @@ export class GameplayStore {
       entry.character_id === context.character_id && entry.status !== 'REPLIED' && entry.status !== 'NO_REPLY');
     return {
       context, turn: current(data).view,
-      wakes: wakes.map(({ character_id, ...entry }) => entry),
+      wakes: wakes.map(({ character_id, ...entry }) => ({
+        ...entry, message: data.messages.find((message) => message.seq === entry.message_seq)!,
+      })),
       conversations: data.conversations.filter((entry) => entry.participants.includes(context.character_id))
         .map((entry) => ({
           ...conversationView(data, entry, context.character_id),

@@ -97,6 +97,10 @@ describe('Ming trial HTTP contract', () => {
         context: assignment.context, conversation_id: conversation.conversation_id,
         up_to_seq: wake.message_seq, outcome: 'accepted',
       })).status).toBe(200);
+      const acceptedInbox = await (await request(app, '/api/officer/inbox', AUTH.agentHostToken,
+        { context: assignment.context })).json() as AgentInbox;
+      expect(acceptedInbox.conversations[0]!.unread_messages).toEqual([]);
+      expect(acceptedInbox.wakes[0]!.message).toMatchObject({ seq: wake.message_seq, content: '请问当地情况' });
       const replied = await request(app, '/api/officer/reply', AUTH.agentHostToken, {
         context: assignment.context, conversation_id: conversation.conversation_id,
         wake_id: wake.wake_id, source_turn: wake.source_turn, content: '本省正安排赈务。',
