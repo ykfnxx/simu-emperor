@@ -9,7 +9,7 @@ This file defines the current architecture, coding standards, and development wo
   - [PRODUCT.md](PRODUCT.md) — Product scope, capabilities, constraints, and principles.
   - [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md) — Approved v2.1 interaction, weekly state machine, accounting, and communication specification.
 - **Current Architecture Scope**:
-  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, HTTP contracts (`src/contracts/index.ts`), React/Vite map-first court UI (`web/`), and external official caller (`src/officers/`) using `@botiverse/oar@0.84.0` with `once` and `watch` CLI modes, per-official persistent native session resume under `data/runtime/officers/<officer_id>`, and strict `session.prompt` `kind === 'accepted'` receipt semantics.
+  - Implemented: Node 24+ TypeScript backend (`Hono` + `node:sqlite`), durable 3-state (`甲州`, `乙州`, `丙州`) / 3-official / 4-week trial simulation engine, report-vs-truth visibility isolation, conversation/inbox/receipt protocol, HTTP contracts (`src/contracts/index.ts`), Next.js 16.2.6 (`output: 'export'` to `out/`) + React 19.2.4 + Tailwind CSS v4 + controlled Kumo UI map-first court UI (`app/`, `web/`, `components/kumo/`), and external official caller (`src/officers/`) using `@botiverse/oar@0.84.0` with `once` and `watch` CLI modes, per-official persistent native session resume under `data/runtime/officers/<officer_id>`, and strict `session.prompt` `kind === 'accepted'` receipt semantics.
 
 ## Commands (Node 24+)
 
@@ -31,11 +31,11 @@ npm run typecheck
 # Run tests
 npm test
 
-# Build production frontend (dist/web) and serve at backend origin
+# Build production frontend static export (out/) and serve at backend origin
 npm run build
 npm start
 
-# Start backend and Vite dev server in development
+# Start backend and Next.js dev server in development (/api/* rewrites to 127.0.0.1:${API_PORT:-8787})
 npm run dev
 npm run dev:web
 

@@ -121,7 +121,7 @@ async function parseJsonBody<T>(c: Context): Promise<T> {
   }
 }
 
-const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../dist/web', import.meta.url));
+const DEFAULT_STATIC_DIR = fileURLToPath(new URL('../out', import.meta.url));
 
 const STATIC_MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

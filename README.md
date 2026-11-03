@@ -27,13 +27,14 @@ cp .env.example .env
 npm run typecheck
 npm test
 
-# 4. 构建前端静态资源（dist/web）并由后端同源托管启动（默认监听 http://127.0.0.1:8787）
+# 4. 构建前端静态导出（out/）并由后端同源托管启动（默认监听 http://127.0.0.1:8787）
 npm run build
 npm start
 
-# 或在开发模式下分别启动后端与 Vite 前端开发服务
+# 或在开发模式下分别启动后端与 Next.js 前端开发服务（默认代理至 127.0.0.1:8787；自定义后端端口请传 API_PORT）
 npm run dev
 npm run dev:web
+# 自定义后端端口示例：PORT=18892 npm run dev && API_PORT=18892 npm run dev:web
 ```
 
 ### 运行外部官员客户端（`run-one-officer`）
@@ -95,7 +96,9 @@ simu-emperor/
 │   │   └── state-store.ts             # data/runtime/officers/<officer_id> 持久化状态
 │   ├── app.ts                         # Hono HTTP 路由、权限校验与前端静态资源托管
 │   └── server.ts                      # Node HTTP 服务入口
-├── web/                               # React/Vite 简约地图界面、左侧政务面板、右侧总览与会话 UI
+├── app/                               # Next.js App Router 静态导出入口（layout.tsx / page.tsx）
+├── components/kumo/                   # Kumo UI 受控基础组件与许可证来源说明
+├── web/                               # React/Next.js 简约地图界面、左侧政务面板、右侧总览与会话 UI
 └── tests/
     ├── engine.test.ts                 # 账目核算、快照冻结、原子结算回滚测试
     ├── api.test.ts                    # HTTP 契约、权限隔离、会话与回执协议测试

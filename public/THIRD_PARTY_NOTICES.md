@@ -29,6 +29,17 @@ The interactive geographic map layer in the web frontend incorporates and adapts
 
 ### Combined Frontend Distribution License
 
-Because the web frontend (`web/` and built `dist/web/`) links and distributes GPL-3.0 cartographic code, vector outlines, hydrography, and terrain assets from `DeanChensj/jiangshan-map`, the combined/derived frontend distribution is made available under the terms of the **GNU General Public License v3.0 (GPL-3.0)** (see [`LICENSE-GPL-3.0.txt`](./LICENSE-GPL-3.0.txt)), while original standalone Simu-Emperor backend/engine code remains dual-usable under the original MIT License.
+Because the web frontend (`web/` and built `out/`) links and distributes GPL-3.0 cartographic code, vector outlines, hydrography, and terrain assets from `DeanChensj/jiangshan-map`, the combined/derived frontend distribution is made available under the terms of the **GNU General Public License v3.0 (GPL-3.0)** (see [`LICENSE-GPL-3.0.txt`](./LICENSE-GPL-3.0.txt)), while original standalone Simu-Emperor backend/engine code remains dual-usable under the original MIT License.
 
 The shaded-relief WebP retains the upstream file unchanged; its source provenance is recorded in `web/assets/jiangshan/terrain_relief.webp.json`.
+
+---
+
+## Kumo UI Components (`cloudflare/kumo` via Periplus Reference Extract)
+
+Selected controlled UI primitives under `components/kumo/` (`button`, `dialog`, `field`, `input`, `label`, `layer-card`, `loader`, `tooltip`, plus `utils/` and `styles/`) are adapted from:
+
+- **Upstream Repository**: [`cloudflare/kumo`](https://github.com/cloudflare/kumo)
+- **Upstream Commit**: `fedc8a771d499ccceb309ec45b2b11d74eea3963` (via Periplus reference extract `8f7a3c1`)
+- **Upstream Copyright**: Copyright (c) 2025 Cloudflare, Inc.
+- **Upstream License**: **MIT License** — full license text in [`components/kumo/LICENSE`](./components/kumo/LICENSE) and provenance metadata in [`components/kumo/source.json`](./components/kumo/source.json)

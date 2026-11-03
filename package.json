@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "dev:web": "vite",
-    "build": "vite build",
+    "dev:web": "next dev --port 5173",
+    "build": "next build",
     "start": "node --experimental-strip-types src/server.ts",
     "officer": "node --experimental-strip-types src/officers/cli.ts",
     "run-one-officer": "node --experimental-strip-types src/officers/cli.ts",
@@ -18,20 +18,26 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
     "@botiverse/oar": "0.84.0",
     "@hono/node-server": "^1.13.8",
+    "clsx": "^2.1.1",
     "hono": "^4.7.4",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "lucide-react": "^1.21.0",
+    "motion": "12.43.0",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^22.13.10",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
-    "vite": "^6.4.5",
     "vitest": "^3.0.8"
   }
 }
