@@ -21,6 +21,9 @@ data/runtime/
 .env.officer
 .env.officer.*
 !.env.officer.example
+.env.character
+.env.character.*
+!.env.character.example
 
 # Logs and coverage
 logs/

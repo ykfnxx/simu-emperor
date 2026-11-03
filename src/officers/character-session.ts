@@ -3,6 +3,7 @@ import {
   defaultRuntimes,
   type RuntimeRegistry,
   type Session,
+  type SessionOptions,
 } from '@botiverse/oar';
 import {
   archiveCharacterSessionState,
@@ -20,6 +21,7 @@ export interface CharacterSessionOptions {
   runtimeId: string;
   model?: string;
   effort?: string;
+  env?: SessionOptions['env'];
   /** Explicit reconfiguration; never used as recovery from a failed resume. */
   startNewSession?: boolean;
 }
@@ -72,6 +74,7 @@ export async function openOrResumeCharacterSession(
       ...(resume ? { resume } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.effort !== undefined ? { effort: options.effort } : {}),
+      ...(options.env === undefined ? {} : { env: options.env }),
     });
   } catch (cause) {
     throw new CharacterSessionError(
