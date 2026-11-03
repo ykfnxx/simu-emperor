@@ -332,7 +332,7 @@ export interface GameplayWake {
 export interface AgentInbox {
   context: AgentExecutionContext;
   turn: TurnView;
-  wakes: GameplayWake[];
+  wakes: Array<GameplayWake & { message: GameplayMessage }>;
   conversations: Array<GameplayConversation & { unread_messages: GameplayMessage[] }>;
 }
 

@@ -98,6 +98,12 @@ reappointment cannot consume a prior appointment's pending work. The reply is
 marked late after its source turn closes. Inbox reads
 never advance `seen_seq`; only an accepted runtime receipt can advance it.
 
+Each unfinished `AgentInbox.wakes` entry includes its original `message`, even
+when an accepted receipt has already advanced `seen_seq`. The caller can resume
+an accepted but unanswered task after generation failure or process restart.
+`conversations[].unread_messages` remains strictly the messages beyond that
+conversation's seen position. Replied and explicit-no-reply wakes are omitted.
+
 ## Reports, plans and decisions
 
 ```json
