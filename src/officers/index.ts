@@ -49,3 +49,16 @@ export {
   OfficerSessionStateError,
   saveOfficerState,
 } from './state-store.ts';
+export {
+  type CharacterSessionIdentity,
+  type CharacterSessionPaths,
+  type CharacterSessionState,
+  CharacterSessionError,
+  getCharacterSessionPaths,
+  loadCharacterSessionState,
+} from './character-session-store.ts';
+export {
+  type CharacterSessionHandle,
+  type CharacterSessionOptions,
+  openOrResumeCharacterSession,
+} from './character-session.ts';
