@@ -1,22 +1,23 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { serve } from '@hono/node-server';
-import { createApp, loadLocalEnvFile, resolveAuthConfig } from './app.ts';
-import { GameStore } from './engine/game-store.ts';
+import { createApp } from './app.ts';
+import { resolveGameplayAuth } from './gameplay-app.ts';
+import { GameplayStore } from './engine/gameplay-store.ts';
 
-loadLocalEnvFile();
+if (existsSync('.env')) process.loadEnvFile('.env');
 
 // Validate required role tokens fail-fast before creating database files or binding sockets.
-const authConfig = resolveAuthConfig();
+const authConfig = resolveGameplayAuth();
 
 const port = Number(process.env.PORT ?? 8787);
-const dbPath = process.env.DATABASE_PATH ?? './data/runtime/simu-emperor.db';
+const dbPath = process.env.DATABASE_PATH ?? './data/runtime/ming-gameplay.db';
 
 if (dbPath !== ':memory:') {
   mkdirSync(dirname(dbPath), { recursive: true });
 }
 
-const store = new GameStore({ dbPath });
+const store = new GameplayStore({ dbPath });
 const app = createApp(store, authConfig);
 
 serve(
