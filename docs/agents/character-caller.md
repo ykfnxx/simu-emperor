@@ -1,6 +1,6 @@
 # 人物调用器（Ming gameplay 契约）
 
-此调用器使用 `src/contracts/gameplay.ts`，面向新的三省服务。旧 `run-one-officer` CLI 仍面向旧接口，二者不是自动回退关系；后端完成契约切换前，不能把新调用器当成已可连接旧服务的替代品。
+此调用器使用 `src/contracts/gameplay.ts`，面向新的三省服务。默认服务入口已切换到该契约，旧 `run-one-officer` CLI 与旧三州接口已移除。
 
 ## 运行
 

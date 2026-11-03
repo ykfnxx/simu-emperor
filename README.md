@@ -1,111 +1,57 @@
 # Simu-Emperor
 
-浏览器端帝王策略游戏（全栈 TypeScript 版）。玩家扮演君主，通过地图、官员奏报、朝堂交涉与提案批复治理国家；外部官员由本地 OAR（`@botiverse/oar@0.84.0`）原生 Agent 扮演，游戏服务端不托管模型密钥。
+浏览器端帝王策略游戏。明代两京十三省中，陕西、河南、湖广参与四回合试玩，其余省份冻结。玩家通过署名奏报了解地方情况，任免人物、私聊或群聊官员，并决定每笔请求的实际拨款。
 
-## 核心文档
+服务端保存真实账目并结算。人物由本机 OAR 原生 Agent 扮演；模型只能提出请求和回复，不能直接改账或替玩家批款。
 
-- **产品定义**：见 [PRODUCT.md](PRODUCT.md)
-- **视觉与设计系统**：见 [DESIGN.md](DESIGN.md)（及 `.impeccable/design.json` 扩展元数据）
-- **交互与规则设计（v2.2）**：见 [docs/design/restart-ui-interactions.md](docs/design/restart-ui-interactions.md)
-- **架构与开发规范**：见 [CLAUDE.md](CLAUDE.md)
-- **第三方地图许可说明**：见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+## 启动
 
-## 环境要求
-
-- Node.js `>= 24.0.0`（使用内置 `node:sqlite`、`node:util.parseEnv` 与 `process.loadEnvFile`）
-
-## 快速开始（服务端 + 外部官员调用器）
+需要 Node.js 24+。在仓库根目录运行：
 
 ```bash
-# 1. 安装依赖
-npm install
-
-# 2. 配置游戏服务端角色凭据（服务端启动强制校验角色 Bearer Token）
+npm ci
 cp .env.example .env
-
-# 3. 类型检查与测试
-npm run typecheck
-npm test
-
-# 4. 构建前端静态导出（out/）并由后端同源托管启动（默认监听 http://127.0.0.1:8787）
+# 修改 .env 中三个互不相同的角色凭据。
 npm run build
 npm start
-
-# 或在开发模式下分别启动后端与 Next.js 前端开发服务（默认代理至 127.0.0.1:8787；自定义后端端口请传 API_PORT）
-npm run dev
-npm run dev:web
-# 自定义后端端口示例：PORT=18892 npm run dev && API_PORT=18892 npm run dev:web
 ```
 
-### 运行外部官员客户端（`run-one-officer`）
+默认地址为 `http://localhost:8787`。Hono 同源提供新玩法 API 和 Next.js 静态导出的 `out/` 页面。页面登录使用 `MONARCH_TOKEN`；`AGENT_HOST_TOKEN` 仅供可信本机调用器使用。
 
-每个官员客户端仅需该官员自身的身份与 Bearer Token、游戏服务地址及显式指定的 OAR 原生运行时（无需君主或其他官员凭据）：
+默认数据库为 `data/runtime/ming-gameplay.db`。这是新剧本，旧三州试玩数据库不能直接使用；显式指定旧库会报 `INCOMPATIBLE_DATABASE`。本轮不迁移旧局。
+
+开发时在两个终端分别运行：
 
 ```bash
-# 1. 复制单官员调用器环境配置示例
-cp .env.officer.example .env.officer
-
-# 2. 单次执行模式（用于独立验证或单步触发：自动处理新 OPEN 周奏报/提案或当前待处理点名唤醒）
-npm run run-one-officer -- --env-file .env.officer --once
-
-# 或直接通过命令行参数指定官员、Token、服务地址与显式 OAR 运行时：
-npm run run-one-officer -- \
-  --officer officer_a \
-  --token officer-a-token \
-  --origin http://127.0.0.1:8787 \
-  --runtime codex \
-  --once
-
-# 3. 串行监听循环模式（正常游玩时持续轮询并串行合并批次处理该官员会话）
-npm run run-one-officer -- --env-file .env.officer --watch
+npm run dev
+npm run dev:web
 ```
 
-### 外部官员会话与运行时说明
+前端开发地址 `http://localhost:5173`，默认代理至后端 8787。自定义端口时，后端使用 `PORT=18892 npm run dev`，另一个终端使用 `API_PORT=18892 npm run dev:web`。
 
-- **显式原生运行时配置**：必须通过 `OAR_RUNTIME` 或 `--runtime` 显式指定（如 `codex`），无隐式模型或运行时自动回退。Codex 运行时默认强制启用只读沙箱（`OAR_CODEX_SANDBOX=read-only`）并要求模型仅输出结构化 JSON 游戏动作。
-- **单官员独立持久化会话**：每个官员在忽略目录 `data/runtime/officers/<officer_id>/` 下拥有独立工作目录 `workspace/` 与会话状态文件 `session-state.json`。进程重启时显式恢复原 `session_id`；若底层会话丢失或损坏则显式报错停止，绝不静默替换为新会话。
+## 人物 Agent
 
-## 目录结构
+先安装并登录所选原生 runtime，在人才面板为职务配置 runtime、模型、推理强度与交互模式。调用器使用固定的 `@botiverse/oar@0.84.0`，不自动切换模型或创建替代会话。
 
-```text
-simu-emperor/
-├── PRODUCT.md                         # 产品目标与边界定义
-├── DESIGN.md                          # 视觉设计系统规范与 YAML 设计变量定义
-├── CLAUDE.md                          # 架构与开发规范
-├── THIRD_PARTY_NOTICES.md             # 第三方地图代码与资源（jiangshan-map GPL-3.0）说明
-├── .impeccable/
-│   ├── design.json                    # DESIGN.md schemaVersion 2 组件与扩展元数据
-│   └── surfaces/web-app-tsx.md        # 主地图朝堂界面（web/App.tsx）界面说明
-├── .env.example                       # 服务端环境变量模板
-├── .env.officer.example               # 单官员外部调用器环境变量模板
-├── docs/design/
-│   ├── restart-ui-interactions.md     # v2.2 地图交互与官员通信设计方案
-│   └── assets/ui-layout-v1.png        # 界面布局基线示意图
-├── src/
-│   ├── contracts/index.ts             # 服务端、前端与 OAR 官员调用器共享类型契约
-│   ├── db/schema.ts                   # SQLite 表结构初始化
-│   ├── engine/
-│   │   ├── trial-script.ts            # 3 州 3 官员 4 周确定性剧本数据
-│   │   └── game-store.ts              # 周状态机、快照冻结、单事务结算与会话存储
-│   ├── officers/
-│   │   ├── cli.ts                     # run-one-officer CLI 入口（once / watch 模式）
-│   │   ├── config.ts                  # 单官员凭据与显式运行时配置解析
-│   │   ├── game-client.ts             # 官员 Bearer Token 作用域 HTTP 客户端
-│   │   ├── model-contract.ts          # 官员提示词构造与严格 JSON 动作校验
-│   │   ├── runner.ts                  # OAR 会话恢复、accepted 回执边界与串行批次执行
-│   │   └── state-store.ts             # data/runtime/officers/<officer_id> 持久化状态
-│   ├── app.ts                         # Hono HTTP 路由、权限校验与前端静态资源托管
-│   └── server.ts                      # Node HTTP 服务入口
-├── app/                               # Next.js App Router 静态导出入口（layout.tsx / page.tsx）
-├── components/kumo/                   # Kumo UI 受控基础组件与许可证来源说明
-├── web/                               # React/Next.js 简约地图界面、左侧政务面板、右侧总览与会话 UI
-└── tests/
-    ├── engine.test.ts                 # 账目核算、快照冻结、原子结算回滚测试
-    ├── api.test.ts                    # HTTP 契约、权限隔离、会话与回执协议测试
-    ├── web-logic.test.ts              # 地图图层、视口防遮挡平移与草稿逻辑测试
-    └── officers.test.ts               # OAR 官员调用器回执边界、串行批次、跨周晚到与会话恢复测试
+```bash
+cp .env.character.example .env.character
+# 设置与服务端一致的 AGENT_HOST_TOKEN 和 GAME_ORIGIN。
+npm run character -- --env-file .env.character --character character_a --once
+npm run character -- --env-file .env.character --character character_a --watch
 ```
 
-## 许可证
+为其他在任人物分别启动调用器。人物 ID 保持稳定，每次任职拥有独立 session 和工作区；恢复失败直接报错。更换运行配置需要明确使用 `--new-session`。调用器的凭据留在宿主，不写入模型输入或人物工作区。
 
-[MIT License](LICENSE)
+JSON 是唯一写入方式。`json+mcp-read` 模式增加只读查询，不增加游戏写入工具。详见 [人物接入文档](docs/agents/character-caller.md)。
+
+## 开发与验证
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+[共享 API 契约](docs/design/gameplay-api.md)规定人物、任职、奏报、计划和聊天字段。[架构说明](CLAUDE.md)记录当前实现边界。地图来源及许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+固定场景与原生模型基准位于 `src/benchmarks/`。自动执行成功和行为评分分开记录，未人工评分的项保留空值。

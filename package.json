@@ -11,11 +11,10 @@
     "dev:web": "next dev --port 5173",
     "build": "next build",
     "start": "node --experimental-strip-types src/server.ts",
-    "officer": "node --experimental-strip-types src/officers/cli.ts",
-    "run-one-officer": "node --experimental-strip-types src/officers/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "character": "node --experimental-strip-types src/officers/character-cli.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

@@ -11,7 +11,17 @@ import type {
   PlanRecord,
   SubmitGameplayResponse,
 } from '../contracts/gameplay.ts';
-import { GameApiError } from './game-client.ts';
+export class GameApiError extends Error {
+  public readonly status: number;
+  public readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(`Game API error (${status} ${code}): ${message}`);
+    this.name = 'GameApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
 
 const CONTEXT_FIELDS = [
   'game_id', 'character_id', 'appointment_id', 'office_id', 'province_id', 'turn_number',
