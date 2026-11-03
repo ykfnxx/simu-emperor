@@ -22,6 +22,7 @@ export interface CharacterSessionOptions {
   model?: string;
   effort?: string;
   env?: SessionOptions['env'];
+  mcpServers?: SessionOptions['mcpServers'];
   /** Explicit reconfiguration; never used as recovery from a failed resume. */
   startNewSession?: boolean;
 }
@@ -56,6 +57,13 @@ export async function openOrResumeCharacterSession(
   if (!runtime) {
     throw new CharacterSessionError('RUNTIME_NOT_FOUND', `Unknown OAR runtime: ${options.runtimeId}`);
   }
+  if (options.mcpServers?.length) {
+    const refused = runtime.refusedSessionOptions;
+    const credentialed = options.mcpServers.some((server) => 'type' in server
+      ? Object.keys(server.headers ?? {}).length > 0 : Object.keys(server.env ?? {}).length > 0);
+    const reason = refused?.mcpServers ?? (credentialed ? refused?.mcpServerCredentials : undefined);
+    if (reason) throw new CharacterSessionError('MCP_UNSUPPORTED', reason);
+  }
   if (!runtime.installation) {
     throw new CharacterSessionError('INSTALLATION_PROBE_MISSING', 'Runtime has no installation probe');
   }
@@ -75,6 +83,8 @@ export async function openOrResumeCharacterSession(
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.effort !== undefined ? { effort: options.effort } : {}),
       ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.mcpServers === undefined ? {} : { mcpServers: options.mcpServers }),
+
     });
   } catch (cause) {
     throw new CharacterSessionError(
