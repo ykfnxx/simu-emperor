@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { GameplayStore } from '../src/engine/gameplay-store.ts';
 import { DomainError } from '../src/engine/errors.ts';
@@ -65,6 +68,45 @@ describe('Character conversation and receipt authority', () => {
       errorCode(() => store.recordReceipt({ ...receipt, up_to_seq: 999, outcome: 'accepted' }), 'INVALID_RECEIPT_SEQUENCE');
       expect(store.getInbox(context).conversations[0]!.seen_seq).toBe(message.seq);
     } finally { store.close(); }
+  });
+
+  it('recovers an accepted but unanswered wake with its original message after reopening the database', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'simu-wake-recovery-'));
+    const dbPath = join(directory, 'game.db');
+    try {
+      const original = new GameplayStore({ dbPath });
+      const captured = (() => {
+        try {
+          const conversation = group(original);
+          const context = original.getAssignment('character_a').context;
+          const message = original.postCourtMessage({ ...target(original),
+            conversation_id: conversation.conversation_id, content: '请说明尚未回复的赈务安排', mentions: ['character_a'] });
+          const receipt = original.recordReceipt({ context, conversation_id: conversation.conversation_id,
+            up_to_seq: message.seq, outcome: 'accepted' });
+          expect(receipt.seen_seq).toBe(message.seq);
+          return { context, conversation, message };
+        } finally { original.close(); }
+      })();
+      const resumed = new GameplayStore({ dbPath });
+      try {
+        const inbox = resumed.getInbox(captured.context);
+        expect(inbox.conversations[0]!.unread_messages).toEqual([]);
+        expect(inbox.conversations[0]!.seen_seq).toBe(captured.message.seq);
+        expect(inbox.wakes).toHaveLength(1);
+        const wake = inbox.wakes[0]!;
+        expect(wake.status).toBe('ACCEPTED');
+        expect(wake.message).toEqual(captured.message);
+        expect(resumed.getInbox(captured.context)).toEqual(inbox);
+        expect(resumed.getInbox(resumed.getAssignment('character_b').context).wakes).toEqual([]);
+        const reply = resumed.reply({ context: captured.context,
+          conversation_id: captured.conversation.conversation_id, wake_id: wake.wake_id,
+          source_turn: wake.source_turn, content: '继续原任务，现说明赈务安排。' });
+        expect(reply.message!.sender_id).toBe(captured.context.character_id);
+        expect(resumed.getInbox(captured.context).wakes).toEqual([]);
+        expect(resumed.getCourtMessages(captured.conversation.conversation_id)).toHaveLength(2);
+        expect(resumed.getInbox(captured.context).conversations[0]!.seen_seq).toBe(captured.message.seq);
+      } finally { resumed.close(); }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it('rejects a late formal submission but accepts the same appointment chat on its exact original wake', () => {
