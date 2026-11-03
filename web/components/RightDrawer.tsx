@@ -17,7 +17,7 @@ import {
   type WeekPhase,
 } from '../../src/contracts/index.ts';
 import type { ApprovalCompletenessStatus, WeekApprovalDraft } from '../client-api.ts';
-import type { MapLayerKind } from '../map-data.ts';
+import { formatWeekCalendarDate, type MapLayerKind } from '../map-data.ts';
 
 export type DrawerTabKey = 'report' | 'chat' | 'approval';
 
@@ -66,15 +66,8 @@ export interface RightDrawerProps {
   ) => void;
 }
 
-function formatPhaseName(phase: WeekPhase): string {
-  switch (phase) {
-    case 'OPEN':
-      return '征询中';
-    case 'LOCKED':
-      return '已截止待批复';
-    case 'ARCHIVED':
-      return '已归档';
-  }
+function stripUiMiddleDots(text: string): string {
+  return text.replace(/\s*\u00b7\s*/g, ' ');
 }
 
 function formatSenderLabel(senderId: ActorId): string {
@@ -152,23 +145,16 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
     !submittingAction;
   const canSendChat = !viewedWeek.is_history_view && !isTrialCompleted;
 
-  const headerSubtitleText =
-    currentState.report_status === 'REPORTED' && currentState.report
-      ? `第${viewedWeek.week_number}周官员奏报 · ${currentState.report.disaster_label}`
-      : `第${viewedWeek.week_number}周 · 本周未奏报（未知）`;
-
   return (
     <aside
       className={`left-court-sheet right-drawer is-tab-${activeTab}`}
       data-testid="right-drawer"
       aria-label="朝堂政务面板"
     >
-      {/* Top Sheet Header (Matches simple-ui-preview-v1.png: Large serif state name + subtitle + compact state switcher + close ×) */}
+      {/* Top Sheet Header: Classical serif state name + mobile state switcher + SVG close button */}
       <div className="left-sheet-header">
         <div className="sheet-title-group">
           <h2 className="sheet-state-title">{currentState.state_name}</h2>
-          <span className="sheet-header-sep">|</span>
-          <span className="sheet-header-subtitle">{headerSubtitleText}</span>
         </div>
 
         <div className="sheet-header-actions">
@@ -200,7 +186,18 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             aria-label="收起面板"
             onClick={onCloseDrawer}
           >
-            ✕
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
           </button>
         </div>
       </div>
@@ -281,10 +278,9 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 <div className="sheet-summary-section">
                   <div className="summary-header-row">
                     <span className="summary-title">奏折摘要</span>
-                    <span className="summary-source">来源：第{viewedWeek.week_number}周</span>
                   </div>
                   <p className="report-summary-box unknown-summary" data-testid="report-summary-text">
-                    尚未收到该州官员第 {viewedWeek.week_number} 周正式奏报（未知状态绝不当作 0）。
+                    尚未收到该州官员正式奏报（未知状态绝不当作 0）。
                   </p>
                 </div>
               </div>
@@ -298,17 +294,14 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                     </dd>
                   </div>
 
-                  <div className="sheet-kv-row is-multiline">
+                  <div className="sheet-kv-row">
                     <dt>可支配存粮</dt>
                     <dd
-                      className="kv-val-stack"
+                      className="kv-val"
                       data-testid="report-disposable-grain"
                       title={currentState.report.disposable_grain_label}
                     >
-                      <strong className="kv-main-num">
-                        {formatWan(currentState.report.disposable_grain, '万石')}
-                      </strong>
-                      <span className="kv-sub-note">已扣本周支出</span>
+                      {formatWan(currentState.report.disposable_grain, '万石')}
                     </dd>
                   </div>
 
@@ -333,25 +326,29 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   <div className="sheet-kv-row">
                     <dt>向朝廷请拨</dt>
                     <dd
-                      className="kv-val"
+                      className="kv-val kv-request-pair"
                       title={
                         currentState.proposal
-                          ? `本州自筹：赈粮 ${formatWan(currentState.proposal.relief_local_grain, '万石')} · 工程银 ${formatWan(currentState.proposal.project_local_silver, '万两')}`
+                          ? `本州自筹：赈粮 ${formatWan(currentState.proposal.relief_local_grain, '万石')}，工程银 ${formatWan(currentState.proposal.project_local_silver, '万两')}`
                           : undefined
                       }
                     >
-                      请粮{' '}
-                      <strong data-testid="report-request-grain">
-                        {currentState.proposal
-                          ? formatWan(currentState.proposal.relief_central_grain, '万石')
-                          : '0.0万石'}
-                      </strong>{' '}
-                      / 请银{' '}
-                      <strong data-testid="report-request-silver">
-                        {currentState.proposal
-                          ? formatWan(currentState.proposal.project_central_silver, '万两')
-                          : '0.0万两'}
-                      </strong>
+                      <span>
+                        请粮
+                        <strong data-testid="report-request-grain">
+                          {currentState.proposal
+                            ? formatWan(currentState.proposal.relief_central_grain, '万石')
+                            : '0.0万石'}
+                        </strong>
+                      </span>{' '}
+                      <span>
+                        请银
+                        <strong data-testid="report-request-silver">
+                          {currentState.proposal
+                            ? formatWan(currentState.proposal.project_central_silver, '万两')
+                            : '0.0万两'}
+                        </strong>
+                      </span>
                     </dd>
                   </div>
                 </dl>
@@ -360,7 +357,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 <div className="sheet-summary-section">
                   <div className="summary-header-row">
                     <span className="summary-title">奏折摘要</span>
-                    <span className="summary-source">来源：第{viewedWeek.week_number}周</span>
                   </div>
                   <div className="report-summary-box" data-testid="report-summary-text">
                     {currentState.report.summary}
@@ -373,7 +369,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             {stateDebug && (
               <div className="debug-truth-card" data-testid="drawer-debug-truth-card">
                 <div className="debug-card-header">
-                  调试真值：{currentState.state_name}第{viewedWeek.week_number}周真值与差额
+                  调试真值：{currentState.state_name}真值与差额
                 </div>
                 <div className="debug-grid">
                   <div>真值：{stateDebug.truth.disposable_grain_label}</div>
@@ -393,8 +389,8 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   </div>
                   {stateDebug.settlement && (
                     <div className="debug-settlement-line">
-                      周末结余银：{formatWan(stateDebug.settlement.ending_silver, '万两')} · 结余粮：
-                      {formatWan(stateDebug.settlement.ending_grain, '万石')} · 未满足赈济需求：
+                      周末结余银：{formatWan(stateDebug.settlement.ending_silver, '万两')}，结余粮：
+                      {formatWan(stateDebug.settlement.ending_grain, '万石')}，未满足赈济需求：
                       {formatWan(stateDebug.settlement.unmet_relief_demand_grain, '万石')}
                     </div>
                   )}
@@ -403,7 +399,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             )}
           </div>
 
-          {/* Bottom 2 Side-by-Side Action Buttons (Matches simple-ui-preview-v1.png) */}
+          {/* Bottom 2 Side-by-Side Action Buttons */}
           <div className="report-actions-row">
             <button
               type="button"
@@ -411,7 +407,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               data-testid="summon-state-officer-btn"
               onClick={() => onSummonStateOfficer(currentState.state_id)}
             >
-              传讯{currentState.state_name}官员
+              传讯官员
             </button>
             <button
               type="button"
@@ -419,7 +415,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               data-testid="goto-approval-tab-btn"
               onClick={() => onChangeTab('approval')}
             >
-              审阅{currentState.state_name}提案
+              审阅提案
             </button>
           </div>
         </div>
@@ -450,8 +446,8 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
           <div className="chat-channel-subheader">
             <span>
               {activeConversation?.kind === 'court_group'
-                ? '朝议群聊 · 勾选 @点名 唤醒对应官员'
-                : `${activeConversation?.title ?? ''} · 发送即唤醒该州官员`}
+                ? '朝议群聊（勾选 @点名 唤醒对应官员）'
+                : `${activeConversation?.title ?? ''}（发送即唤醒该州官员）`}
             </span>
             <button
               type="button"
@@ -465,7 +461,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
           {viewedWeek.is_history_view && (
             <div className="history-readonly-notice" data-testid="chat-history-readonly-banner">
-              历史回看只读：仅展示截止至第 {viewedWeek.week_number} 周的会话记录。
+              历史回看只读：仅展示截止至 {formatWeekCalendarDate(viewedWeek.week_number)} 的会话记录。
             </div>
           )}
 
@@ -481,7 +477,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             ) : messages.length === 0 && !sendingMessage ? (
               <div className="chat-empty-hint">
                 {viewedWeek.is_history_view
-                  ? `截止至第 ${viewedWeek.week_number} 周暂无会话记录。`
+                  ? `截止至 ${formatWeekCalendarDate(viewedWeek.week_number)} 暂无会话记录。`
                   : '当前频道尚无消息，可向官员发旨问询。'}
               </div>
             ) : (
@@ -497,7 +493,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                     <div className="bubble-meta-row">
                       <span className="bubble-sender">{formatSenderLabel(msg.sender_id)}</span>
                       <span className="bubble-week-tag">
-                        第{msg.created_in_week}周 · {formatPhaseName(msg.created_in_phase)}
+                        {formatWeekCalendarDate(msg.created_in_week)}
                       </span>
                     </div>
 
@@ -523,7 +519,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
                     {msg.is_late && msg.late_notice && (
                       <div className="bubble-late-notice" data-testid="chat-late-notice">
-                        {msg.late_notice}
+                        {stripUiMiddleDots(msg.late_notice)}
                       </div>
                     )}
 
@@ -531,7 +527,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                       className={`bubble-status-footer status-${msg.delivery_status.toLowerCase()}`}
                       data-testid="chat-msg-status-label"
                     >
-                      {msg.status_label}
+                      {stripUiMiddleDots(msg.status_label)}
                     </div>
                   </div>
                 );
@@ -545,7 +541,9 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               >
                 <div className="bubble-meta-row">
                   <span className="bubble-sender">君主（朕）</span>
-                  <span className="bubble-week-tag">第{viewedWeek.week_number}周</span>
+                  <span className="bubble-week-tag">
+                    {formatWeekCalendarDate(viewedWeek.week_number)}
+                  </span>
                 </div>
                 <div className="bubble-status-footer">发送中</div>
               </div>
@@ -595,7 +593,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               disabled={!canSendChat || sendingMessage}
               placeholder={
                 !canSendChat
-                  ? '历史回看或已完结归档状态下不可发送新消息'
+                  ? '历史记录或试玩结束后不可发送新消息'
                   : activeConversation?.kind === 'court_group'
                     ? '输入朝议圣旨或通告…'
                     : `向${activeConversation?.title.replace('单聊', '官员') ?? '官员'}垂询政务…`
@@ -630,9 +628,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
             <div className="central-budget-card" data-testid="approval-central-budget-card">
               <div className="central-budget-header">
                 <span>中央可调拨存量（奏报口径）</span>
-                <span className="central-source-tag">
-                  第{viewedWeek.week_number}周 · {centralReport.status_label}
-                </span>
               </div>
               <div className="central-budget-numbers">
                 <div className="central-num-box">
@@ -656,7 +651,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
               {debugTruth && (
                 <div className="central-debug-row" data-testid="approval-central-debug">
                   调试真值：银 {formatWan(debugTruth.central_truth.gross_silver, '万两')}（差额{' '}
-                  {formatSignedWan(debugTruth.central_diff.gross_silver_diff, '万两')}） · 粮{' '}
+                  {formatSignedWan(debugTruth.central_diff.gross_silver_diff, '万两')}），粮{' '}
                   {formatWan(debugTruth.central_truth.gross_grain, '万石')}（差额{' '}
                   {formatSignedWan(debugTruth.central_diff.gross_grain_diff, '万石')}）
                 </div>
@@ -666,7 +661,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 <div className="draft-summary-strip" data-testid="approval-draft-summary">
                   <div>
                     草稿拟批：银 <strong>{formatWan(approvalStatus.draftApprovedSilver, '万两')}</strong>{' '}
-                    · 粮 <strong>{formatWan(approvalStatus.draftApprovedGrain, '万石')}</strong>
+                    粮 <strong>{formatWan(approvalStatus.draftApprovedGrain, '万石')}</strong>
                   </div>
                   <div
                     className={`draft-status-tag ${approvalStatus.isReady ? 'ready' : 'incomplete'}`}
@@ -674,7 +669,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                     data-substate={approvalStatus.subState}
                   >
                     {approvalStatus.isReady
-                      ? `已表态 ${approvalStatus.decidedCount}/${approvalStatus.requiredCount} 项（可点击批复结算）`
+                      ? `已表态 ${approvalStatus.decidedCount}/${approvalStatus.requiredCount} 项（可进入下一回合）`
                       : `尚有 ${approvalStatus.requiredCount - approvalStatus.decidedCount} 笔申请未表态`}
                   </div>
                 </div>
@@ -688,7 +683,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
               {viewedWeek.week_phase === 'ARCHIVED' && (
                 <div className="phase-hint-strip archived">
-                  第 {viewedWeek.week_number} 周已归档封存，以下为正式批复记录（只读）。
+                  本回合批复记录（只读）。
                 </div>
               )}
             </div>
@@ -724,19 +719,17 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                       <strong>
                         {st.state_name}（{st.officer_title}）
                       </strong>
-                      <span className="proposal-origin-tag">
-                        {!prop
-                          ? '尚未提交提案'
-                          : prop.is_default_zero
-                            ? `第${prop.week_number}周未交提案 · 默认全0冻结`
-                            : `第${prop.week_number}周正式提案`}
-                      </span>
+                      {(!prop || prop.is_default_zero) && (
+                        <span className="proposal-origin-tag">
+                          {!prop ? '尚未提交提案' : '未交提案（默认全 0 冻结）'}
+                        </span>
+                      )}
                     </div>
 
                     {/* Item 1: Canal Project (Threshold 2.0万两) */}
                     <div className="proposal-line-item">
                       <div className="line-item-title">
-                        <span>① 修水渠工程（满额 2.0万两）</span>
+                        <span>修水渠工程（满额 2.0万两）</span>
                         {stSettled && (
                           <span className="settled-exec-tag">
                             {stSettled.project_executed ? '工程已执行' : '工程未执行'}
@@ -826,7 +819,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                     {/* Item 2: Disaster Relief Grain (Additive) */}
                     <div className="proposal-line-item">
                       <div className="line-item-title">
-                        <span>② 灾害赈济粮（累加型）</span>
+                        <span>灾害赈济粮（累加型）</span>
                       </div>
                       <div className="line-item-Breakdown">
                         <span>本地自主赈粮：{formatWan(reliefLocal, '万石')}</span>

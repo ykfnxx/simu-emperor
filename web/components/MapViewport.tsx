@@ -349,7 +349,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           viewBox={viewBoxString}
           preserveAspectRatio="xMidYMid slice"
           role="img"
-          aria-label="江山舆图 · 三州疆域"
+          aria-label="江山舆图 三州疆域"
           onClick={handleBackgroundClick}
         >
           <defs>
@@ -585,7 +585,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   e.stopPropagation();
                 }}
               >
-                <title>{`${bg.region_name} · ${bg.map_status_label}`}</title>
+                <title>{`${bg.region_name} ${bg.map_status_label}`}</title>
                 <rect
                   x={bg.labelPos.x - 28}
                   y={bg.labelPos.y - 9}
