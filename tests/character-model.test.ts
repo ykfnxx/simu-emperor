@@ -67,6 +67,16 @@ describe('character model actions', () => {
     }
   });
 
+  it('states the four-turn trial boundary without changing next-turn engineering rules', () => {
+    const input = characterInput();
+    expect(JSON.parse(buildCharacterTurnPrompt(input)).trial).toEqual({ turn_limit: 4, final_turn: false });
+    input.brief.turn.turn_number = 4;
+    input.brief.assignment.context.turn_number = 4;
+    input.inbox.turn.turn_number = 4;
+    const prompt = JSON.parse(buildCharacterTurnPrompt(input));
+    expect(prompt.trial).toEqual({ turn_limit: 4, final_turn: true });
+  });
+
   it('does not turn announcements or wakes for a previous appointment into required replies', () => {
     const input = characterInput();
     input.inbox.wakes[0]!.target_appointment_id = 'appointment_previous';
