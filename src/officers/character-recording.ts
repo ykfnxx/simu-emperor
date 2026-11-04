@@ -7,6 +7,10 @@ import type { AgentTraceInvocation, AgentTraceManifest, AgentTraceSource } from 
 import type { CharacterSessionHandle } from './character-session.ts';
 
 export class CharacterRecording {
+  private readonly handle: CharacterSessionHandle;
+  readonly sessionOpenId: string;
+  private readonly log: EventLogger;
+  private readonly redact: (message: string) => string;
   private readonly manifest: AgentTraceManifest;
   private readonly path: string;
   private recorder: VoyageRecorder | null = null;
@@ -15,13 +19,17 @@ export class CharacterRecording {
   private persistenceFailed = false;
 
   constructor(
-    private readonly handle: CharacterSessionHandle,
-    readonly sessionOpenId: string,
+    handle: CharacterSessionHandle,
+    sessionOpenId: string,
     rootDir: string,
     codeVersion: string | null,
-    private readonly log: EventLogger,
-    private readonly redact: (message: string) => string,
+    log: EventLogger,
+    redact: (message: string) => string,
   ) {
+    this.handle = handle;
+    this.sessionOpenId = sessionOpenId;
+    this.log = log;
+    this.redact = redact;
     const directory = join(rootDir, 'traces', 'agent', sessionOpenId);
     this.path = join(directory, 'manifest.json');
     this.manifest = {

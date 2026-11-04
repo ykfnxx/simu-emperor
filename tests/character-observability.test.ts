@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createRuntimeRegistry, defineRuntime, type RawEvent, type Session } from '@botiverse/oar';
 import { scriptedRuntime, type ScriptedTurn } from '@botiverse/oar/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,6 +72,12 @@ describe('Agent logs and OAR recording', () => {
   function voyage(manifest: AgentTraceManifest): Array<{ kind: string; record?: RawEvent }> {
     return readFileSync(join(rootDir, 'traces', 'agent', manifest.session_open_id, 'voyage.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
   }
+
+  it('loads the production character CLI with Node strip-only execution', () => {
+    const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '--eval',
+      "await import('./src/officers/character-cli.ts')"], { cwd: process.cwd(), encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+  });
 
   it('correlates one generation with all messages, host actions, HTTP responses and raw tool records', async () => {
     const messages = [dm('第一条消息'), dm('第二条消息')];
