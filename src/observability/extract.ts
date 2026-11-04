@@ -13,7 +13,7 @@ export interface TraceSelection {
 
 type JsonRow = { value: Record<string, unknown>; line: number };
 
-function readLines(path: string): { rows: JsonRow[]; incomplete: boolean } {
+function readLines(path: string): { rows: JsonRow[]; incomplete: boolean; text: string } {
   const text = readFileSync(path, 'utf8');
   const lines = text.split('\n');
   const rows: JsonRow[] = [];
@@ -32,7 +32,7 @@ function readLines(path: string): { rows: JsonRow[]; incomplete: boolean } {
     }
     rows.push({ value: value as Record<string, unknown>, line: index + 1 });
   }
-  return { rows, incomplete };
+  return { rows, incomplete, text };
 }
 
 function selectedInvocation(invocation: AgentTraceInvocation, selection: TraceSelection): boolean {
@@ -62,7 +62,8 @@ export function extractTrace(rootDir: string, outputDir: string, selection: Trac
   for (const directory of directories.sort((a, b) => a.name.localeCompare(b.name))) {
     const manifestPath = join(traceRoot, directory.name, 'manifest.json');
     if (!existsSync(manifestPath)) { warnings.push(`Missing manifest: traces/agent/${directory.name}`); continue; }
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as AgentTraceManifest;
+    const manifestText = readFileSync(manifestPath, 'utf8');
+    const manifest = JSON.parse(manifestText) as AgentTraceManifest;
     if (manifest.format_version !== 1 || !Array.isArray(manifest.invocations) ||
         typeof manifest.session_open_id !== 'string' || typeof manifest.session_id !== 'string') {
       throw new Error(`Invalid trace manifest: ${manifestPath}`);
@@ -73,7 +74,7 @@ export function extractTrace(rootDir: string, outputDir: string, selection: Trac
     const voyagePath = join(traceRoot, directory.name, 'voyage.jsonl');
     const exportedPath = `voyages/${directory.name}/voyage.jsonl`;
     const sourceManifestPath = `voyages/${directory.name}/manifest.json`;
-    files.set(sourceManifestPath, readFileSync(manifestPath));
+    files.set(sourceManifestPath, manifestText);
     const opening: Record<string, unknown> = {
       session_open_id: manifest.session_open_id, session_id: manifest.session_id,
       manifest: sourceManifestPath, voyage: existsSync(voyagePath) ? exportedPath : null,
@@ -84,11 +85,11 @@ export function extractTrace(rootDir: string, outputDir: string, selection: Trac
     };
     openings.push(opening);
     if (!existsSync(voyagePath)) { warnings.push(`Missing voyage: ${exportedPath}`); continue; }
-    const { rows, incomplete } = readLines(voyagePath);
+    const { rows, incomplete, text } = readLines(voyagePath);
     if (rows[0]?.value.kind !== 'header' || rows[0].value.format !== 'oar-voyage/3') {
       throw new Error(`Unsupported voyage header: ${voyagePath}`);
     }
-    files.set(exportedPath, readFileSync(voyagePath));
+    files.set(exportedPath, text);
     const ended = rows.at(-1)?.value.kind === 'end' && !incomplete;
     opening.capture_closed = ended;
     if (!ended) warnings.push(`Capture has no complete end record: ${exportedPath}`);

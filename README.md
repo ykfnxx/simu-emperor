@@ -44,6 +44,10 @@ npm run character -- --env-file .env.character --character character_a --watch
 
 JSON 是唯一写入方式。`json+mcp-read` 模式增加只读查询，不增加游戏写入工具。详见 [人物接入文档](docs/agents/character-caller.md)。
 
+## 观测记录
+
+Agent 与游戏引擎分别写入 `logs/agent/`、`logs/game-engine/`，原生交互保存在 `traces/agent/`。使用 `npm run trace:extract -- --invocation CALL_ID --out trace-exports/call` 按调用提取。文件范围、恢复边界和人物回合筛选见[观测记录说明](docs/observability/agent-traces.md)。
+
 ## 开发与验证
 
 ```bash
