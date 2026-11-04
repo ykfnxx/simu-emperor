@@ -159,14 +159,14 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
         typeof errObj.code === 'string' ? errObj.code : `HTTP_${response.status}`,
         typeof errObj.message === 'string'
           ? errObj.message
-          : `请求失败 (${response.status})`,
+          : `请求失败 ${response.status}`,
         errObj.details
       );
     }
     throw new CourtApiError(
       response.status,
       `HTTP_${response.status}`,
-      `请求失败 (${response.status})`
+      `请求失败 ${response.status}`
     );
   }
 
@@ -456,7 +456,7 @@ export function validateCustomPlanApprovalInput(
     return {
       approved_amount: undefined,
       custom_input: rawInput,
-      error: `批复数额不得超过请拨上限（${requestedAmount}）`
+      error: `批复数额不得超过请拨上限 ${requestedAmount}`
     };
   }
 

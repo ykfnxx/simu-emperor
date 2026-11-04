@@ -239,7 +239,7 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
       for (const layer of ['silver', 'grain', 'disaster'] as const) {
         const pres = computeProvinceLayerPresentation(beizhiliView, layer, 1);
         expect(pres.band).toBe('frozen');
-        expect(pres.metricText).toBe('冻结（未启用）');
+        expect(pres.metricText).toBe('冻结');
         expect(pres.isStaleFact).toBe(false);
       }
       expect(MAP_LAYERS.map((l) => l.id)).toEqual(['silver', 'grain', 'disaster']);
@@ -255,9 +255,9 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
         expect(pres.metricText).toContain('未奏报');
       }
       expect(formatKnownNumericFact(shaanxiInitial.known.disposable_silver, 'silver')).toBe(
-        '未奏报（未知）',
+        '未奏报',
       );
-      // Unknown fact provenance label is empty so '未奏报（未知）' is never shown twice
+      // Unknown fact provenance label is empty so '未奏报' is never shown twice
       expect(
         formatFactProvenanceTag(shaanxiInitial.known.disposable_silver, 1, charMap),
       ).toEqual({
@@ -303,7 +303,7 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
         1,
         charMap,
       );
-      expect(henanZeroProv.label).toBe('本轮奏报（1636年1月1日，陆慎之奏）');
+      expect(henanZeroProv.label).toBe('本轮奏报 1636年1月1日 陆慎之奏');
       expect(henanZeroProv.isStale).toBe(false);
       const henanDisasterPres = computeProvinceLayerPresentation(henanAfter, 'disaster', 1);
       expect(henanDisasterPres.band).toBe('low');

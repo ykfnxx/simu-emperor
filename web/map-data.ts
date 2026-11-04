@@ -66,20 +66,20 @@ export const MAP_LAYERS: readonly MapLayerMeta[] = [
     label: '藩库银图层',
     shortLabel: '存银',
     unitLabel: '万两',
-    legendLow: '紧缺 (<1.0万两)',
-    legendMid: '适中 (1.0–2.0万两)',
-    legendHigh: '充裕 (≥2.0万两)',
-    legendUnknown: '未奏报（未知）'
+    legendLow: '紧缺',
+    legendMid: '适中',
+    legendHigh: '充裕',
+    legendUnknown: '未奏报'
   },
   {
     id: 'grain',
     label: '仓谷储量图层',
     shortLabel: '存粮',
     unitLabel: '万石',
-    legendLow: '紧缺 (<1.0万石)',
-    legendMid: '常平 (1.0–2.0万石)',
-    legendHigh: '充盈 (≥2.0万石)',
-    legendUnknown: '未奏报（未知）'
+    legendLow: '紧缺',
+    legendMid: '常平',
+    legendHigh: '充盈',
+    legendUnknown: '未奏报'
   },
   {
     id: 'disaster',
@@ -88,8 +88,8 @@ export const MAP_LAYERS: readonly MapLayerMeta[] = [
     unitLabel: '灾情',
     legendLow: '岁境平顺',
     legendMid: '灾荒待赈',
-    legendHigh: '灾情深重 (≥2.5万饥民)',
-    legendUnknown: '未奏报（未知）'
+    legendHigh: '灾情深重',
+    legendUnknown: '未奏报'
   }
 ] as const;
 
@@ -902,7 +902,7 @@ export function formatKnownNumericFact(
 ): string {
   const num = getNumericFactValue(fact);
   if (num === undefined) {
-    return '未奏报（未知）';
+    return '未奏报';
   }
   if (unit === 'silver') {
     return formatSilverAmountWan(num);
@@ -931,8 +931,8 @@ export function formatFactProvenanceTag(
   const isStale = fact.turn_number < viewedTurnNumber;
   return {
     label: isStale
-      ? `往期记录（${dateText}，${authorName}奏）`
-      : `本轮奏报（${dateText}，${authorName}奏）`,
+      ? `往期记录 ${dateText} ${authorName}奏`
+      : `本轮奏报 ${dateText} ${authorName}奏`,
     isStale,
     authorName,
     dateText
@@ -960,7 +960,7 @@ export function computeProvinceLayerPresentation(
       fillColor: 'rgba(196, 189, 176, 0.34)',
       strokeColor: '#8d8373',
       hatchPatternId: null,
-      metricText: '冻结（未启用）',
+      metricText: '冻结',
       badgeText: '冻结',
       valueWan: null,
       isKnown: false,
@@ -996,7 +996,7 @@ export function computeProvinceLayerPresentation(
 
     const valueWan = val / 10000;
     const isStaleFact = viewedTurnNumber !== undefined ? fact.turn_number < viewedTurnNumber : false;
-    const staleSuffix = isStaleFact ? `（第${fact.turn_number}轮旧档）` : '';
+    const staleSuffix = isStaleFact ? ` 第${fact.turn_number}轮旧档` : '';
 
     if (val >= 20_000) {
       return {
@@ -1074,7 +1074,7 @@ export function computeProvinceLayerPresentation(
 
     const valueWan = val / 10000;
     const isStaleFact = viewedTurnNumber !== undefined ? fact.turn_number < viewedTurnNumber : false;
-    const staleSuffix = isStaleFact ? `（第${fact.turn_number}轮旧档）` : '';
+    const staleSuffix = isStaleFact ? ` 第${fact.turn_number}轮旧档` : '';
 
     if (val >= 20_000) {
       return {
@@ -1155,7 +1155,7 @@ export function computeProvinceLayerPresentation(
   const primaryFact = (popFact ?? demandFact ?? labelFact)!;
   const isStaleFact =
     viewedTurnNumber !== undefined ? primaryFact.turn_number < viewedTurnNumber : false;
-  const staleSuffix = isStaleFact ? `（第${primaryFact.turn_number}轮旧档）` : '';
+  const staleSuffix = isStaleFact ? ` 第${primaryFact.turn_number}轮旧档` : '';
   const labelStr = getStringFactValue(known.disaster_label) ?? '灾情';
   const popCount = getNumericFactValue(popFact);
   const demandShi = getNumericFactValue(demandFact);
@@ -1288,7 +1288,7 @@ export function buildAvailableHistoryTurnOptions(
     return {
       turn_number: t,
       date_iso: dateIso,
-      label: isActive ? `${dateLabel}（当前）` : `${dateLabel}（旧档）`,
+      label: isActive ? `${dateLabel} 当前` : `${dateLabel} 旧档`,
       is_active: isActive
     };
   });
@@ -1313,7 +1313,7 @@ export function formatOutlinerProvinceParts(
 ): OutlinerProvinceParts {
   const characterId = provinceView.appointment?.character_id ?? null;
   const character = characterId ? characterById.get(characterId) : undefined;
-  const governorName = character ? character.name : '悬缺（待任免）';
+  const governorName = character ? character.name : '悬缺';
 
   let reportStatusBadge = '本轮未奏';
   let reportStatusTone: 'reported' | 'pending' | 'vacant' = 'pending';
@@ -1333,7 +1333,7 @@ export function formatOutlinerProvinceParts(
       latestReport.author_character_id;
     const isHistoricalReport = latestReport.turn_number < viewedTurnNumber;
     const prefix = isHistoricalReport
-      ? `[${formatTurnCalendarDate(latestReport.turn_number, latestReport.date)} ${authorName}] `
+      ? `${formatTurnCalendarDate(latestReport.turn_number, latestReport.date)} ${authorName}：`
       : '';
     summaryText = `${prefix}${latestReport.body}`;
   }
@@ -1352,7 +1352,7 @@ export function formatOutlinerProvinceParts(
   const canal = provinceView.project;
   const canalBadge = canal
     ? canal.completed_turn !== null
-      ? `修河竣工（第${canal.completed_turn}轮）`
+      ? `第${canal.completed_turn}轮修河竣工`
       : `修河已投 ${formatSilverAmountWan(canal.paid_silver)} / ${formatSilverAmountWan(canal.total_cost)}`
     : null;
 
