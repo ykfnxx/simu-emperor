@@ -11,6 +11,7 @@ import type {
   PlanRecord,
   SubmitGameplayResponse,
 } from '../contracts/gameplay.ts';
+import type { EventLogger } from '../observability/log.ts';
 export class GameApiError extends Error {
   public readonly status: number;
   public readonly code: string;
@@ -49,6 +50,8 @@ export interface CharacterGameClientOptions {
   gameOrigin: string;
   hostToken: string;
   fetchImpl?: typeof fetch;
+  logger?: EventLogger;
+  observationContext?: () => { invocation_id: string | null } & Partial<AgentExecutionContext>;
 }
 
 export interface CapturedReplyTarget {
@@ -61,38 +64,61 @@ export class CharacterGameClient {
   private readonly origin: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly logger: EventLogger | undefined;
+  private readonly observationContext: CharacterGameClientOptions['observationContext'];
 
   constructor(options: CharacterGameClientOptions) {
     this.origin = options.gameOrigin.replace(/\/+$/, '');
     this.token = options.hostToken.trim();
     if (!this.token) throw new Error('Missing AGENT_HOST_TOKEN');
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    this.logger = options.logger;
+    this.observationContext = options.observationContext;
   }
 
   private async request<T>(path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${this.origin}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        authorization: `Bearer ${this.token}`,
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    if (!res.ok) {
-      let code = `HTTP_${res.status}`;
-      let message = res.statusText || code;
-      try {
-        const error = (await res.json())?.error;
-        if (typeof error?.code === 'string' && typeof error?.message === 'string') {
-          code = error.code;
-          message = error.message;
+    const started = performance.now();
+    const fields = { ...this.observationContext?.(), operation: path, method: body === undefined ? 'GET' : 'POST' };
+    this.logger?.('http.started', fields);
+    let status: number | null = null;
+    let requestId: string | null = null;
+    try {
+      const res = await this.fetchImpl(`${this.origin}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          ...(fields.invocation_id ? { 'X-Invocation-ID': fields.invocation_id } : {}),
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      status = res.status;
+      requestId = res.headers.get('X-Request-ID');
+      if (!res.ok) {
+        let code = `HTTP_${res.status}`;
+        let message = res.statusText || code;
+        try {
+          const error = (await res.json())?.error;
+          if (typeof error?.code === 'string' && typeof error?.message === 'string') {
+            code = error.code;
+            message = error.message;
+          }
+        } catch {
+          // Preserve the HTTP failure when an upstream returns a non-JSON body.
         }
-      } catch {
-        // Preserve the HTTP failure when an upstream returns a non-JSON body.
+        throw new GameApiError(res.status, code, message.replaceAll(this.token, '[redacted]'));
       }
-      throw new GameApiError(res.status, code, message.replaceAll(this.token, '[redacted]'));
+      const result = await res.json() as T;
+      this.logger?.('http.completed', { ...fields, request_id: requestId, status, outcome: 'completed', duration_ms: performance.now() - started });
+      return result;
+    } catch (error) {
+      this.logger?.('http.failed', {
+        ...fields, request_id: requestId, status, outcome: 'failed', duration_ms: performance.now() - started,
+        error_code: error instanceof GameApiError ? error.code : null,
+        error: (error instanceof Error ? error.message : String(error)).replaceAll(this.token, '[redacted]'),
+      });
+      throw error;
     }
-    return await res.json() as T;
   }
 
   async getAssignment(characterId: string): Promise<AgentAssignment> {

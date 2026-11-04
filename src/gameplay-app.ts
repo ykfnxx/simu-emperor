@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { Hono, type Context } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import type * as C from './contracts/gameplay.ts';
 import { DomainError } from './engine/errors.ts';
 import type { GameplayStore } from './engine/gameplay-store.ts';
+import { engineErrorFields, engineRequestContext } from './observability/engine-context.ts';
 
 export interface GameplayAuthOptions {
   monarchToken?: string;
@@ -56,6 +59,29 @@ async function contextBody(c: Context): Promise<C.AgentExecutionContext> {
 export function createGameplayApp(store: GameplayStore, options: GameplayAuthOptions = {}): Hono {
   const auth = resolveGameplayAuth(options);
   const app = new Hono();
+
+  app.use('/api/*', async (c, next) => {
+    const correlation = {
+      request_id: randomUUID(), invocation_id: c.req.header('X-Invocation-ID') ?? null,
+    };
+    c.header('X-Request-ID', correlation.request_id);
+    await engineRequestContext.run(correlation, async () => {
+      const started = performance.now();
+      const fields = {
+        ...correlation, method: c.req.method,
+        route: matchedRoutes(c).find((route) => route.method === c.req.method)?.path ?? null,
+      };
+      store.logger('http.started', fields);
+      await next();
+      const failed = c.res.status >= 400;
+      store.logger(failed ? 'http.failed' : 'http.completed', {
+        ...fields, status: c.res.status,
+        outcome: c.res.status >= 500 ? 'error' : failed ? 'rejected' : 'success',
+        duration_ms: performance.now() - started,
+        ...(c.error ? engineErrorFields(c.error) : {}),
+      });
+    });
+  });
 
   function requireRole(c: Context, role: 'court' | 'host' | 'debug'): void {
     const header = c.req.header('authorization');

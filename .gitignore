@@ -31,6 +31,8 @@ data/benchmarks/
 !.env.character.example
 
 # Logs and coverage
+traces/
+trace-exports/
 logs/
 *.log
 coverage/
