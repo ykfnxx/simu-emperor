@@ -1,7 +1,12 @@
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { endLine, headerLine, recordLine, type RawEvent } from '@botiverse/oar';
+import { createRuntimeRegistry, endLine, headerLine, recordLine, type RawEvent } from '@botiverse/oar';
+import { scriptedRuntime } from '@botiverse/oar/testing';
+import { serve } from '@hono/node-server';
+import { GameplayStore } from '../src/engine/gameplay-store.ts';
+import { createGameplayApp } from '../src/gameplay-app.ts';
+import { runCharacterOnce } from '../src/officers/character-runner.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extractTrace } from '../src/observability/extract.ts';
 import { createEventLogger } from '../src/observability/log.ts';
@@ -13,7 +18,7 @@ afterEach(() => { for (const path of roots.splice(0)) rmSync(path, { recursive: 
 function invocation(id: string, turn: number, first = 0, last: number | null = 1): AgentTraceInvocation {
   return {
     invocation_id: id, context: { game_id: 'game', character_id: 'character_a', appointment_id: 'appointment',
-      office_id: 'office', province_id: 'shaanxi', turn_number: turn }, sources: [],
+      office_id: 'governor_shaanxi', province_id: 'shaanxi', turn_number: turn }, sources: [],
     started_at: '2026-11-04T00:00:00Z', ended_at: last === null ? null : '2026-11-04T00:00:01Z',
     outcome: last === null ? 'running' : 'acted', first_seq: first, last_seq: last, accepted_seq: null,
   };
@@ -111,6 +116,66 @@ describe('offline trace extraction', () => {
     expect(() => extractTrace(root, join(root, 'export'), { invocationId: 'a' })).toThrow('Invalid JSON');
     expect(() => extractTrace(root, join(root, 'export'), {})).toThrow('Select --invocation');
     expect(() => extractTrace(directory(), join(root, 'export'), { invocationId: 'a' })).toThrow('No matching');
+  });
+
+  it.each([false, true])('exports the real caller/HTTP/SQLite path with response loss=%s', async (dropResponse) => {
+    const root = directory();
+    const auth = { agentHostToken: 'integration-host', monarchToken: 'integration-court', monarchDebugToken: 'integration-debug' };
+    const store = new GameplayStore({ logger: createEventLogger('game-engine', { rootDir: root, codeVersion: 'fixture' }) });
+    const app = createGameplayApp(store, auth);
+    const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 });
+    await new Promise<void>((done) => server.once('listening', done));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected a TCP address');
+    const context = store.getAssignment('character_a').context;
+    store.setRuntimeProfile({ game_id: context.game_id, office_id: context.office_id,
+      profile: { runtime: 'scripted', model: 'scripted-1', effort: null, mode: 'json' } });
+    let submissions = 0;
+    try {
+      const running = runCharacterOnce({
+        characterId: 'character_a', hostToken: auth.agentHostToken, gameOrigin: `http://127.0.0.1:${address.port}`,
+        dataDir: join(root, 'runtime'), mode: 'once', pollIntervalMs: 1, turnTimeoutMs: 3000, startNewSession: false,
+      }, {
+        observabilityRootDir: root, codeVersion: 'fixture',
+        runtimeRegistry: createRuntimeRegistry([scriptedRuntime({ turn: async (turn) => {
+          await turn.tool('read_fixture', '{"province":"shaanxi"}', () => ({ grain: 10 }));
+          turn.say(JSON.stringify({ submission: { report: { body: 'integration report', disclose: [] } }, replies: [] }));
+        } })]),
+        fetchImpl: (async (input, init) => {
+          const response = await fetch(input, init);
+          if (String(input).endsWith('/api/officer/submission')) {
+            submissions += 1;
+            if (dropResponse) throw new Error('response lost after commit');
+          }
+          return response;
+        }) as typeof fetch,
+      });
+      if (dropResponse) await expect(running).rejects.toThrow('response lost after commit');
+      else expect((await running).status).toBe('acted');
+      expect(submissions).toBe(1);
+      const output = join(root, 'export');
+      const result = extractTrace(root, output, { characterId: 'character_a', turn: 1 });
+      expect(result.openings).toHaveLength(1);
+      const trace = result.openings[0]!;
+      expect(trace).toMatchObject({ capture_closed: true, recording_error: null });
+      const timeline = rows(join(output, 'interactions.jsonl'));
+      expect(timeline.some((row) => row.event?.kind === 'tool_call_ended')).toBe(true);
+      expect(timeline.some((row) => row.record?.body?.kind === 'prompt')).toBe(true);
+      const agent = rows(join(output, 'agent-events.jsonl')).map((row) => row.event);
+      const engine = rows(join(output, 'engine-events.jsonl')).map((row) => row.event);
+      const committed = engine.find((event) => event.event === 'transaction.committed' && event.operation === 'submit');
+      expect(committed.invocation_id).toBe(result.invocation_ids[0]);
+      const reports = store.getCourtView().provinces.flatMap((province) => province.reports);
+      expect(reports.map((report) => report.report_id)).toContain(committed.result_refs.report_id);
+      if (dropResponse) expect(agent.some((event) => event.event === 'invocation.failed')).toBe(true);
+      else expect(agent.find((event) => event.event === 'http.completed' && event.operation === '/api/officer/submission').request_id)
+        .toBe(committed.request_id);
+      expect(JSON.stringify([...agent, ...engine])).not.toContain('integration report');
+      expect(JSON.stringify([...agent, ...engine])).not.toContain(auth.agentHostToken);
+    } finally {
+      await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done()));
+      store.close();
+    }
   });
 
   it('reports log write failures without changing a business outcome', () => {
