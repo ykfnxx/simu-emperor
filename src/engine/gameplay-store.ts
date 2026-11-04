@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type * as C from '../contracts/gameplay.ts';
 import { DomainError } from './errors.ts';
+import { createEventLogger, type EventLogger } from '../observability/log.ts';
+import { engineErrorFields, engineRequestContext } from '../observability/engine-context.ts';
 import {
   ACTIVE_PROVINCES, GAMEPLAY_SCENARIO as RULES, GAMEPLAY_TURNS,
   MING_PROVINCES, SCENARIO_CHARACTERS, gameplayTurnDate,
@@ -291,8 +293,10 @@ function appendMessage(
 
 export class GameplayStore {
   readonly db: DatabaseSync;
+  readonly logger: EventLogger;
 
-  constructor(options: { dbPath?: string } = {}) {
+  constructor(options: { dbPath?: string; logger?: EventLogger } = {}) {
+    this.logger = options.logger ?? createEventLogger('game-engine');
     this.db = new DatabaseSync(options.dbPath ?? ':memory:');
     try {
       this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
@@ -330,18 +334,45 @@ export class GameplayStore {
     return JSON.parse(row.data_json) as GameData;
   }
 
-  private write<T>(operation: (data: GameData) => T): T {
-    this.db.exec('BEGIN IMMEDIATE');
+  private write<T>(operation: string, apply: (data: GameData, fields: Record<string, unknown>) => T): T {
+    const started = performance.now();
+    const fields: Record<string, unknown> = { ...engineRequestContext.getStore(), operation };
+    let stage = 'begin';
+    let result: T;
+    this.logger('transaction.started', fields);
+    if (operation === 'settle') this.logger('settlement.started', fields);
     try {
+      this.db.exec('BEGIN IMMEDIATE');
+      stage = 'load';
       const data = this.load();
-      const result = operation(data);
+      Object.assign(fields, {
+        game_id: data.game_id, current_turn_number: current(data).view.turn_number,
+        phase: current(data).view.phase, game_date: current(data).view.date,
+      });
+      stage = 'apply';
+      result = apply(data, fields);
+      stage = 'save';
       this.db.prepare('UPDATE gameplay_save SET data_json=? WHERE singleton=1').run(JSON.stringify(data));
+      stage = 'commit';
       this.db.exec('COMMIT');
-      return structuredClone(result);
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      const { result_refs, ...attempt } = fields;
+      const failure = {
+        ...attempt, stage, outcome: error instanceof DomainError ? 'rejected' : 'error',
+        duration_ms: performance.now() - started, ...engineErrorFields(error),
+      };
+      this.logger('transaction.failed', failure);
+      if (operation === 'settle') this.logger('settlement.failed', failure);
+      if (stage !== 'begin') {
+        this.db.exec('ROLLBACK');
+        this.logger('transaction.rolled_back', { ...failure, duration_ms: performance.now() - started });
+      }
       throw error;
     }
+    const committed = { ...fields, stage: 'commit', outcome: 'success', duration_ms: performance.now() - started };
+    this.logger('transaction.committed', committed);
+    if (operation === 'settle') this.logger('settlement.completed', committed);
+    return structuredClone(result);
   }
 
   getAssignment(characterId: string): C.AgentAssignment {
@@ -367,9 +398,10 @@ export class GameplayStore {
   }
 
   submit(req: C.SubmitGameplayRequest): C.SubmitGameplayResponse {
-    return this.write((data) => {
+    return this.write('submit', (data, fields) => {
       object(req, ['context', 'report', 'plans'], 'submission');
       assertContext(data, req.context, true);
+      Object.assign(fields, req.context);
       if (req.report === undefined && req.plans === undefined) fail('EMPTY_SUBMISSION', 'Report or plans required');
       const turn = current(data);
       const now = new Date().toISOString();
@@ -429,14 +461,16 @@ export class GameplayStore {
       }
       validateCommitments(data);
       if (!report && updated.length === 0) fail('EMPTY_SUBMISSION', 'Report or nonempty plans required');
+      fields.result_refs = { report_id: report?.report_id ?? null, plan_ids: updated.map((plan) => plan.plan_id) };
       return { report, plans: updated };
     });
   }
 
   withdrawPlan(req: C.WithdrawPlanRequest): C.PlanRecord {
-    return this.write((data) => {
+    return this.write('withdraw_plan', (data, fields) => {
       object(req, ['context', 'plan_id'], 'withdrawal');
       assertContext(data, req.context, true);
+      Object.assign(fields, req.context);
       const plan = data.plans.find((entry) => entry.plan_id === req.plan_id);
       if (!plan) fail('PLAN_NOT_FOUND', 'Plan does not exist', 404);
       if (plan.appointment_id !== req.context.appointment_id) fail('PLAN_SCOPE', 'Plan belongs to another appointment', 403);
@@ -445,14 +479,16 @@ export class GameplayStore {
       }
       plan.status = 'WITHDRAWN';
       plan.updated_at = new Date().toISOString();
+      fields.result_refs = { plan_id: plan.plan_id };
       return plan;
     });
   }
 
   appoint(req: C.AppointmentRequest): C.AppointmentResponse {
-    return this.write((data) => {
+    return this.write('appoint', (data, fields) => {
       object(req, ['game_id', 'target_turn', 'office_id', 'character_id'], 'appointment');
       const turn = assertTarget(data, req, 'OPEN');
+      fields.turn_number = turn.view.turn_number;
       const office = data.offices.find((entry) => entry.office_id === req.office_id);
       if (!office) fail('OFFICE_NOT_FOUND', 'Office does not exist', 404);
       if (req.character_id !== null) {
@@ -485,12 +521,17 @@ export class GameplayStore {
         data.appointments.push(appointment);
       }
       turn.appointments = structuredClone(data.appointments.filter((entry) => entry.ended_at === null));
+      Object.assign(fields, {
+        office_id: office.office_id, character_id: appointment?.character_id ?? null,
+        appointment_id: appointment?.appointment_id ?? null,
+        result_refs: { appointment_id: appointment?.appointment_id ?? null, withdrawn_plan_ids: withdrawn },
+      });
       return { appointment, withdrawn_plan_ids: withdrawn };
     });
   }
 
   setRuntimeProfile(req: C.RuntimeProfileRequest): C.OfficeView {
-    return this.write((data) => {
+    return this.write('set_runtime_profile', (data, fields) => {
       object(req, ['game_id', 'office_id', 'profile'], 'runtime_profile');
       assertGame(data, req.game_id);
       object(req.profile, ['runtime', 'model', 'effort', 'mode'], 'profile');
@@ -501,26 +542,31 @@ export class GameplayStore {
         runtime: text(req.profile.runtime, 'runtime'), model: text(req.profile.model, 'model'),
         effort: req.profile.effort === null ? null : text(req.profile.effort, 'effort'), mode: req.profile.mode,
       };
+      fields.turn_number = current(data).view.turn_number;
+      fields.result_refs = { office_id: office.office_id };
       return office;
     });
   }
 
   lock(req: C.TurnTargetRequest): C.GameplayCourtView {
-    this.write((data) => {
+    this.write('lock', (data, fields) => {
       object(req, ['game_id', 'target_turn'], 'lock');
       const turn = assertTarget(data, req, 'OPEN');
+      fields.turn_number = turn.view.turn_number;
       validateCommitments(data);
       for (const plan of currentPlans(data, req.target_turn)) plan.status = 'LOCKED';
       turn.appointments = structuredClone(data.appointments.filter((entry) => entry.ended_at === null));
       turn.view.phase = 'LOCKED';
+      fields.result_refs = { game_id: data.game_id, turn_number: turn.view.turn_number, phase: turn.view.phase };
     });
     return this.getCourtView();
   }
 
   settle(req: C.SettleTurnRequest): C.GameplayCourtView {
-    this.write((data) => {
+    this.write('settle', (data, fields) => {
       object(req, ['game_id', 'target_turn', 'decisions'], 'settlement');
       const turn = assertTarget(data, req, 'LOCKED');
+      fields.turn_number = turn.view.turn_number;
       if (!Array.isArray(req.decisions)) fail('INVALID_DECISIONS', 'decisions must be an array');
       const plans = currentPlans(data, req.target_turn);
       const decisions = new Map<string, number>();
@@ -583,15 +629,17 @@ export class GameplayStore {
         central_ending_grain: turn.central.gross_grain - grain, provinces: results,
       };
       turn.settlement = result; turn.view.phase = 'ARCHIVED';
+      fields.result_refs = { game_id: data.game_id, turn_number: result.turn_number, settled_at: result.settled_at };
       if (req.target_turn < RULES.turns) data.turns.push(makeTurn(data, req.target_turn + 1, result));
     });
     return this.getCourtView();
   }
 
   createConversation(req: C.CreateConversationRequest): C.GameplayConversation {
-    return this.write((data) => {
+    return this.write('create_conversation', (data, fields) => {
       object(req, ['game_id', 'target_turn', 'kind', 'title', 'character_ids'], 'conversation');
       assertTarget(data, req);
+      fields.turn_number = req.target_turn;
       if (req.kind !== 'dm' && req.kind !== 'group') fail('INVALID_CONVERSATION_KIND', 'Unknown conversation kind');
       if (!Array.isArray(req.character_ids) || req.character_ids.length === 0 ||
           new Set(req.character_ids).size !== req.character_ids.length ||
@@ -603,13 +651,17 @@ export class GameplayStore {
       if (req.kind === 'dm') {
         const existing = data.conversations.find((entry) => entry.kind === 'dm' &&
           entry.participants.includes(req.character_ids[0]!));
-        if (existing) return conversationView(data, existing, 'monarch');
+        if (existing) {
+          fields.result_refs = { conversation_id: existing.conversation_id };
+          return conversationView(data, existing, 'monarch');
+        }
       }
       const entry: ConversationRecord = {
         conversation_id: id('conversation'), title, kind: req.kind,
         participants: ['monarch', ...req.character_ids], seen: {},
       };
       data.conversations.push(entry);
+      fields.result_refs = { conversation_id: entry.conversation_id };
       return conversationView(data, entry, 'monarch');
     });
   }
@@ -629,9 +681,10 @@ export class GameplayStore {
   }
 
   postCourtMessage(req: C.CourtMessageRequest): C.GameplayMessage {
-    return this.write((data) => {
+    return this.write('post_court_message', (data, fields) => {
       object(req, ['game_id', 'target_turn', 'conversation_id', 'content', 'mentions'], 'message');
       assertTarget(data, req);
+      fields.turn_number = req.target_turn;
       const entry = conversation(data, req.conversation_id, 'monarch');
       if (!Array.isArray(req.mentions) || new Set(req.mentions).size !== req.mentions.length) {
         fail('INVALID_MENTIONS', 'mentions must contain distinct character IDs');
@@ -643,7 +696,12 @@ export class GameplayStore {
       }
       const targetIds = entry.kind === 'dm' ? entry.participants.filter((actor) => actor !== 'monarch') : req.mentions;
       const targets = targetIds.map((characterId) => activeAppointment(data, characterId));
-      return appendMessage(data, entry, 'monarch', null, text(req.content, 'content'), req.target_turn, req.mentions, targets);
+      const message = appendMessage(data, entry, 'monarch', null, text(req.content, 'content'), req.target_turn, req.mentions, targets);
+      fields.result_refs = {
+        conversation_id: entry.conversation_id, message_seq: message.seq,
+        wake_ids: data.wakes.filter((wake) => wake.message_seq === message.seq).map((wake) => wake.wake_id),
+      };
+      return message;
     });
   }
 
@@ -667,9 +725,10 @@ export class GameplayStore {
   }
 
   recordReceipt(req: C.GameplayReceiptRequest): C.GameplayReceiptResponse {
-    return this.write((data) => {
+    return this.write('record_receipt', (data, fields) => {
       object(req, ['context', 'conversation_id', 'up_to_seq', 'outcome', 'error'], 'receipt');
       assertContext(data, req.context);
+      Object.assign(fields, req.context);
       const entry = conversation(data, req.conversation_id, req.context.character_id);
       const upTo = amount(req.up_to_seq, 'up_to_seq');
       if (!data.messages.some((message) => message.seq === upTo && message.conversation_id === entry.conversation_id)) {
@@ -688,14 +747,16 @@ export class GameplayStore {
           wake.error = error;
         }
       }
+      fields.result_refs = { conversation_id: entry.conversation_id, seen_seq: seen, receipt_outcome: req.outcome };
       return { conversation_id: entry.conversation_id, seen_seq: seen, advanced: seen > oldSeen };
     });
   }
 
   reply(req: C.GameplayReplyRequest): C.GameplayReplyResponse {
-    return this.write((data) => {
+    return this.write('reply', (data, fields) => {
       object(req, ['context', 'conversation_id', 'wake_id', 'source_turn', 'content', 'no_reply', 'explicit_directive'], 'reply');
       assertContext(data, req.context);
+      Object.assign(fields, req.context);
       const entry = conversation(data, req.conversation_id, req.context.character_id);
       const wake = data.wakes.find((item) => item.wake_id === req.wake_id);
       if (!wake) fail('WAKE_NOT_FOUND', 'Wake does not exist', 404);
@@ -705,18 +766,21 @@ export class GameplayStore {
         fail('WAKE_SCOPE', 'Wake is not part of this captured execution context', 403);
       }
       if (wake.status !== 'ACCEPTED') fail('WAKE_NOT_ACCEPTED', 'Wake needs an accepted runtime receipt and can only be answered once', 409);
+      Object.assign(fields, { conversation_id: entry.conversation_id, wake_id: wake.wake_id, source_turn: wake.source_turn });
       if (req.no_reply !== undefined && typeof req.no_reply !== 'boolean') fail('INVALID_NO_REPLY', 'no_reply must be boolean');
       if (req.no_reply === true) {
         if (req.explicit_directive !== '[NO_REPLY]' || req.content !== undefined) {
           fail('INVALID_NO_REPLY', 'No reply requires an explicit directive and no content');
         }
         wake.status = 'NO_REPLY';
+        fields.result_refs = { conversation_id: entry.conversation_id, wake_id: wake.wake_id, no_reply: true };
         return { message: null, no_reply: true };
       }
       if (req.explicit_directive !== undefined) fail('INVALID_REPLY', 'Directive cannot accompany a normal reply');
       const message = appendMessage(data, entry, req.context.character_id, req.context.appointment_id,
         text(req.content, 'content'), req.source_turn, [], []);
       wake.status = 'REPLIED';
+      fields.result_refs = { conversation_id: entry.conversation_id, wake_id: wake.wake_id, message_seq: message.seq, no_reply: false };
       return { message, no_reply: false };
     });
   }
