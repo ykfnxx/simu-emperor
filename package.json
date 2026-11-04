@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "character": "node --experimental-strip-types src/officers/character-cli.ts"
+    "character": "node --experimental-strip-types src/officers/character-cli.ts",
+    "trace:extract": "node --experimental-strip-types src/observability/extract-cli.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
