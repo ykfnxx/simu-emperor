@@ -410,7 +410,7 @@ export const App: React.FC = () => {
       applyLoadedCourtView(updated, convResp.conversations);
       setErrorNotice(null);
       setStatusToast(
-        `已截止 ${formatTurnCalendarDate(updated.active_turn.turn_number, updated.active_turn.date)} 奏报，请逐项朱批请拨方略。`
+        `已截止 ${formatTurnCalendarDate(updated.active_turn.turn_number, updated.active_turn.date)} 奏报。`
       );
     } catch (err) {
       // Preserve current date and drafts on error; never auto-rebind
@@ -476,7 +476,7 @@ export const App: React.FC = () => {
       setErrorNotice(null);
       const withdrawnNote =
         resp.withdrawn_plan_ids.length > 0
-          ? `（原任未锁定方略已撤回 ${resp.withdrawn_plan_ids.length} 项）`
+          ? `，已撤回原任未锁定方略 ${resp.withdrawn_plan_ids.length} 项`
           : '';
       setStatusToast(`已更新官职任免${withdrawnNote}。`);
     } catch (err) {
@@ -799,11 +799,8 @@ export const App: React.FC = () => {
             <div className="error-banner-main">
               <AlertTriangle size={16} className="error-banner-icon" />
               <div className="error-banner-text">
-                <strong>[{errorNotice.code}]</strong>{' '}
+                <strong>{errorNotice.code}</strong>{' '}
                 <span>{errorNotice.message}</span>
-                <span className="error-banner-sub">
-                  当前轮次日期（{viewedDateText}）与已填草稿均已完整保留，系统不会自动重放或改绑旧请求。
-                </span>
               </div>
             </div>
             <div className="error-banner-actions">
@@ -874,7 +871,7 @@ export const App: React.FC = () => {
                 <Calendar size={16} className="turn-calendar-icon" />
                 <div>
                   <span className="turn-reign-caption">
-                    崇祯九年 第{currentViewedTurnNumber}轮（共四轮）
+                    崇祯九年 第{currentViewedTurnNumber}轮
                   </span>
                   <strong
                     className="turn-real-date"
@@ -930,14 +927,14 @@ export const App: React.FC = () => {
                   className="turn-readonly-notice"
                   data-testid="turn-history-readonly-banner"
                 >
-                  正在调阅 {viewedDateText} 历史旧档（只读，不可更改任免、朱批或结算）。
+                  {viewedDateText} 历史旧档只读
                 </div>
               ) : isFourTurnTerminal ? (
                 <div
                   className="turn-terminal-notice"
                   data-testid="turn-terminal-banner"
                 >
-                  崇祯九年四轮试玩已完结归档（{viewedDateText}），不再开启第五轮。可于上方下拉框调阅各轮旧档。
+                  崇祯九年四轮试玩已于 {viewedDateText} 完结归档
                 </div>
               ) : activePhase === 'OPEN' ? (
                 <Button
@@ -948,7 +945,7 @@ export const App: React.FC = () => {
                   disabled={isMutating}
                   onClick={() => void handleLockCurrentTurn()}
                 >
-                  {isMutating ? '正在截奏...' : '截止本轮奏报（进入朱批）'}
+                  {isMutating ? '正在截奏...' : '截止本轮奏报'}
                 </Button>
               ) : (
                 <div className="turn-settle-block">
@@ -975,7 +972,7 @@ export const App: React.FC = () => {
                         尚有{' '}
                         {planEvaluation.undecidedPlanIds.length +
                           planEvaluation.invalidPlanIds.length}{' '}
-                        项请拨方略未批定整数数额
+                        项请拨方略未批定
                       </span>
                       <button
                         type="button"
@@ -1006,7 +1003,6 @@ export const App: React.FC = () => {
           >
             <div className="outliner-card-head">
               <h2 className="outliner-card-title">三省军政纲要</h2>
-              <span className="outliner-card-sub">点选省份展开详情</span>
             </div>
 
             <div className="outliner-province-list">
@@ -1087,10 +1083,6 @@ export const App: React.FC = () => {
               </Button>
             </div>
 
-            <Dialog.Description className="settings-dialog-desc">
-              运行环境按官职绑定配置，变更后由服务端校验生效。
-            </Dialog.Description>
-
             {/* Office Runtime Profile Configuration (`PUT /api/court/runtime-profile`) */}
             <form
               className="settings-section-form"
@@ -1156,7 +1148,6 @@ export const App: React.FC = () => {
                         model: e.target.value
                       }))
                     }
-                    placeholder="例如 claude-sonnet-4-5"
                   />
                 </label>
 
@@ -1174,7 +1165,7 @@ export const App: React.FC = () => {
                       }))
                     }
                   >
-                    <option value="">默认（无显式指定）</option>
+                    <option value="">默认</option>
                     {RUNTIME_EFFORT_OPTIONS.map((ef) => (
                       <option key={ef} value={ef}>
                         {ef}
@@ -1212,7 +1203,7 @@ export const App: React.FC = () => {
                   role="alert"
                   data-testid="runtime-profile-error"
                 >
-                  <strong>[{runtimeProfileError.code}]</strong>{' '}
+                  <strong>{runtimeProfileError.code}</strong>{' '}
                   <span>{runtimeProfileError.message}</span>
                 </div>
               )}
@@ -1258,7 +1249,6 @@ export const App: React.FC = () => {
                         courtToken: e.target.value
                       }))
                     }
-                    placeholder="本地保存，不随普通面板外露"
                   />
                 </label>
                 <label className="settings-field">
@@ -1273,7 +1263,6 @@ export const App: React.FC = () => {
                         debugToken: e.target.value
                       }))
                     }
-                    placeholder="用于调用 /api/debug/truth"
                   />
                 </label>
               </div>

@@ -103,9 +103,7 @@ const PLAN_KIND_LABELS: Readonly<Record<PlanKind, string>> = {
 
 function formatResourceExact(amount: number, resource: 'silver' | 'grain'): string {
   const unit = resource === 'silver' ? '两' : '石';
-  const wanStr =
-    resource === 'silver' ? formatSilverAmountWan(amount) : formatGrainAmountWan(amount);
-  return `${wanStr}（${amount.toLocaleString('zh-CN')}${unit}）`;
+  return `${amount.toLocaleString('zh-CN')}${unit}`;
 }
 
 export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
@@ -290,12 +288,12 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
       return {
         badge: '吏部铨选',
         title: '人才与官职任免',
-        subtitle: canAppointOrDismiss ? '当前轮次议政期内可任免巡抚' : '当前阶段或历史旧档不可变更任免'
+        subtitle: canAppointOrDismiss ? '议政期可任免巡抚' : '当前只读'
       };
     }
     if (selectedProvinceGeom) {
       return {
-        badge: selectedProvinceGeom.active ? selectedProvinceGeom.category : `${selectedProvinceGeom.category}（冻结）`,
+        badge: selectedProvinceGeom.active ? selectedProvinceGeom.category : `${selectedProvinceGeom.category} 冻结`,
         title: `${selectedProvinceGeom.name}省情`,
         subtitle: selectedProvinceGeom.jurisdiction_summary
       };
@@ -303,7 +301,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
     return {
       badge: '省情',
       title: '地方省情',
-      subtitle: '请于舆图点选省份'
+      subtitle: ''
     };
   };
 
@@ -374,7 +372,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
             </div>
             {(silverOverBudget || grainOverBudget) && (
               <p className="draft-budget-warning" role="status">
-                当前拟批总额超出户部实存，结算提交时将以服务端核验为准。
+                当前拟批总额超出户部实存。
               </p>
             )}
           </div>
@@ -387,7 +385,6 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
               <Building2 className="section-icon" size={16} />
               <span>三省已知财政奏报</span>
             </h3>
-            <span className="section-provenance-chip">仅录奏报事实</span>
           </div>
 
           <div className="province-fact-card-list">
@@ -514,10 +511,10 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                         />
                       </div>
                       <p className="canal-progress-note">
-                        尚欠 {formatSilverAmountWan(canal.remaining_silver)}。
+                        尚欠 {formatSilverAmountWan(canal.remaining_silver)}
                         {canal.completed_turn !== null
-                          ? `已于第${canal.completed_turn}轮竣工${canal.benefit_start_turn !== null && canal.benefit_start_turn <= 4 ? `（自第${canal.benefit_start_turn}轮起每轮增粮 ${formatGrainAmountWan(canal.grain_per_turn)}，不预支未来岁入）` : '（第四轮完结不增设第五轮，不预支未来岁入）'}。`
-                          : '未竣工前不预支未来岁入增额。'}
+                          ? `，第${canal.completed_turn}轮竣工${canal.benefit_start_turn !== null && canal.benefit_start_turn <= 4 ? `，自第${canal.benefit_start_turn}轮起每轮增粮 ${formatGrainAmountWan(canal.grain_per_turn)}` : ''}`
+                          : ''}
                       </p>
                     </div>
                   )}
@@ -551,7 +548,6 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
               <Users className="section-icon" size={16} />
               <span>三省在籍人丁与荒政奏报</span>
             </h3>
-            <span className="section-provenance-chip">原奏署名与日期</span>
           </div>
 
           <div className="province-fact-card-list">
@@ -670,7 +666,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                           className={`known-fact-val ${pv.known.disaster_label === undefined ? 'is-unknown' : ''}`}
                           data-testid={`population-disaster-label-${pid}`}
                         >
-                          {getStringFactValue(pv.known.disaster_label) ?? '未奏报（未知）'}
+                          {getStringFactValue(pv.known.disaster_label) ?? '未奏报'}
                         </strong>
                         {disasterTag.label && (
                           <span
@@ -689,7 +685,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                           <strong className="known-fact-val">
                             已赈 {formatPopulationCount(settledProvince.relieved_population)} / 未赈{' '}
                             {settledProvince.unrelieved_population === null
-                              ? '未奏报（未知）'
+                              ? '未奏报'
                               : formatPopulationCount(settledProvince.unrelieved_population)}
                           </strong>
                         </div>
@@ -718,13 +714,10 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <Snowflake className="section-icon" size={16} />
-              <span>其余十二省（冻结疆域）</span>
+              <span>其余十二省</span>
             </h3>
-            <span className="section-provenance-chip">无虚拟赋役数据</span>
+            <span className="section-provenance-chip">冻结疆域</span>
           </div>
-          <p className="frozen-section-desc">
-            两京十三省其余十二省在当前三省试玩局中保持冻结，可点击查阅其建置与府州地理。
-          </p>
           <div className="frozen-province-pill-grid">
             {frozenGeometries.map((fg) => (
               <button
@@ -794,11 +787,11 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                     </div>
                     {incumbent ? (
                       <span className="office-incumbent-line">
-                        现任：{incumbent.name}（自 {formatTurnCalendarDate(appt?.started_turn ?? 1)} 起任）
+                        现任：{incumbent.name}，{formatTurnCalendarDate(appt?.started_turn ?? 1)}起任
                       </span>
                     ) : (
                       <span className="office-incumbent-line is-vacant">
-                        现任：悬缺（本轮尚无巡抚履职）
+                        现任：悬缺
                       </span>
                     )}
                   </div>
@@ -912,11 +905,9 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <Snowflake className="section-icon" size={16} />
-              <span>{selectedProvinceGeom.name}（冻结疆域）</span>
+              <span>{selectedProvinceGeom.name}</span>
             </h3>
-            <span className="section-provenance-chip">
-              江山图景 {selectedProvinceGeom.snapshot_id}
-            </span>
+            <span className="section-provenance-chip">冻结疆域</span>
           </div>
 
           <div className="frozen-meta-grid">
@@ -930,17 +921,13 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
             </div>
             <div className="frozen-meta-item">
               <span className="frozen-meta-label">启用状态</span>
-              <strong>冻结（未设巡抚与钱粮奏报）</strong>
+              <strong>冻结</strong>
             </div>
             <div className="frozen-meta-item">
               <span className="frozen-meta-label">下辖府州</span>
               <strong>共 {selectedProvinceGeom.prefectures.length} 处府州治所</strong>
             </div>
           </div>
-
-          <p className="frozen-honest-notice" data-testid="frozen-province-honest-notice">
-            本省属于崇祯九年两京十三省建置疆域，在当前三省（陕西、河南、湖广）试玩局中保持冻结，不虚构任何岁入、仓谷、人口或灾情数值。
-          </p>
 
           {selectedProvinceGeom.prefectures.length > 0 && (
             <div className="frozen-prefecture-block">
@@ -1086,7 +1073,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
       {
         key: 'disaster_label',
         label: '灾情摘要',
-        valueText: getStringFactValue(pv.known.disaster_label) ?? '未奏报（未知）',
+        valueText: getStringFactValue(pv.known.disaster_label) ?? '未奏报',
         prov: formatFactProvenanceTag(
           pv.known.disaster_label,
           viewedTurnNumber,
@@ -1103,7 +1090,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <FileText className="section-icon" size={16} />
-              <span>朝廷已知本省实情（含原奏日期与署名）</span>
+              <span>朝廷已知本省实情</span>
             </h3>
             <span
               className={`incumbent-report-badge ${pv.current_officer_reported ? 'is-reported' : 'is-pending'}`}
@@ -1140,7 +1127,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
 
           {debugHidden && (
             <div className="debug-truth-box" data-testid={`province-debug-truth-${pid}`}>
-              <strong>[调试真值面板]</strong> 真实存银{' '}
+              <strong>调试真值</strong> 真实存银{' '}
               {formatSilverAmountWan(debugHidden.facts.gross_silver)} / 真实存粮{' '}
               {formatGrainAmountWan(debugHidden.facts.gross_grain)} / 真实在籍{' '}
               {formatPopulationCount(debugHidden.facts.registered_population)} / 真实待赈{' '}
@@ -1181,11 +1168,10 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                 />
               </div>
               <p className="canal-progress-note">
-                尚需拨银 {formatSilverAmountWan(canal.remaining_silver)}（
-                {canal.remaining_silver.toLocaleString('zh-CN')}两）。
+                尚需拨银 {formatSilverAmountWan(canal.remaining_silver)}
                 {canal.completed_turn !== null
-                  ? `于 ${formatTurnCalendarDate(canal.completed_turn)} 竣工${canal.benefit_start_turn !== null && canal.benefit_start_turn <= 4 ? `，增产收益自 ${formatTurnCalendarDate(canal.benefit_start_turn)} 起生效` : '（第四轮完结不增设第五轮，不提前计入岁入）'}。`
-                  : '河工未竣工前不预支未来岁入增额。'}
+                  ? `，于 ${formatTurnCalendarDate(canal.completed_turn)} 竣工${canal.benefit_start_turn !== null && canal.benefit_start_turn <= 4 ? `，增产收益自 ${formatTurnCalendarDate(canal.benefit_start_turn)} 起生效` : ''}`
+                  : ''}
               </p>
             </div>
           </section>
@@ -1196,8 +1182,9 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <FileText className="section-icon" size={16} />
-              <span>历次奏折原档（共 {pv.reports.length} 件）</span>
+              <span>历次奏折原档</span>
             </h3>
+            <span className="section-provenance-chip">共 {pv.reports.length} 件</span>
           </div>
 
           {pv.reports.length === 0 ? (
@@ -1224,7 +1211,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                   >
                     <div className="report-archive-head">
                       <strong>
-                        {authorName} 奏（{formatTurnCalendarDate(rep.turn_number, rep.date)}）
+                        {authorName} 奏 {formatTurnCalendarDate(rep.turn_number, rep.date)}
                       </strong>
                       <span className="report-turn-tag">
                         {isOldTurn ? `第${rep.turn_number}轮旧档` : `第${rep.turn_number}轮本轮`}
@@ -1235,10 +1222,10 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                       <span>
                         {disclosedKeys.length > 0
                           ? `随折披露账目 ${disclosedKeys.length} 项`
-                          : '未披露结构化账目'}{' '}
+                          : '未披露账目'}
                         {turnPlansCount > 0
-                          ? `（同轮呈报正式方略 ${turnPlansCount} 项）`
-                          : '（仅问安或陈情奏对，未附正式方略）'}
+                          ? `，同轮呈报方略 ${turnPlansCount} 项`
+                          : '，未附方略'}
                       </span>
                     </div>
                   </article>
@@ -1304,8 +1291,9 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <Coins className="section-icon" size={16} />
-              <span>{pv.province.name}独立方略清册（共 {plans.length} 项）</span>
+              <span>{pv.province.name}方略清册</span>
             </h3>
+            <span className="section-provenance-chip">共 {plans.length} 项</span>
           </div>
 
           {plans.length === 0 ? (
@@ -1330,11 +1318,11 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                 } else if (plan.status === 'SETTLED') {
                   decisionBadgeText =
                     plan.approved_amount === 0
-                      ? '已驳回（0）'
+                      ? '已驳回 0'
                       : `已核批 ${formatResourceExact(plan.approved_amount ?? 0, plan.resource)}`;
                   decisionBadgeClass = 'is-settled';
                 } else if (isPureLocal) {
-                  decisionBadgeText = '地方自办（免部批）';
+                  decisionBadgeText = '地方自办';
                   decisionBadgeClass = 'is-pure-local';
                 } else if (entry?.error) {
                   decisionBadgeText = '输入有误';
@@ -1342,7 +1330,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                 } else if (entry?.approved_amount !== undefined) {
                   decisionBadgeText =
                     entry.approved_amount === 0
-                      ? '拟拒批（0）'
+                      ? '拟拒批 0'
                       : `拟批 ${entry.approved_amount.toLocaleString('zh-CN')}${unitLabel}`;
                   decisionBadgeClass =
                     entry.approved_amount === 0 ? 'is-rejected' : 'is-approved';
@@ -1361,7 +1349,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                         </span>
                         <h4 className="formal-plan-purpose">{plan.purpose}</h4>
                         <span className="formal-plan-author">
-                          原奏：{authorName}（{formatTurnCalendarDate(plan.turn_number)}）
+                          原奏：{authorName} {formatTurnCalendarDate(plan.turn_number)}
                         </span>
                       </div>
                       <span
@@ -1392,19 +1380,19 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                         className="formal-plan-pure-local-note"
                         data-testid={`plan-pure-local-${plan.plan_id}`}
                       >
-                        此项为本省纯自筹方略（请拨部款为 0），无需户部拨付或额外朱批。
+                        本省纯自筹方略，免户部批拨。
                       </p>
                     )}
 
                     {!isPureLocal && plan.status === 'OPEN' && (
                       <p className="formal-plan-phase-note">
-                        当前处于议政期（OPEN），待本轮截奏（LOCKED）锁定方略后即可逐项朱批。
+                        议政期内待截奏后朱批。
                       </p>
                     )}
 
                     {!isPureLocal && plan.status === 'WITHDRAWN' && (
                       <p className="formal-plan-phase-note">
-                        原任巡抚于议政期内调离或罢免，此项未锁定方略已按制撤回。
+                        原任去职，未锁定方略已撤回。
                       </p>
                     )}
 
@@ -1427,7 +1415,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                               })
                             }
                           >
-                            全批（{plan.requested_amount.toLocaleString('zh-CN')}{unitLabel}）
+                            全批 {plan.requested_amount.toLocaleString('zh-CN')}{unitLabel}
                           </Button>
                           <Button
                             type="button"
@@ -1442,7 +1430,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                               })
                             }
                           >
-                            不批（0）
+                            不批 0
                           </Button>
                           <Button
                             type="button"
@@ -1460,7 +1448,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                             htmlFor={`plan-input-${plan.plan_id}`}
                             className="plan-custom-label"
                           >
-                            自定义整数朱批（0 至 {plan.requested_amount} {unitLabel}）：
+                            批复数额 0 至 {plan.requested_amount} {unitLabel}：
                           </label>
                           <input
                             id={`plan-input-${plan.plan_id}`}
@@ -1468,7 +1456,6 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                             type="text"
                             inputMode="numeric"
                             className={`plan-custom-input ${entry?.error ? 'has-error' : ''}`}
-                            placeholder={`输入 0..${plan.requested_amount} 整数`}
                             value={
                               entry?.custom_input ??
                               (entry?.approved_amount !== undefined
@@ -1541,7 +1528,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           <div className="section-header-row">
             <h3 className="section-title">
               <MessageSquare className="section-icon" size={16} />
-              <span>人物绑定密折与朝堂群议</span>
+              <span>密折与朝堂廷议</span>
             </h3>
             <Button
               type="button"
@@ -1633,7 +1620,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                   !canSendChat || selectedGroupParticipantIds.length === 0 || isMutating
                 }
               >
-                发起群议（参与臣工 {selectedGroupParticipantIds.length} 人）
+                发起群议 {selectedGroupParticipantIds.length} 人
               </Button>
             </form>
           )}
@@ -1661,7 +1648,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                     </span>
                   </div>
                   <span className="conv-pill-participants">
-                    固定参与臣工：{participantNames}
+                    参与臣工：{participantNames}
                   </span>
                 </button>
               );
@@ -1685,11 +1672,6 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                     .join('、')}
                 </span>
               </div>
-              <span className="chat-wake-rule-badge">
-                {activeConversation.kind === 'group'
-                  ? '群议仅唤醒显式 @ 点名臣工'
-                  : '私信直接唤醒收件臣工'}
-              </span>
             </div>
 
             <div className="chat-message-list" data-testid="chat-message-list">
@@ -1699,7 +1681,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                 conversationMessages.map((msg) => {
                   const isMonarch = msg.sender_id === 'monarch';
                   const authorLabel = isMonarch
-                    ? '圣躬（朱批传谕）'
+                    ? '圣谕'
                     : characterById.get(msg.sender_id)?.name ?? msg.sender_id;
 
                   const mentionNames = msg.mentions
@@ -1719,7 +1701,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                         <strong>{authorLabel}</strong>
                         <span className="chat-msg-turn">
                           {formatTurnCalendarDate(msg.created_in_turn)}
-                          {msg.is_late ? '（截奏后补达）' : ''}
+                          {msg.is_late ? ' 截奏后补达' : ''}
                         </span>
                       </div>
                       <p className="chat-msg-body">{msg.content}</p>
@@ -1743,7 +1725,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
             >
               {activeConversation.kind === 'group' && (
                 <div className="group-mention-picker" data-testid="group-mention-picker">
-                  <span className="mention-picker-label">点名唤醒（@）：</span>
+                  <span className="mention-picker-label">点名臣工：</span>
                   {activeConvCharacterIds.map((cid) => {
                     const cName = characterById.get(cid)?.name ?? cid;
                     const isMentioned = selectedMentions.includes(cid);
@@ -1772,9 +1754,9 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
                   placeholder={
                     canSendChat
                       ? activeConversation.kind === 'group'
-                        ? '撰写廷议圣谕（群议需点选上方 @ 臣工方会触发唤醒回复）...'
-                        : '撰写密折圣谕...'
-                      : '历史旧档或终局只读，不可发送传谕'
+                        ? '撰写廷议圣谕'
+                        : '撰写密折圣谕'
+                      : '当前只读'
                   }
                   value={currentDraft}
                   onChange={(e) =>
@@ -1874,7 +1856,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
             data-testid="province-tab-approval"
             onClick={() => onChangeProvinceTab('approval')}
           >
-            请拨批复（{pv.plans.length}）
+            请拨批复 {pv.plans.length}
           </button>
           <button
             type="button"
@@ -1949,7 +1931,7 @@ export const RightDrawer: React.FC<LeftWorkPanelProps> = ({
           })}
           {selectedProvinceGeom && !selectedProvinceGeom.active && (
             <span className="province-quick-pill is-active is-frozen">
-              {selectedProvinceGeom.name}（冻结）
+              {selectedProvinceGeom.name} 冻结
             </span>
           )}
         </div>

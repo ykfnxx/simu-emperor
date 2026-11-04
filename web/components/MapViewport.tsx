@@ -399,7 +399,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           viewBox={viewBoxString}
           preserveAspectRatio="xMidYMid slice"
           role="img"
-          aria-label="江山舆图 崇祯九年两京十三省（s_ming_c 1636–1643）"
+          aria-label="崇祯九年两京十三省江山舆图"
           onClick={handleBackgroundClick}
         >
           <defs>
@@ -512,7 +512,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   data-selected={isSelected ? 'true' : 'false'}
                   role="button"
                   tabIndex={0}
-                  aria-label={`${geom.name}（${geom.active ? pres.metricText : '冻结疆域'}）`}
+                  aria-label={`${geom.name} ${geom.active ? pres.metricText : '冻结疆域'}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (dragRef.current.moved) return;
@@ -707,8 +707,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                         className="map-state-debug-caption"
                         data-testid={`map-debug-truth-${resolvedId}`}
                       >
-                        [真值 银{formatSilverAmountWan(debugHidden.facts.gross_silver)} 粮
-                        {formatGrainAmountWan(debugHidden.facts.gross_grain)}]
+                        真值 银{formatSilverAmountWan(debugHidden.facts.gross_silver)} 粮
+                        {formatGrainAmountWan(debugHidden.facts.gross_grain)}
                       </text>
                     )}
                   </g>
@@ -780,7 +780,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         </div>
 
         <div className="map-legend-card" data-testid="map-layer-legend" aria-label="舆图图例">
-          <span className="legend-item" data-testid="legend-item-stable" title={activeLayerMeta.legendHigh}>
+          <span className="legend-item" data-testid="legend-item-stable" title={activeLayer === 'disaster' ? activeLayerMeta.legendLow : activeLayerMeta.legendHigh}>
             <i className="legend-swatch swatch-stable" />
             <span>{activeLayer === 'disaster' ? activeLayerMeta.legendLow : activeLayerMeta.legendHigh}</span>
           </span>
@@ -788,7 +788,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <i className="legend-swatch swatch-mild" />
             <span>{activeLayerMeta.legendMid}</span>
           </span>
-          <span className="legend-item" data-testid="legend-item-urgent" title={activeLayerMeta.legendLow}>
+          <span className="legend-item" data-testid="legend-item-urgent" title={activeLayer === 'disaster' ? activeLayerMeta.legendHigh : activeLayerMeta.legendLow}>
             <i className="legend-swatch swatch-urgent" />
             <span>{activeLayer === 'disaster' ? activeLayerMeta.legendHigh : activeLayerMeta.legendLow}</span>
           </span>
@@ -796,7 +796,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <i className="legend-swatch swatch-unknown" />
             <span>{activeLayerMeta.legendUnknown}</span>
           </span>
-          <span className="legend-item" data-testid="legend-item-frozen" title="两京十三省其余十二省为冻结状态">
+          <span className="legend-item" data-testid="legend-item-frozen" title="冻结疆域">
             <i className="legend-swatch swatch-frozen" />
             <span>冻结疆域</span>
           </span>
