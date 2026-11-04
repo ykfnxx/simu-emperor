@@ -74,6 +74,34 @@ describe('offline trace extraction', () => {
     expect(() => extractTrace(root, output, { invocationId: 'b' })).toThrow('Output already exists');
   });
 
+  it('attributes late task events to their start without attributing the rest of the frame to that call', () => {
+    const root = directory();
+    const start = frame(1, 'a');
+    if (start.kind !== 'frame') throw new Error('Expected a frame');
+    const finish = frame(3, 'b');
+    if (finish.kind !== 'frame') throw new Error('Expected a frame');
+    opening(root, 'first', [invocation('a', 1), invocation('b', 2, 2, 3)], [
+      prompt(0, 'a'), { ...start, body: { ...start.body, events: [
+        { kind: 'task_started', taskId: 'task-1', taskType: 'agent', background: true },
+      ] } }, prompt(2, 'b'), { ...finish, body: { ...finish.body, events: [
+        { kind: 'task_ended', taskId: 'task-1', status: 'completed' },
+        { kind: 'text_delta', text: 'only-b' },
+        { kind: 'task_ended', taskId: 'missing-start', status: 'completed' },
+      ] } },
+    ]);
+    extractTrace(root, join(root, 'a-export'), { invocationId: 'a' });
+    const result = extractTrace(root, join(root, 'b-export'), { invocationId: 'b' });
+    const first = rows(join(root, 'a-export', 'interactions.jsonl'));
+    const second = rows(join(root, 'b-export', 'interactions.jsonl'));
+    expect(first.filter((row) => row.event?.taskId === 'task-1').map((row) => row.event.kind))
+      .toEqual(['task_started', 'task_ended']);
+    expect(first.at(-1)).toMatchObject({ invocation_id: 'a', observed_during_invocation_id: 'b', source: { seq: 3 }, event_index: 0 });
+    expect(second.some((row) => row.event?.taskId === 'task-1')).toBe(false);
+    expect(second.find((row) => row.event?.text === 'only-b').invocation_id).toBe('b');
+    expect(second.find((row) => row.event?.taskId === 'missing-start').invocation_id).toBeNull();
+    expect(result.warnings.join(' ')).toContain('without an observed originating invocation');
+  });
+
   it('keeps resumed streams with repeated seq separate and includes source-turn matches', () => {
     const root = directory(); const output = join(root, 'export');
     opening(root, 'first', [invocation('a', 1)], [prompt(0, 'a'), frame(1, 'first')]);

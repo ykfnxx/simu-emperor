@@ -37,6 +37,8 @@ The exporter writes:
 - `interactions.jsonl`: control records and OAR-derived events within selected invocation ranges. Each row identifies the opening, invocation, source path/line/seq; derived events also carry `event_index`, so multiple events from one frame remain distinct.
 - `agent-events.jsonl` and `engine-events.jsonl`: matching logs, including events joined by request ID. Each row wraps the original `event` with its source file and line.
 
+Background task updates and endings inherit the invocation of the observed `task_started`, scoped by opening, session, agent path and task ID. A late event can therefore appear outside its originating invocation’s sequence interval; `observed_during_invocation_id` identifies that difference. A task event with no observed start retains a null invocation and a warning instead of being assigned to the current call.
+
 Tool argument deltas and complete replacement arguments remain distinct events, in their original order. The full argument event replaces earlier fragments when interpreting the timeline. Tool result content and failures remain as OAR reported them. Unknown native frames remain in the raw voyage even if OAR derives no event from them.
 
 The raw voyage covers an entire opening and can include other invocations. `contains_other_invocations` flags that scope; the filtered interaction timeline does not copy those other calls. This is a **local raw export**, not a sanitized sharing bundle. Review and redact raw conversation content before sharing it. The application does not upload recordings automatically.

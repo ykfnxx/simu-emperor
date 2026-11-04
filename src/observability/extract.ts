@@ -110,31 +110,47 @@ export function extractTrace(rootDir: string, outputDir: string, selection: Trac
       record_count: records.length,
     };
     const actions = controlActionsOf(records.map(({ record }) => record));
-    const selectedRanges = chosen.map((invocation) => {
+    const chosenIds = new Set(chosen.map((invocation) => invocation.invocation_id));
+    const ranges = manifest.invocations.map((invocation) => {
       const nextStart = manifest.invocations.filter((other) => other.first_seq > invocation.first_seq)
         .reduce((next, other) => Math.min(next, other.first_seq), Infinity);
       const last = invocation.last_seq ?? Math.min(nextStart - 1, records.at(-1)?.record.seq ?? -1);
-      if (invocation.ended_at === null) warnings.push(`Invocation has no recorded completion: ${invocation.invocation_id}`);
+      if (chosenIds.has(invocation.invocation_id) && invocation.ended_at === null) {
+        warnings.push(`Invocation has no recorded completion: ${invocation.invocation_id}`);
+      }
       return { invocation, last };
     });
+    const taskOwners = new Map<string, string | null>();
     let unassigned = 0;
+    let unknownTaskEvents = 0;
     for (const { record, line } of records) {
-      const match = selectedRanges.find(({ invocation, last }) => record.seq >= invocation.first_seq && record.seq <= last);
-      if (!match) {
-        if (!manifest.invocations.some((invocation) => record.seq >= invocation.first_seq &&
-            (invocation.last_seq === null || record.seq <= invocation.last_seq))) unassigned += 1;
-        continue;
-      }
+      const during = ranges.find(({ invocation, last }) => record.seq >= invocation.first_seq && record.seq <= last)
+        ?.invocation.invocation_id ?? null;
+      if (during === null) unassigned += 1;
       const reference = {
-        session_open_id: manifest.session_open_id, invocation_id: match.invocation.invocation_id,
+        session_open_id: manifest.session_open_id,
         source: { path: exportedPath, line, seq: record.seq },
       };
       // Keep controls alongside derived events so responses and input bodies remain inspectable.
-      if (record.kind !== 'frame') interactions.push({ ...reference, kind: 'control', record });
+      if (record.kind !== 'frame' && during !== null && chosenIds.has(during)) {
+        interactions.push({ ...reference, invocation_id: during, kind: 'control', record });
+      }
       eventsOf(record, actions).forEach((event, eventIndex) => {
-        interactions.push({ ...reference, kind: 'event', event_index: eventIndex, event });
+        let owner = during;
+        if (event.kind === 'task_started' || event.kind === 'task_updated' || event.kind === 'task_ended') {
+          const key = JSON.stringify([event.sessionId, event.agentPath, event.taskId]);
+          if (event.kind === 'task_started') taskOwners.set(key, during);
+          owner = taskOwners.get(key) ?? null;
+          if (owner === null && during !== null && chosenIds.has(during)) unknownTaskEvents += 1;
+        }
+        if (owner === null ? during === null || !chosenIds.has(during) : !chosenIds.has(owner)) return;
+        interactions.push({
+          ...reference, invocation_id: owner, kind: 'event', event_index: eventIndex, event,
+          ...(owner !== during ? { observed_during_invocation_id: during } : {}),
+        });
       });
     }
+    if (unknownTaskEvents > 0) warnings.push(`Task events without an observed originating invocation: ${exportedPath} (${unknownTaskEvents})`);
     opening.unassigned_record_count = unassigned;
   }
 
