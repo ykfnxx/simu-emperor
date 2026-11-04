@@ -43,6 +43,9 @@ function selectedInvocation(invocation: AgentTraceInvocation, selection: TraceSe
 }
 
 export function extractTrace(rootDir: string, outputDir: string, selection: TraceSelection) {
+  if (selection.invocationId && (selection.characterId !== undefined || selection.turn !== undefined)) {
+    throw new Error('Use either --invocation or --character with --turn, not both');
+  }
   if (!selection.invocationId && !(selection.characterId && selection.turn !== undefined)) {
     throw new Error('Select --invocation, or both --character and --turn');
   }

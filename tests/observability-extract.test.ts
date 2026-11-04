@@ -115,6 +115,8 @@ describe('offline trace extraction', () => {
     writeFileSync(join(logDir, readdirSync(logDir)[0]!), '{bad}\n');
     expect(() => extractTrace(root, join(root, 'export'), { invocationId: 'a' })).toThrow('Invalid JSON');
     expect(() => extractTrace(root, join(root, 'export'), {})).toThrow('Select --invocation');
+    expect(() => extractTrace(root, join(root, 'export'), { invocationId: 'a', characterId: 'character_b', turn: 1 }))
+      .toThrow('not both');
     expect(() => extractTrace(directory(), join(root, 'export'), { invocationId: 'a' })).toThrow('No matching');
   });
 
