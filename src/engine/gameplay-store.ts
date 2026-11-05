@@ -495,14 +495,16 @@ export class GameplayStore {
         if (!SCENARIO_CHARACTERS.some((entry) => entry.character_id === req.character_id)) {
           fail('CHARACTER_NOT_FOUND', 'Character does not exist', 404);
         }
-        if (data.appointments.some((entry) => entry.character_id === req.character_id && entry.ended_at === null)) {
-          fail('CHARACTER_ALREADY_APPOINTED', 'A character can hold only one active office', 409);
+        if (data.appointments.some((entry) => entry.character_id === req.character_id &&
+            entry.ended_at === null && entry.office_id === req.office_id)) {
+          fail('CHARACTER_ALREADY_APPOINTED', 'Character already holds this office', 409);
         }
       }
       const now = new Date().toISOString();
-      const old = data.appointments.find((entry) => entry.office_id === req.office_id && entry.ended_at === null);
+      const replaced = data.appointments.filter((entry) => entry.ended_at === null &&
+        (entry.office_id === req.office_id || entry.character_id === req.character_id));
       const withdrawn: string[] = [];
-      if (old) {
+      for (const old of replaced) {
         old.ended_turn = turn.view.turn_number;
         old.ended_at = now;
         for (const plan of data.plans) {

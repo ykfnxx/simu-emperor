@@ -88,7 +88,13 @@ Group messages wake only explicitly named participants. DM messages wake their
 one recipient. Unnamed group announcements do not trigger a model call.
 
 Formal submission/withdrawal and appointment changes require the current `OPEN`
-turn. Brief reads also require a current context. Inbox, receipts and replies may
+turn. Selecting a character serving in another office through
+`POST /api/court/appointments` transfers that character in one transaction: the source office becomes vacant,
+the target incumbent is dismissed, and a new appointment is created. OPEN plans
+of the ended appointments are withdrawn and returned in `withdrawn_plan_ids`;
+paid progress, reports and historical appointments retain their original identity.
+
+Brief reads also require a current context. Inbox, receipts and replies may
 refer to an earlier source turn while the same appointment remains effective;
 they do not permit former appointees to write. A reply references its exact
 `wake_id` and `source_turn`, copied by the host from that wake. Its execution
