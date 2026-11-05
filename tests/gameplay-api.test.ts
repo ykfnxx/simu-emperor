@@ -121,6 +121,31 @@ describe('Ming trial HTTP contract', () => {
     } finally { store.close(); }
   });
 
+  it('moves an incumbent through one appointment request without adding request fields', async () => {
+    const store = new GameplayStore();
+    try {
+      const app = createGameplayApp(store, AUTH);
+      const previous = store.getAssignment('character_b').context;
+      const response = await request(app, '/api/court/appointments', AUTH.monarchToken, {
+        game_id: previous.game_id, target_turn: previous.turn_number,
+        office_id: 'governor_shaanxi', character_id: previous.character_id,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        appointment: { character_id: 'character_b', office_id: 'governor_shaanxi', province_id: 'shaanxi' },
+        withdrawn_plan_ids: [],
+      });
+      const view = await (await request(app, '/api/court/view', AUTH.monarchToken)).json() as GameplayCourtView;
+      expect(view.provinces.find((entry) => entry.province.province_id === 'henan')!.appointment).toBeNull();
+      expect(view.provinces.find((entry) => entry.province.province_id === 'shaanxi')!.appointment!.character_id).toBe('character_b');
+      const stale = await request(app, '/api/officer/submission', AUTH.agentHostToken, {
+        context: previous, report: { body: '旧任期输出', disclose: [] },
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ error: { code: 'STALE_APPOINTMENT' } });
+    } finally { store.close(); }
+  });
+
   it('returns explicit input errors and leaves the current state intact', async () => {
     const store = new GameplayStore();
     try {

@@ -248,6 +248,88 @@ describe('Ming trial ledger and appointment authority', () => {
     }
   });
 
+  it('transfers an incumbent atomically, withdrawing both offices commitments while preserving history', () => {
+    const store = new GameplayStore();
+    try {
+      submit(store, 'character_a', [plan(2_000)]);
+      submit(store, 'character_b', [plan(1_000)]);
+      next(store);
+      const originalTarget = store.getAssignment('character_a').context;
+      const originalSource = store.getAssignment('character_b').context;
+      const targetSubmission = store.submit({ context: originalTarget,
+        report: { body: '陕西前任奏报', disclose: ['gross_silver'] }, plans: [plan(1_000)] });
+      const sourceSubmission = store.submit({ context: originalSource,
+        report: { body: '河南原任奏报', disclose: ['gross_grain'] }, plans: [plan(1_000)] });
+      const dm = store.createConversation({ ...target(store), kind: 'dm', title: '河南旧任期', character_ids: ['character_b'] });
+      store.postCourtMessage({ ...target(store), conversation_id: dm.conversation_id, content: '调任前询问', mentions: [] });
+
+      const changed = store.appoint({ ...target(store), office_id: 'governor_shaanxi', character_id: 'character_b' });
+      expect(changed.withdrawn_plan_ids.sort()).toEqual([
+        targetSubmission.plans[0]!.plan_id, sourceSubmission.plans[0]!.plan_id,
+      ].sort());
+      const newContext = store.getAssignment('character_b').context;
+      expect(newContext).toMatchObject({ province_id: 'shaanxi', office_id: 'governor_shaanxi', turn_number: 2 });
+      expect(newContext.appointment_id).not.toBe(originalSource.appointment_id);
+      expect(changed.appointment!.appointment_id).toBe(newContext.appointment_id);
+      const view = store.getCourtView();
+      const shaanxi = view.provinces.find((entry) => entry.province.province_id === 'shaanxi')!;
+      const henan = view.provinces.find((entry) => entry.province.province_id === 'henan')!;
+      expect(henan.appointment).toBeNull();
+      expect(shaanxi.appointment!.character_id).toBe('character_b');
+      expect(view.appointments.filter((entry) => entry.ended_at === null && entry.character_id === 'character_b')).toHaveLength(1);
+      expect(view.appointments.filter((entry) =>
+        [originalSource.appointment_id, originalTarget.appointment_id].includes(entry.appointment_id))
+        .every((entry) => entry.ended_turn === 2 && entry.ended_at !== null)).toBe(true);
+      expect([...shaanxi.plans, ...henan.plans].every((entry) => entry.status === 'WITHDRAWN')).toBe(true);
+      expect(shaanxi.project!.paid_silver).toBe(2_000);
+      expect(henan.project!.paid_silver).toBe(1_000);
+      expect(shaanxi.reports[0]!.appointment_id).toBe(originalTarget.appointment_id);
+      expect(henan.reports[0]!.appointment_id).toBe(originalSource.appointment_id);
+      expect(shaanxi.known.gross_silver!.author_character_id).toBe('character_a');
+      expect(shaanxi.current_officer_reported).toBe(false);
+      const historical = store.getCourtView(1);
+      expect(historical.provinces.find((entry) => entry.province.province_id === 'shaanxi')!.appointment!.character_id).toBe('character_a');
+      expect(historical.provinces.find((entry) => entry.province.province_id === 'henan')!.appointment!.character_id).toBe('character_b');
+      errorCode(() => store.submit({ context: originalSource, plans: [plan(1)] }), 'STALE_APPOINTMENT');
+      errorCode(() => store.submit({ context: originalTarget, plans: [plan(1)] }), 'STALE_APPOINTMENT');
+      expect(store.getInbox(newContext).wakes).toEqual([]);
+      expect(store.getCourtMessages(dm.conversation_id)).toHaveLength(1);
+      expect(store.submit({ context: newContext, plans: [plan(1)] }).plans[0]!.province_id).toBe('shaanxi');
+    } finally { store.close(); }
+  });
+
+  it('rolls back both offices and commitments if persisting a transfer fails', () => {
+    const events: Array<{ event: string; operation: unknown }> = [];
+    const store = new GameplayStore({ logger: (event, fields) => { events.push({ event, operation: fields?.operation }); } });
+    try {
+      submit(store, 'character_a', [plan(1_000)]);
+      submit(store, 'character_b', [plan(1_000)]);
+      const before = store.getCourtView();
+      store.db.exec("CREATE TEMP TRIGGER fail_transfer BEFORE UPDATE ON gameplay_save BEGIN SELECT RAISE(ABORT, 'transfer save failed'); END");
+      expect(() => store.appoint({ ...target(store), office_id: 'governor_shaanxi', character_id: 'character_b' }))
+        .toThrow('transfer save failed');
+      expect(store.getCourtView()).toEqual(before);
+      expect(events.filter((entry) => entry.operation === 'appoint').map((entry) => entry.event))
+        .toEqual(['transaction.started', 'transaction.failed', 'transaction.rolled_back']);
+    } finally { store.close(); }
+  });
+
+  it('keeps transfer game, turn and OPEN checks and rejects selecting the current incumbent', () => {
+    const store = new GameplayStore();
+    try {
+      const req = { ...target(store), office_id: 'governor_shaanxi' as const, character_id: 'character_b' };
+      const before = store.getCourtView();
+      errorCode(() => store.appoint({ ...req, game_id: 'old-game' }), 'STALE_GAME');
+      errorCode(() => store.appoint({ ...req, target_turn: 2 }), 'STALE_TURN');
+      errorCode(() => store.appoint({ ...req, character_id: 'character_a' }), 'CHARACTER_ALREADY_APPOINTED');
+      expect(store.getCourtView()).toEqual(before);
+      store.lock(target(store));
+      const locked = store.getCourtView();
+      errorCode(() => store.appoint(req), 'WRONG_PHASE');
+      expect(store.getCourtView()).toEqual(locked);
+    } finally { store.close(); }
+  });
+
   it('rejects forged identity, invalid amounts, kind changes and unsupported disclosure fields without side effects', () => {
     const store = new GameplayStore();
     try {
