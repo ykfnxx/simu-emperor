@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CharacterId, CharacterPublicView, ProvinceId } from '../src/contracts/gameplay.ts';
 import { GameplayStore } from '../src/engine/gameplay-store.ts';
 import {
+  buildOfficeReplacementCandidates,
+  buildProvinceEventDialogData,
+  CHARACTER_PORTRAIT_CLASS_BY_ID,
   clearStaleConversationDrafts,
   clearStalePlanApprovalDrafts,
   CourtApiError,
@@ -11,6 +14,7 @@ import {
   DEFAULT_MONARCH_SETTINGS,
   evaluatePlanApprovalCompleteness,
   getAppointedCharacters,
+  getCharacterPortraitClass,
   getConversationCharacterIds,
   getConversationTurnKey,
   getPlanDraftStorageKey,
@@ -222,6 +226,181 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
     expect(uiStore.getState().activeLeftPanel).toBe('province');
     expect(uiStore.getState().selectedProvinceId).toBe('henan');
     expect(uiStore.getState().provinceTab).toBe('approval');
+
+    uiStore.getState().toggleGlobalPanel('history');
+    expect(uiStore.getState().activeLeftPanel).toBe('history');
+  });
+
+  it('matches preset character portraits consistently, enables single-click atomic candidate replacement in OPEN phase while protecting current occupant and locked/history states, and builds real event dialog summaries', () => {
+    expect(CHARACTER_PORTRAIT_CLASS_BY_ID).toEqual({
+      character_a: 'face-shen',
+      character_b: 'face-lu',
+      character_c: 'face-gu',
+      character_d: 'face-chen',
+    });
+    expect(getCharacterPortraitClass(null)).toBe('face-vacant');
+    expect(getCharacterPortraitClass(undefined)).toBe('face-vacant');
+    expect(getCharacterPortraitClass('unknown_character')).toBe('face-vacant');
+    expect(getCharacterPortraitClass('character_a')).toBe('face-shen');
+    expect(getCharacterPortraitClass('character_d')).toBe('face-chen');
+
+    const store = new GameplayStore();
+    try {
+      const initialView = store.getCourtView();
+      const charMap = new Map<CharacterId, CharacterPublicView>(
+        initialView.characters.map((c) => [c.character_id, c]),
+      );
+
+      // Candidate replacement for governor_shaanxi (occupied by character_a) in OPEN phase
+      const candidatesOpen = buildOfficeReplacementCandidates('governor_shaanxi', initialView);
+      expect(candidatesOpen).toHaveLength(4);
+      const candA = candidatesOpen.find((c) => c.character.character_id === 'character_a')!;
+      const candB = candidatesOpen.find((c) => c.character.character_id === 'character_b')!;
+      const candD = candidatesOpen.find((c) => c.character.character_id === 'character_d')!;
+
+      // Current occupant is not actionable
+      expect(candA.isCurrentOccupant).toBe(true);
+      expect(candA.statusLabel).toBe('现任');
+      expect(candA.actionable).toBe(false);
+
+      // Already-appointed candidate in another office (character_b in Henan) IS actionable for single-click atomic transfer
+      expect(candB.isCurrentOccupant).toBe(false);
+      expect(candB.statusLabel).toBe('河南巡抚');
+      expect(candB.actionable).toBe(true);
+
+      // Unappointed candidate (character_d) is actionable
+      expect(candD.statusLabel).toBe('候任');
+      expect(candD.actionable).toBe(true);
+
+      // Event dialog before any report: retains missing report state (本轮未奏)
+      const shaanxiUnreported = initialView.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      const evUnreported = buildProvinceEventDialogData(shaanxiUnreported, 1, charMap);
+      expect(evUnreported.hasCurrentTurnReport).toBe(false);
+      expect(evUnreported.metaText).toContain('本轮未奏');
+      expect(evUnreported.metaText).not.toContain('·');
+      expect(evUnreported.summonCharacterId).toBe('character_a');
+
+      // Frozen province event dialog retains frozen state
+      const beizhili = initialView.provinces.find((p) => p.province.province_id === 'beizhili')!;
+      const evFrozen = buildProvinceEventDialogData(beizhili, 1, charMap);
+      expect(evFrozen.active).toBe(false);
+      expect(evFrozen.metaText).toBe('冻结省区');
+      expect(evFrozen.summonCharacterId).toBeNull();
+
+      // Turn 1: character_a submits a report and canal plan in Shaanxi
+      const assignA = store.getAssignment('character_a');
+      store.submit({
+        context: assignA.context,
+        report: { body: '延安旱荒急报', disclose: ['disposable_silver'] },
+        plans: [{ kind: 'canal', local_amount: 1000, requested_amount: 5000, purpose: '延安急赈' }],
+      });
+
+      const viewAfterReport = store.getCourtView();
+      const shaanxiReportedOpen = viewAfterReport.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      const evReportedOpen = buildProvinceEventDialogData(shaanxiReportedOpen, 1, charMap);
+      expect(evReportedOpen.hasCurrentTurnReport).toBe(true);
+      expect(evReportedOpen.summonCharacterId).toBe('character_a');
+      expect(evReportedOpen.metaText).toBe('1636年1月1日 沈安民奏');
+      expect(evReportedOpen.bodyText).toBe('延安旱荒急报');
+
+      // Same-turn replacement in Turn 1 (character_a -> character_d):
+      // current_officer_reported is false, event dialog distinguishes new incumbent from former author's same-turn report
+      store.appoint({
+        game_id: initialView.game_id,
+        target_turn: 1,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_d',
+      });
+      const viewAfterSameTurnReplace = store.getCourtView();
+      const shaanxiSameTurnReplaced = viewAfterSameTurnReplace.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      expect(shaanxiSameTurnReplaced.current_officer_reported).toBe(false);
+      const evSameTurnReplaced = buildProvinceEventDialogData(shaanxiSameTurnReplaced, 1, charMap);
+      expect(evSameTurnReplaced.hasCurrentTurnReport).toBe(false);
+      expect(evSameTurnReplaced.summonCharacterId).toBe('character_d');
+      expect(evSameTurnReplaced.metaText).toBe('陈知远 本轮未奏 前任奏报 1636年1月1日 沈安民奏');
+      expect(evSameTurnReplaced.bodyText).toBe('延安旱荒急报');
+
+      // Vacancy after report in Turn 1 (character_id: null):
+      // summonCharacterId MUST be null (never falling back to old report author沈安民!)
+      store.appoint({
+        game_id: initialView.game_id,
+        target_turn: 1,
+        office_id: 'governor_shaanxi',
+        character_id: null,
+      });
+      const viewVacant = store.getCourtView();
+      const shaanxiVacant = viewVacant.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!;
+      expect(shaanxiVacant.appointment).toBeNull();
+      const evVacant = buildProvinceEventDialogData(shaanxiVacant, 1, charMap);
+      expect(evVacant.summonCharacterId).toBeNull();
+      expect(evVacant.hasCurrentTurnReport).toBe(false);
+      expect(evVacant.metaText).toBe('巡抚悬缺 本轮未奏 前任奏报 1636年1月1日 沈安民奏');
+
+      // Re-appoint character_a in Turn 1, submit report/plan, lock & settle Turn 1, then replace with character_d in Turn 2
+      store.appoint({
+        game_id: initialView.game_id,
+        target_turn: 1,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_a',
+      });
+      const assignA2 = store.getAssignment('character_a');
+      store.submit({
+        context: assignA2.context,
+        report: { body: '陕西复奏', disclose: ['disposable_silver'] },
+        plans: [{ kind: 'canal', local_amount: 1000, requested_amount: 5000, purpose: '延安急赈' }],
+      });
+      const lockedView = store.lock({ game_id: initialView.game_id, target_turn: 1 });
+      const candidatesLocked = buildOfficeReplacementCandidates('governor_shaanxi', lockedView);
+      expect(candidatesLocked.every((c) => !c.actionable)).toBe(true);
+
+      const shaanxiPlanId = lockedView.provinces.find(
+        (p) => p.province.province_id === 'shaanxi',
+      )!.plans.find((p) => p.status === 'LOCKED')!.plan_id;
+      store.settle({
+        game_id: initialView.game_id,
+        target_turn: 1,
+        decisions: [{ plan_id: shaanxiPlanId, approved_amount: 5000 }],
+      });
+
+      // Turn 2: replace governor_shaanxi with character_d
+      store.appoint({
+        game_id: initialView.game_id,
+        target_turn: 2,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_d',
+      });
+
+      // Historical Turn 1 view: derives office occupants from province.appointment snapshot (character_a), NOT global ended_at===null (character_d)
+      const turn1HistoryView = store.getCourtView(1);
+      const candidatesHistoryTurn1 = buildOfficeReplacementCandidates(
+        'governor_shaanxi',
+        turn1HistoryView,
+      );
+      expect(candidatesHistoryTurn1.every((c) => !c.actionable)).toBe(true);
+      expect(
+        candidatesHistoryTurn1.find((c) => c.character.character_id === 'character_a')!
+          .statusLabel,
+      ).toBe('现任');
+      expect(
+        candidatesHistoryTurn1.find((c) => c.character.character_id === 'character_d')!
+          .statusLabel,
+      ).toBe('候任');
+      expect(getAppointedCharacters(turn1HistoryView).map((c) => c.character_id)).toEqual([
+        'character_a',
+        'character_b',
+        'character_c',
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it('distinguishes omitted unknown facts from explicit zero, dates historical facts with original author, and never invents frozen province data', () => {
