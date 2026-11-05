@@ -1551,6 +1551,7 @@ export const App: React.FC = () => {
         onOpenBiography={handleOpenBiography}
         onHoverBiography={handleHoverBiography}
         onLeaveBiography={handleLeaveBiography}
+        biographyOpen={bioCharacterId !== null}
       />
 
       {/* Biography Popup */}

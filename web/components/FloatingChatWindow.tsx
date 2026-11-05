@@ -51,6 +51,7 @@ export interface FloatingChatWindowProps {
     anchorEl?: HTMLElement | null
   ) => void;
   onLeaveBiography?: () => void;
+  biographyOpen: boolean;
 }
 
 export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
@@ -77,7 +78,8 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
   onCreateGroupConversation,
   onOpenBiography,
   onHoverBiography,
-  onLeaveBiography
+  onLeaveBiography,
+  biographyOpen
 }) => {
   const [membersPopupOpen, setMembersPopupOpen] = useState(false);
   const [groupCreateOpen, setGroupCreateOpen] = useState(false);
@@ -95,7 +97,7 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
   useEffect(() => {
     if (!membersPopupOpen && !groupCreateOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !biographyOpen) {
         e.stopPropagation();
         e.preventDefault();
         if (membersPopupOpen) {
@@ -107,7 +109,7 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [membersPopupOpen, groupCreateOpen]);
+  }, [membersPopupOpen, groupCreateOpen, biographyOpen]);
 
   const canInteract =
     !isHistoryView && courtView.active_turn.phase !== 'ARCHIVED';
@@ -590,9 +592,6 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
                           onHoverBiography?.(charId, e.currentTarget)
                         }
                         onMouseLeave={() => onLeaveBiography?.()}
-                        onFocus={(e) =>
-                          onHoverBiography?.(charId, e.currentTarget)
-                        }
                         onBlur={() => onLeaveBiography?.()}
                         onClick={(e) => {
                           e.stopPropagation();
