@@ -184,6 +184,8 @@ export const App: React.FC = () => {
     top: number;
     left: number;
   } | null>(null);
+  const bioAnchorRef = useRef<HTMLElement | null>(null);
+  const dismissedBioAnchorRef = useRef<HTMLElement | null>(null);
   const bioCloseTimerRef = useRef<number | null>(null);
   const [replaceOfficeId, setReplaceOfficeId] = useState<OfficeId | null>(null);
   const [archiveProvinceId, setArchiveProvinceId] =
@@ -236,6 +238,8 @@ export const App: React.FC = () => {
 
   const handleHoverBiography = useCallback(
     (charId: CharacterId, anchorEl?: HTMLElement | null) => {
+      if (anchorEl && dismissedBioAnchorRef.current === anchorEl) return;
+      bioAnchorRef.current = anchorEl ?? null;
       clearBioCloseTimer();
       setBioCharacterId(charId);
       if (anchorEl) {
@@ -245,7 +249,8 @@ export const App: React.FC = () => {
     [clearBioCloseTimer]
   );
 
-  const handleLeaveBiography = useCallback(() => {
+  const handleLeaveBiography = useCallback((anchorEl?: HTMLElement) => {
+    if (anchorEl === dismissedBioAnchorRef.current) dismissedBioAnchorRef.current = null;
     if (bioPinned) return;
     clearBioCloseTimer();
     bioCloseTimerRef.current = window.setTimeout(() => {
@@ -256,6 +261,8 @@ export const App: React.FC = () => {
 
   const handleOpenBiography = useCallback(
     (charId: CharacterId, anchorEl?: HTMLElement | null) => {
+      dismissedBioAnchorRef.current = null;
+      bioAnchorRef.current = anchorEl ?? null;
       clearBioCloseTimer();
       setBioCharacterId(charId);
       setBioPinned(true);
@@ -266,7 +273,15 @@ export const App: React.FC = () => {
     [clearBioCloseTimer]
   );
 
-  const handleCloseBiography = useCallback(() => {
+  const handleCloseBiography = useCallback((pointer?: { clientX: number; clientY: number }) => {
+    const anchor = bioAnchorRef.current;
+    if (pointer && anchor) {
+      const rect = anchor.getBoundingClientRect();
+      if (pointer.clientX >= rect.left && pointer.clientX <= rect.right &&
+          pointer.clientY >= rect.top && pointer.clientY <= rect.bottom) {
+        dismissedBioAnchorRef.current = anchor;
+      }
+    }
     clearBioCloseTimer();
     setBioCharacterId(null);
     setBioPinned(false);

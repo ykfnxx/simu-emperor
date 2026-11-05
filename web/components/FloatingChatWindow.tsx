@@ -50,7 +50,7 @@ export interface FloatingChatWindowProps {
     characterId: CharacterId,
     anchorEl?: HTMLElement | null
   ) => void;
-  onLeaveBiography?: () => void;
+  onLeaveBiography?: (anchorEl?: HTMLElement) => void;
   biographyOpen: boolean;
 }
 
@@ -591,7 +591,7 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
                         onMouseEnter={(e) =>
                           onHoverBiography?.(charId, e.currentTarget)
                         }
-                        onMouseLeave={() => onLeaveBiography?.()}
+                        onMouseLeave={(e) => onLeaveBiography?.(e.currentTarget)}
                         onBlur={() => onLeaveBiography?.()}
                         onClick={(e) => {
                           e.stopPropagation();
