@@ -426,9 +426,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   onHoverBiography?.(char.character_id, e.currentTarget)
                 }
                 onMouseLeave={() => onLeaveBiography?.()}
-                onFocus={(e) =>
-                  onHoverBiography?.(char.character_id, e.currentTarget)
-                }
                 onBlur={() => onLeaveBiography?.()}
                 onClick={(e) =>
                   onOpenBiography(char.character_id, e.currentTarget)
@@ -883,10 +880,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   onHoverBiography?.(incumbent.character_id, e.currentTarget);
               }}
               onMouseLeave={() => onLeaveBiography?.()}
-              onFocus={(e) => {
-                if (incumbent)
-                  onHoverBiography?.(incumbent.character_id, e.currentTarget);
-              }}
               onBlur={() => onLeaveBiography?.()}
               onClick={(e) => {
                 if (incumbent)
