@@ -60,7 +60,7 @@ export interface RightDrawerProps {
   ) => void;
   onOpenBiography: (characterId: CharacterId, anchorEl?: HTMLElement | null) => void;
   onHoverBiography?: (characterId: CharacterId, anchorEl?: HTMLElement | null) => void;
-  onLeaveBiography?: () => void;
+  onLeaveBiography?: (anchorEl?: HTMLElement) => void;
   onOpenChatForCharacter: (characterId: CharacterId) => void;
   onOpenReplaceCandidateDialog: (officeId: OfficeId) => void;
   onOpenReportArchive: (provinceId: ProvinceId) => void;
@@ -425,7 +425,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 onMouseEnter={(e) =>
                   onHoverBiography?.(char.character_id, e.currentTarget)
                 }
-                onMouseLeave={() => onLeaveBiography?.()}
+                onMouseLeave={(e) => onLeaveBiography?.(e.currentTarget)}
                 onBlur={() => onLeaveBiography?.()}
                 onClick={(e) =>
                   onOpenBiography(char.character_id, e.currentTarget)
@@ -879,7 +879,7 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                 if (incumbent)
                   onHoverBiography?.(incumbent.character_id, e.currentTarget);
               }}
-              onMouseLeave={() => onLeaveBiography?.()}
+              onMouseLeave={(e) => onLeaveBiography?.(e.currentTarget)}
               onBlur={() => onLeaveBiography?.()}
               onClick={(e) => {
                 if (incumbent)
