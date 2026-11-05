@@ -1,5 +1,6 @@
 'use client';
 
+import { useModalDialogFocus } from './components/useModalDialogFocus';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CharacterId,
@@ -80,42 +81,6 @@ const RUNTIME_ENGINE_OPTIONS = [
 ] as const;
 
 const RUNTIME_EFFORT_OPTIONS = ['low', 'medium', 'high'] as const;
-
-function useModalDialogFocus(
-  isOpen: boolean,
-  dialogRef: React.RefObject<HTMLElement | null>
-): void {
-  const lastFocusedRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    lastFocusedRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-
-    const rafId = window.requestAnimationFrame(() => {
-      const container = dialogRef.current;
-      if (!container) return;
-      const focusable = container.querySelector<HTMLElement>(
-        'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (focusable) {
-        focusable.focus();
-      } else {
-        container.focus();
-      }
-    });
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      const prev = lastFocusedRef.current;
-      if (prev && document.contains(prev)) {
-        prev.focus();
-      }
-    };
-  }, [isOpen, dialogRef]);
-}
 
 function computeBioPopupPosition(
   anchorEl?: HTMLElement | null
@@ -260,7 +225,7 @@ export const App: React.FC = () => {
   useModalDialogFocus(replaceOfficeId !== null, candidateDialogRef);
   useModalDialogFocus(archiveProvinceId !== null, archiveDialogRef);
   useModalDialogFocus(eventDialogProvinceId !== null, eventDialogRef);
-  useModalDialogFocus(settingsModalOpen, settingsDialogRef);
+  useModalDialogFocus(settingsModalOpen && Boolean(courtView), settingsDialogRef);
 
   const clearBioCloseTimer = useCallback(() => {
     if (bioCloseTimerRef.current !== null) {

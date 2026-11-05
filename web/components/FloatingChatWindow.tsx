@@ -1,5 +1,6 @@
 'use client';
 
+import { useModalDialogFocus } from './useModalDialogFocus';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CharacterId,
@@ -50,30 +51,6 @@ export interface FloatingChatWindowProps {
     anchorEl?: HTMLElement | null
   ) => void;
   onLeaveBiography?: () => void;
-}
-
-function useModalDialogFocus(
-  isOpen: boolean,
-  dialogRef: React.RefObject<HTMLElement | null>
-) {
-  const triggerRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    triggerRef.current = document.activeElement as HTMLElement | null;
-    const dialogEl = dialogRef.current;
-    if (dialogEl) {
-      const firstFocusable = dialogEl.querySelector<HTMLElement>(
-        'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)'
-      );
-      (firstFocusable ?? dialogEl).focus();
-    }
-    return () => {
-      if (triggerRef.current && document.body.contains(triggerRef.current)) {
-        triggerRef.current.focus();
-      }
-    };
-  }, [isOpen, dialogRef]);
 }
 
 export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
@@ -229,6 +206,12 @@ export const FloatingChatWindow: React.FC<FloatingChatWindowProps> = ({
       inputRef.current?.focus();
     }
   }, [open, activeConversationId, selectedContactCharacterId, canInteract]);
+
+  useEffect(() => {
+    if (open && canInteract && !chatBusy && document.activeElement === document.body) {
+      inputRef.current?.focus();
+    }
+  }, [chatBusy, open, canInteract]);
 
   if (!open) {
     return null;
