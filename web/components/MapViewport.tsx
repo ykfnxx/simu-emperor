@@ -1,21 +1,19 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '../../components/kumo/components/button';
 import type {
   CourtProvinceView,
   GameplayDebugView,
   ProvinceId
 } from '../../src/contracts/gameplay';
+import type { LeftPanelMode } from '../client-api';
 import terrainReliefAsset from '../assets/jiangshan/terrain_relief.webp';
 import {
   computeProvinceLayerPresentation,
   computeSvgViewBox,
   formatGrainAmountWan,
   formatSilverAmountWan,
-  INITIAL_MAP_CAMERA,
   JIANGSHAN_BACKGROUND_MAP,
-  MAP_LAYERS,
   MING_INTERIOR_BOUNDARY_PATH,
   MING_PROVINCE_GEOMETRIES,
   panCameraByScreenDelta,
@@ -37,6 +35,7 @@ export interface MapViewportProps {
   viewedTurnNumber: number;
   selectedProvinceId: ProvinceId | null;
   leftPanelOpen: boolean;
+  activeLeftPanel?: LeftPanelMode;
   activeLayer: MapLayerKind;
   camera: MapCamera;
   debugTruth: GameplayDebugView | null;
@@ -48,6 +47,8 @@ export interface MapViewportProps {
   onClearSelection: () => void;
   onChangeLayer: (layer: MapLayerKind) => void;
   onChangeCamera: React.Dispatch<React.SetStateAction<MapCamera>>;
+  onToggleGlobalPanel?: (panel: 'economy' | 'population' | 'talent' | 'history') => void;
+  onOpenSettings?: () => void;
 }
 
 function getBandWashFill(band: LayerSeverityBand, layer: MapLayerKind): string {
@@ -103,13 +104,16 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   viewedTurnNumber,
   selectedProvinceId,
   leftPanelOpen,
+  activeLeftPanel,
   activeLayer,
   camera,
   debugTruth,
   onSelectProvince,
   onClearSelection,
   onChangeLayer,
-  onChangeCamera
+  onChangeCamera,
+  onToggleGlobalPanel,
+  onOpenSettings
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
@@ -178,11 +182,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   );
   const showSecondaryTowns = camera.zoom >= 0.92;
 
-  const activeLayerMeta = useMemo(
-    () => MAP_LAYERS.find((l) => l.id === activeLayer) ?? MAP_LAYERS[0]!,
-    [activeLayer]
-  );
-
   const getContainerRect = () =>
     containerRef.current?.getBoundingClientRect() ?? {
       left: 0,
@@ -192,7 +191,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.map-bottom-right-controls')) {
+    if ((e.target as HTMLElement).closest('.map-layer-bar')) {
       return;
     }
     if (e.pointerType === 'mouse' && e.button !== 0) {
@@ -200,9 +199,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     }
 
     activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (typeof e.currentTarget.setPointerCapture === 'function') {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    }
 
     if (activePointersRef.current.size === 1) {
       pinchStateRef.current = null;
@@ -216,6 +212,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         moved: false
       };
     } else if (activePointersRef.current.size === 2) {
+      if (typeof e.currentTarget.setPointerCapture === 'function') {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore capture errors on synthetic pointers
+        }
+      }
       dragRef.current.active = false;
       dragRef.current.moved = true;
       setDragging(true);
@@ -261,6 +264,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     if (!dragRef.current.moved && Math.hypot(totalDx, totalDy) > 4) {
       dragRef.current.moved = true;
       setDragging(true);
+      if (typeof e.currentTarget.setPointerCapture === 'function') {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore capture errors on synthetic pointers
+        }
+      }
     }
     if (dragRef.current.moved) {
       const stepDx = e.clientX - dragRef.current.lastX;
@@ -309,8 +319,22 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     setDragging(false);
   };
 
+  const cancelPointerDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.delete(e.pointerId);
+    if (
+      typeof e.currentTarget.hasPointerCapture === 'function' &&
+      e.currentTarget.hasPointerCapture(e.pointerId)
+    ) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    pinchStateRef.current = null;
+    dragRef.current.active = false;
+    dragRef.current.moved = true;
+    setDragging(false);
+  };
+
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.map-bottom-right-controls')) {
+    if ((e.target as HTMLElement).closest('.map-layer-bar')) {
       return;
     }
     const rect = getContainerRect();
@@ -321,20 +345,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         prev.zoom + delta,
         e.clientX - rect.left,
         e.clientY - rect.top,
-        rect.width,
-        rect.height
-      )
-    );
-  };
-
-  const handleStepZoom = (delta: number) => {
-    const rect = getContainerRect();
-    onChangeCamera((prev) =>
-      zoomCameraAtScreenPoint(
-        prev,
-        prev.zoom + delta,
-        rect.width * 0.52,
-        rect.height * 0.5,
         rect.width,
         rect.height
       )
@@ -382,7 +392,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endPointerDrag}
-      onPointerCancel={endPointerDrag}
+      onPointerCancel={cancelPointerDrag}
       onLostPointerCapture={endPointerDrag}
       onWheel={handleWheel}
     >
@@ -521,6 +531,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
+                      e.stopPropagation();
                       triggerSelectByProviderId(geom.provider_region_id);
                     }
                   }}
@@ -719,88 +730,120 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         </svg>
       </div>
 
-      {/* Lower-Right Compact Map Controls & Honest Legend */}
-      <div className="map-bottom-right-controls" data-testid="map-controls-dock">
-        <div className="map-control-row">
-          <div
-            className="map-layer-pill-group"
-            role="group"
-            aria-label="舆图图层切换"
-            data-testid="map-layer-switcher"
+      {/* Bottom-Right Map Layer Controls & Mobile Utility Shortcuts */}
+      <div
+        className="map-layer-bar"
+        role="group"
+        aria-label="舆图图层"
+        data-testid="map-layer-switcher"
+      >
+        <button
+          type="button"
+          className={`layer-chip ${activeLayer === 'disaster' ? 'active' : ''}`}
+          data-layer="disaster"
+          data-testid="layer-btn-disaster"
+          aria-pressed={activeLayer === 'disaster'}
+          title="灾情图层"
+          aria-label="灾情图层"
+          onClick={() => onChangeLayer('disaster')}
+        >
+          <span className="painted-icon icon-warning" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`layer-chip ${activeLayer === 'silver' ? 'active' : ''}`}
+          data-layer="silver"
+          data-testid="layer-btn-silver"
+          aria-pressed={activeLayer === 'silver'}
+          title="存银图层"
+          aria-label="存银图层"
+          onClick={() => onChangeLayer('silver')}
+        >
+          <span className="painted-icon icon-silver" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`layer-chip ${activeLayer === 'grain' ? 'active' : ''}`}
+          data-layer="grain"
+          data-testid="layer-btn-grain"
+          aria-pressed={activeLayer === 'grain'}
+          title="存粮图层"
+          aria-label="存粮图层"
+          onClick={() => onChangeLayer('grain')}
+        >
+          <span className="painted-icon icon-grain" aria-hidden="true" />
+        </button>
+
+        {onToggleGlobalPanel && (
+          <>
+            <button
+              type="button"
+              className={`layer-chip mobile-utility ${activeLeftPanel === 'economy' ? 'active' : ''}`}
+              data-top-panel="economy"
+              title="太仓钱粮"
+              aria-label="太仓钱粮"
+              onClick={() => onToggleGlobalPanel('economy')}
+            >
+              <span className="painted-icon icon-economy" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`layer-chip mobile-utility ${activeLeftPanel === 'population' ? 'active' : ''}`}
+              data-top-panel="population"
+              title="户口灾情"
+              aria-label="户口灾情"
+              onClick={() => onToggleGlobalPanel('population')}
+            >
+              <span className="painted-icon icon-population" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`layer-chip mobile-utility ${activeLeftPanel === 'talent' ? 'active' : ''}`}
+              data-top-panel="talent"
+              title="百官"
+              aria-label="百官"
+              onClick={() => onToggleGlobalPanel('talent')}
+            >
+              <span className="painted-icon icon-talent" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`layer-chip mobile-utility ${activeLeftPanel === 'history' ? 'active' : ''}`}
+              data-top-panel="history"
+              title="起居注"
+              aria-label="起居注"
+              onClick={() => onToggleGlobalPanel('history')}
+            >
+              <span className="painted-icon icon-history" aria-hidden="true" />
+            </button>
+          </>
+        )}
+        {onOpenSettings && (
+          <button
+            type="button"
+            className="layer-chip mobile-utility"
+            title="机务"
+            aria-label="机务"
+            onClick={onOpenSettings}
           >
-            {MAP_LAYERS.map((layer) => (
-              <Button
-                key={layer.id}
-                type="button"
-                variant="ghost"
-                className={`map-layer-pill ${activeLayer === layer.id ? 'active' : ''}`}
-                aria-pressed={activeLayer === layer.id}
-                data-testid={`layer-btn-${layer.id}`}
-                onClick={() => onChangeLayer(layer.id)}
-              >
-                {layer.shortLabel}
-              </Button>
-            ))}
-          </div>
-
-          <div className="map-zoom-pill-group" role="group" aria-label="舆图视野控制">
-            <Button
-              type="button"
-              variant="ghost"
-              className="map-zoom-btn"
-              data-testid="map-zoom-in-btn"
-              title="放大地图"
-              aria-label="放大地图"
-              onClick={() => handleStepZoom(0.18)}
-            >
-              +
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="map-zoom-btn"
-              data-testid="map-zoom-out-btn"
-              title="缩小地图"
-              aria-label="缩小地图"
-              onClick={() => handleStepZoom(-0.18)}
-            >
-              −
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="map-reset-btn"
-              data-testid="map-reset-camera-btn"
-              title="复位视图"
-              onClick={() => onChangeCamera(INITIAL_MAP_CAMERA)}
-            >
-              复位视图
-            </Button>
-          </div>
-        </div>
-
-        <div className="map-legend-card" data-testid="map-layer-legend" aria-label="舆图图例">
-          <span className="legend-item" data-testid="legend-item-stable" title={activeLayer === 'disaster' ? activeLayerMeta.legendLow : activeLayerMeta.legendHigh}>
-            <i className="legend-swatch swatch-stable" />
-            <span>{activeLayer === 'disaster' ? activeLayerMeta.legendLow : activeLayerMeta.legendHigh}</span>
-          </span>
-          <span className="legend-item" data-testid="legend-item-mild" title={activeLayerMeta.legendMid}>
-            <i className="legend-swatch swatch-mild" />
-            <span>{activeLayerMeta.legendMid}</span>
-          </span>
-          <span className="legend-item" data-testid="legend-item-urgent" title={activeLayer === 'disaster' ? activeLayerMeta.legendHigh : activeLayerMeta.legendLow}>
-            <i className="legend-swatch swatch-urgent" />
-            <span>{activeLayer === 'disaster' ? activeLayerMeta.legendHigh : activeLayerMeta.legendLow}</span>
-          </span>
-          <span className="legend-item" data-testid="legend-item-unknown" title={activeLayerMeta.legendUnknown}>
-            <i className="legend-swatch swatch-unknown" />
-            <span>{activeLayerMeta.legendUnknown}</span>
-          </span>
-          <span className="legend-item" data-testid="legend-item-frozen" title="冻结疆域">
-            <i className="legend-swatch swatch-frozen" />
-            <span>冻结疆域</span>
-          </span>
-        </div>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.4 3h3.2l.5 2.2a7 7 0 0 1 1.7.9l2-1 2.2 2.2-1 2a7 7 0 0 1 .9 1.7L22 11.5v3.1l-2.1.5a7 7 0 0 1-.9 1.7l1 2-2.2 2.2-2-1a7 7 0 0 1-1.7.9L13.6 23h-3.2l-.5-2.1a7 7 0 0 1-1.7-.9l-2 1L4 18.8l1-2a7 7 0 0 1-.9-1.7L2 14.6v-3.1l2.1-.5a7 7 0 0 1 .9-1.7l-1-2L6.2 5.1l2 1a7 7 0 0 1 1.7-.9L10.4 3z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+              />
+              <circle
+                cx="12"
+                cy="13"
+                r="2.9"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

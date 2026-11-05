@@ -11,6 +11,7 @@ import type {
   GameplayCourtView,
   GameplayDebugView,
   GameplayMessage,
+  OfficeId,
   OfficeView,
   PlanDecision,
   PlanRecord,
@@ -19,10 +20,21 @@ import type {
   SettleTurnRequest,
   TurnTargetRequest
 } from '../src/contracts/gameplay';
-import type { MapLayerKind } from './map-data';
+import {
+  formatGrainAmountWan,
+  formatSilverAmountWan,
+  formatTurnCalendarDate,
+  type MapLayerKind
+} from './map-data';
 
-export type LeftPanelMode = 'economy' | 'population' | 'talent' | 'province' | null;
-export type ProvinceDrawerTab = 'report' | 'approval' | 'chat';
+export type LeftPanelMode =
+  | 'economy'
+  | 'population'
+  | 'talent'
+  | 'history'
+  | 'province'
+  | null;
+export type ProvinceDrawerTab = 'report' | 'approval';
 
 export interface CourtUiState {
   activeLeftPanel: LeftPanelMode;
@@ -30,7 +42,7 @@ export interface CourtUiState {
   provinceTab: ProvinceDrawerTab;
   activeLayer: MapLayerKind;
   activeConversationId: string | null;
-  toggleGlobalPanel: (panel: 'economy' | 'population' | 'talent') => void;
+  toggleGlobalPanel: (panel: 'economy' | 'population' | 'talent' | 'history') => void;
   openProvincePanel: (provinceId: ProvinceId, tab?: ProvinceDrawerTab) => void;
   closeLeftPanel: () => void;
   setProvinceTab: (tab: ProvinceDrawerTab) => void;
@@ -319,13 +331,25 @@ export function getConversationCharacterIds(conv: GameplayConversation): Charact
 }
 
 export function getAppointedCharacters(
-  courtView: Pick<GameplayCourtView, 'appointments' | 'characters'> | null | undefined
+  courtView:
+    | Pick<GameplayCourtView, 'provinces' | 'appointments' | 'characters'>
+    | Pick<GameplayCourtView, 'appointments' | 'characters'>
+    | null
+    | undefined
 ): CharacterPublicView[] {
   if (!courtView) return [];
   const appointedIds = new Set<CharacterId>();
-  for (const appt of courtView.appointments) {
-    if (appt.ended_at === null && appt.character_id) {
-      appointedIds.add(appt.character_id);
+  if ('provinces' in courtView && Array.isArray(courtView.provinces)) {
+    for (const pv of courtView.provinces) {
+      if (pv.appointment?.character_id) {
+        appointedIds.add(pv.appointment.character_id);
+      }
+    }
+  } else {
+    for (const appt of courtView.appointments) {
+      if (appt.ended_at === null && appt.character_id) {
+        appointedIds.add(appt.character_id);
+      }
     }
   }
   return courtView.characters.filter((c) => appointedIds.has(c.character_id));
@@ -674,4 +698,211 @@ export function saveMonarchSettings(settings: MonarchClientSettings): void {
   } catch {
     // Ignore storage errors.
   }
+}
+
+export const CHARACTER_PORTRAIT_CLASS_BY_ID: Readonly<Record<CharacterId, string>> = {
+  character_a: 'face-shen',
+  character_b: 'face-lu',
+  character_c: 'face-gu',
+  character_d: 'face-chen'
+};
+
+export function getCharacterPortraitClass(
+  characterId: CharacterId | string | null | undefined
+): string {
+  if (!characterId) return 'face-vacant';
+  return (
+    (CHARACTER_PORTRAIT_CLASS_BY_ID as Record<string, string>)[characterId] ??
+    'face-vacant'
+  );
+}
+
+export interface OfficeReplacementCandidateItem {
+  character: CharacterPublicView;
+  portraitClass: string;
+  isCurrentOccupant: boolean;
+  currentOfficeId: OfficeId | null;
+  currentOfficeName: string | null;
+  statusLabel: string;
+  actionable: boolean;
+}
+
+/**
+ * Builds the candidate list for the single-click replacement dialog (`更换巡抚`).
+ * - Matches each character consistently to their portrait sprite class.
+ * - Derives office occupancy strictly from `courtView.provinces` (`province.appointment` snapshots),
+ *   never from `ended_at === null` across global `courtView.appointments`.
+ * - Marks the current occupant of `targetOfficeId` as `现任` and non-actionable.
+ * - Allows selecting candidates who hold another office or are `候任` during `OPEN` phase
+ *   so clicking invokes `POST /api/court/appointments` directly in a single atomic transfer call.
+ * - Protects against edits in historical inspection mode or non-`OPEN` phases.
+ */
+export function buildOfficeReplacementCandidates(
+  targetOfficeId: OfficeId,
+  courtView: Pick<
+    GameplayCourtView,
+    'provinces' | 'offices' | 'characters' | 'active_turn' | 'viewed_turn'
+  >,
+  isSubmitting = false
+): OfficeReplacementCandidateItem[] {
+  const isHistoryView =
+    courtView.viewed_turn.turn_number !== courtView.active_turn.turn_number;
+  const isOpenPhase =
+    !isHistoryView && courtView.active_turn.phase === 'OPEN';
+
+  const activeOfficeByCharacter = new Map<CharacterId, OfficeView>();
+  const officeById = new Map<OfficeId, OfficeView>(
+    courtView.offices.map((o) => [o.office_id, o])
+  );
+  for (const pv of courtView.provinces) {
+    const appt = pv.appointment;
+    if (appt) {
+      const office = officeById.get(appt.office_id);
+      if (office) {
+        activeOfficeByCharacter.set(appt.character_id, office);
+      }
+    }
+  }
+
+  return courtView.characters.map((character) => {
+    const heldOffice = activeOfficeByCharacter.get(character.character_id) ?? null;
+    const isCurrentOccupant = heldOffice?.office_id === targetOfficeId;
+    const statusLabel = isCurrentOccupant
+      ? '现任'
+      : heldOffice
+        ? heldOffice.title
+        : '候任';
+    return {
+      character,
+      portraitClass: getCharacterPortraitClass(character.character_id),
+      isCurrentOccupant,
+      currentOfficeId: heldOffice?.office_id ?? null,
+      currentOfficeName: heldOffice?.title ?? null,
+      statusLabel,
+      actionable: isOpenPhase && !isCurrentOccupant && !isSubmitting
+    };
+  });
+}
+
+export interface ProvinceEventDialogData {
+  province_id: ProvinceId;
+  active: boolean;
+  title: string;
+  sealText: string;
+  metaText: string;
+  bodyText: string;
+  planSummaryText: string | null;
+  summonCharacterId: CharacterId | null;
+  hasCurrentTurnReport: boolean;
+}
+
+/**
+ * Builds the centered event window payload strictly from actual available reports,
+ * `current_officer_reported`, plans, and known province state (never fabricating events or numbers).
+ * - `summonCharacterId` resolves strictly to the current incumbent (`province.appointment`);
+ *   vacancy disables summon (`null`) and never falls back to a former report author.
+ * - `current_officer_reported` distinguishes whether the current incumbent has reported this turn
+ *   versus a former incumbent's same-turn report or an earlier turn's report.
+ */
+export function buildProvinceEventDialogData(
+  provinceView: CourtProvinceView,
+  viewedTurnNumber: number,
+  characterById: ReadonlyMap<CharacterId, CharacterPublicView>
+): ProvinceEventDialogData {
+  if (!provinceView.province.active) {
+    return {
+      province_id: provinceView.province.province_id,
+      active: false,
+      title: `${provinceView.province.name}疆域`,
+      sealText: '疆',
+      metaText: '冻结省区',
+      bodyText: `${provinceView.province.name}属大明两京十三省疆域，当前未设巡抚奏事与钱粮核拨。`,
+      planSummaryText: null,
+      summonCharacterId: null,
+      hasCurrentTurnReport: false
+    };
+  }
+
+  const incumbentId = resolveIncumbentCharacterForProvince(provinceView);
+  const incumbentName = incumbentId
+    ? (characterById.get(incumbentId)?.name ?? incumbentId)
+    : '巡抚悬缺';
+
+  const currentOfficerReports =
+    provinceView.current_officer_reported && provinceView.appointment
+      ? provinceView.reports.filter(
+          (r) =>
+            r.turn_number === viewedTurnNumber &&
+            r.appointment_id === provinceView.appointment!.appointment_id
+        )
+      : [];
+  const latestCurrentOfficerReport =
+    currentOfficerReports[currentOfficerReports.length - 1] ?? null;
+  const latestAnyReport =
+    provinceView.reports[provinceView.reports.length - 1] ?? null;
+
+  let metaText: string;
+  let bodyText: string;
+
+  if (provinceView.current_officer_reported && latestCurrentOfficerReport) {
+    const authorName =
+      characterById.get(latestCurrentOfficerReport.author_character_id)?.name ??
+      latestCurrentOfficerReport.author_character_id;
+    const dateText = formatTurnCalendarDate(
+      latestCurrentOfficerReport.turn_number,
+      latestCurrentOfficerReport.date
+    );
+    metaText = `${dateText} ${authorName}奏`;
+    bodyText = latestCurrentOfficerReport.body;
+  } else if (latestAnyReport) {
+    const authorName =
+      characterById.get(latestAnyReport.author_character_id)?.name ??
+      latestAnyReport.author_character_id;
+    const dateText = formatTurnCalendarDate(
+      latestAnyReport.turn_number,
+      latestAnyReport.date
+    );
+    const statusPrefix = incumbentId
+      ? `${incumbentName} 本轮未奏`
+      : '巡抚悬缺 本轮未奏';
+    const recordKind =
+      latestAnyReport.turn_number === viewedTurnNumber ? '前任奏报' : '往期记录';
+    metaText = `${statusPrefix} ${recordKind} ${dateText} ${authorName}奏`;
+    bodyText = latestAnyReport.body;
+  } else {
+    metaText = incumbentId ? `${incumbentName} 本轮未奏` : '巡抚悬缺 本轮未奏';
+    bodyText = '尚无本省奏报记录。';
+  }
+
+  const currentTurnPlans = provinceView.plans.filter(
+    (p) => p.turn_number === viewedTurnNumber && p.status !== 'WITHDRAWN'
+  );
+  const planSummaryText =
+    currentTurnPlans.length > 0
+      ? currentTurnPlans
+          .map((p) => {
+            const reqText =
+              p.requested_amount > 0
+                ? `请拨${
+                    p.resource === 'silver'
+                      ? formatSilverAmountWan(p.requested_amount)
+                      : formatGrainAmountWan(p.requested_amount)
+                  }`
+                : '地方自筹';
+            return `${p.purpose} ${reqText}`;
+          })
+          .join('；')
+      : null;
+
+  return {
+    province_id: provinceView.province.province_id,
+    active: true,
+    title: `${provinceView.province.name}奏报`,
+    sealText: '奏',
+    metaText,
+    bodyText,
+    planSummaryText,
+    summonCharacterId: incumbentId,
+    hasCurrentTurnReport: provinceView.current_officer_reported
+  };
 }
