@@ -42,3 +42,18 @@ Selected controlled UI primitives under `components/kumo/` (`button`, `dialog`, 
 - **Upstream Commit**: `fedc8a771d499ccceb309ec45b2b11d74eea3963` (via Periplus reference extract `8f7a3c1`)
 - **Upstream Copyright**: Copyright (c) 2025 Cloudflare, Inc.
 - **Upstream License**: **MIT License** — full license text in [`components/kumo/LICENSE`](./components/kumo/LICENSE) and provenance metadata in [`components/kumo/source.json`](./components/kumo/source.json)
+
+---
+
+## Noto Sans SC UI Subset Font (`public/assets/NotoSansSC-ui.woff2`)
+
+The bundled Chinese UI sans-serif webfont subset (`public/assets/NotoSansSC-ui.woff2`) is derived from **Noto Sans SC**:
+
+- **Copyright**: Copyright 2014-2021 Adobe (`http://www.adobe.com/`), with Reserved Font Name 'Source'
+- **License**: **SIL Open Font License, Version 1.1 (OFL-1.1)** — full license text in [`public/assets/OFL-NotoSansSC.txt`](./assets/OFL-NotoSansSC.txt)
+
+---
+
+## Original Ming Strategy HUD Art Assets (`public/assets/eu-hud/`)
+
+The HUD frame, textures, badge, button chrome, painted icon sprite sheet, and character portrait sheet under `public/assets/eu-hud/` (`ornate-frame.png`, `portraits.png`, `function-icons.png`, `imperial-badge.svg`, `brass-button.svg`, `enamel.svg`, `parchment.svg`) are original project-created assets (see [`public/assets/eu-hud/README.md`](./assets/eu-hud/README.md)) and contain no third-party game files or screenshots.
