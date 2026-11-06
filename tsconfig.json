@@ -26,7 +26,10 @@
     "tests/**/*.ts",
     "web/**/*.ts",
     "web/**/*.tsx",
-    "next.config.ts"
+    "next.config.ts",
+    "scripts/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
   ],
   "exclude": ["node_modules", "out", ".next"]
 }

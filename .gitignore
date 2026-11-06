@@ -61,3 +61,8 @@ Thumbs.db
 .design/
 .template/
 .case/
+
+# CI test output
+playwright-report/
+test-results/
+ci-results/
