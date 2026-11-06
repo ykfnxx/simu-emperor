@@ -34,9 +34,9 @@ jobs:
           echo "PR base: $PR_BASE"
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
       - name: Deterministic tests
         run: npm test -- --reporter=default --reporter=junit --outputFile=ci-results/vitest.xml
-      - run: npm run build
       - name: Production entry and trace CLI
         run: |
           mkdir -p ci-results

@@ -2,7 +2,7 @@
 
 Pull requests targeting `next` and pushes to `next` run the `CI / verify` job on Ubuntu 24.04 with Node 24. The repository default branch remains unchanged. CI does not deploy, run paid models, or access shared game data.
 
-The gate installs the lockfile, checks TypeScript, runs the deterministic Vitest suite, builds the static Next frontend, starts the actual Node production entry, runs the trace extraction CLI, and exercises the desktop UI against the real HTTP server and SQLite store. A newer commit cancels older runs for the same pull request; different pull requests use different concurrency groups. Failed steps stop later checks. There are no automatic test retries.
+The gate installs the lockfile, checks TypeScript, builds the static Next frontend, runs the deterministic Vitest suite, starts the actual Node production entry, runs the trace extraction CLI, and exercises the desktop UI against the real HTTP server and SQLite store. A newer commit cancels older runs for the same pull request; different pull requests use different concurrency groups. Failed steps stop later checks. There are no automatic test retries.
 
 ## Run locally
 
@@ -11,14 +11,16 @@ Use Node 24 and run from the repository root:
 ```sh
 npm ci
 npm run typecheck
-npm test
 npm run build
+npm test
 npm run test:smoke
 npx playwright install --with-deps --no-shell chromium
 npm run test:e2e
 ```
 
 On macOS, omit `--with-deps`. Playwright uses its pinned Chromium build at 1440×900, one worker, and a fresh game per scenario. `scripts/ci/runtime.ts` seeds synthetic data, starts `src/server.ts` using Node's TypeScript stripping, waits for the actual listening port, then stops the process and removes its temporary database/log directory. No `.env` or existing saves are loaded from the repository. The smoke uses OAR's scripted runtime, not a real model.
+
+The build precedes Vitest because the existing credential-leak test scans the actual production browser bundle. A clean checkout must not rely on a stale `out/` directory.
 
 ## Coverage
 
