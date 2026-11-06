@@ -42,4 +42,4 @@ The current UI has no explicit dismissal control: U24's dismissal step is exerci
 
 The workflow records checked-out, PR head and base revisions. JUnit results, smoke output, HTML browser report, failed screenshots and traces are uploaded for seven days. The successful frontend artifact contains only `out/`; game databases, environment files and real conversations are not uploaded. A canceled run may not finish evidence upload.
 
-The workflow alone does not enable repository branch protection. After the first green run and approval to merge, enable `CI / verify` on `next` as a required check. Do not rename the job without updating that rule. Merge approval remains separate from CI success.
+The workflow alone does not enable repository branch protection. After the first green run and approval to merge, require the check-run name `verify` from the `github-actions` app on `next` (displayed under workflow `CI`). Do not rename the job without updating that rule. Merge approval remains separate from CI success.
