@@ -1,33 +1,29 @@
 'use client';
 
-import { useModalDialogFocus } from './components/useModalDialogFocus';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CharacterId,
   CharacterPublicView,
-  CourtProvinceView,
   GameplayConversation,
   GameplayCourtView,
   GameplayDebugView,
   GameplayMessage,
   OfficeId,
   OfficeView,
-  ProvinceId,
-  RuntimeProfile
+  ProvinceId
 } from '../src/contracts/gameplay';
 import {
+  buildCharacterPersonCardData,
   buildOfficeReplacementCandidates,
   buildProvinceEventDialogData,
   clearStaleConversationDrafts,
   clearStalePlanApprovalDrafts,
-  clearTurnPlanApprovalDraft,
   CourtApiError,
   evaluatePlanApprovalCompleteness,
   fetchConversationMessages,
   fetchCourtConversations,
   fetchCourtView,
   fetchDebugTruth,
-  getCharacterPortraitClass,
   getConversationCharacterIds,
   getConversationTurnKey,
   loadConversationDraftMap,
@@ -39,6 +35,7 @@ import {
   postLockTurn,
   postSettleTurn,
   putRuntimeProfile,
+  resolveIncumbentCharacterForProvince,
   saveConversationDraft,
   saveMonarchSettings,
   saveTurnPlanApprovalDraft,
@@ -46,327 +43,361 @@ import {
   validateCustomPlanApprovalInput,
   type ConversationDraftMap,
   type MonarchClientSettings,
-  type ProvinceDrawerTab,
   type TurnPlanApprovalDraft
 } from './client-api';
 import { FloatingChatWindow } from './components/FloatingChatWindow';
 import { MapViewport } from './components/MapViewport';
-import { RightDrawer } from './components/RightDrawer';
 import {
-  ACTIVE_PROVINCE_IDS,
+  formatPlanResourceAmount,
+  NationalPanel,
+  PlanApprovalCard,
+  RightDrawer
+} from './components/RightDrawer';
+import { useModalDialogFocus } from './components/useModalDialogFocus';
+import {
   computeMinimalOcclusionPan,
   formatGrainAmountWan,
-  formatPopulationCount,
+  formatKnownNumericFact,
+  formatProvinceOverviewNumbers,
   formatSilverAmountWan,
   formatTurnCalendarDate,
-  getNumericFactValue,
   getStringFactValue,
   INITIAL_MAP_CAMERA,
-  type MapCamera,
-  type MapLayerKind
+  type MapCamera
 } from './map-data';
 
-const EVENT_ICON_BY_PROVINCE: Readonly<Record<string, string>> = {
-  shaanxi: 'icon-warning',
-  henan: 'icon-document',
-  huguang: 'icon-history'
+const PHASE_LABELS: Record<'OPEN' | 'LOCKED' | 'ARCHIVED', string> = {
+  OPEN: '议政',
+  LOCKED: '批复',
+  ARCHIVED: '归档'
 };
 
-const RUNTIME_ENGINE_OPTIONS = [
-  'claude',
-  'codex',
-  'gemini',
-  'opencode',
-  'pi'
-] as const;
-
-const RUNTIME_EFFORT_OPTIONS = ['low', 'medium', 'high'] as const;
-
-function computeBioPopupPosition(
-  anchorEl?: HTMLElement | null
-): { top: number; left: number } | null {
-  if (!anchorEl || typeof window === 'undefined') return null;
-  const rect = anchorEl.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const popupWidth = Math.min(340, vw - 32);
-  const popupHeight = 190;
-
-  let left = rect.right + 6;
-  if (left + popupWidth > vw - 16) {
-    left = rect.left - popupWidth - 6;
-  }
-  left = Math.max(16, Math.min(left, vw - popupWidth - 16));
-
-  const top = Math.max(16, Math.min(rect.top - 8, vh - popupHeight - 16));
-  return { top, left };
-}
-
-function getProvinceOverviewHeadline(pv: CourtProvinceView): string {
-  const reliefPop = getNumericFactValue(pv.known.relief_population);
-  const disasterLabel = getStringFactValue(pv.known.disaster_label);
-  if (reliefPop !== undefined && reliefPop > 0) {
-    return `待赈${formatPopulationCount(reliefPop)}`;
-  }
-  if (pv.project) {
-    if (pv.project.completed_turn !== null) {
-      return `河工竣工`;
-    }
-    return `河工 ${formatSilverAmountWan(pv.project.paid_silver)}/${formatSilverAmountWan(pv.project.total_cost)}`;
-  }
-  if (disasterLabel !== undefined) {
-    return disasterLabel;
-  }
-  const silver = getNumericFactValue(
-    pv.known.disposable_silver ?? pv.known.gross_silver
-  );
-  if (silver !== undefined) {
-    return `存银${formatSilverAmountWan(silver)}`;
-  }
-  return pv.current_officer_reported ? '本轮已奏' : '未奏报';
-}
-
-export const App: React.FC = () => {
-  const activeLeftPanel = useCourtUiStore((s) => s.activeLeftPanel);
-  const selectedProvinceId = useCourtUiStore((s) => s.selectedProvinceId);
-  const provinceTab = useCourtUiStore((s) => s.provinceTab);
-  const activeLayer = useCourtUiStore((s) => s.activeLayer);
-  const activeConversationId = useCourtUiStore((s) => s.activeConversationId);
-  const toggleGlobalPanel = useCourtUiStore((s) => s.toggleGlobalPanel);
-  const openProvincePanel = useCourtUiStore((s) => s.openProvincePanel);
-  const closeLeftPanel = useCourtUiStore((s) => s.closeLeftPanel);
-  const setProvinceTab = useCourtUiStore((s) => s.setProvinceTab);
-  const setActiveLayer = useCourtUiStore((s) => s.setActiveLayer);
-  const setActiveConversationId = useCourtUiStore(
-    (s) => s.setActiveConversationId
-  );
+export function App() {
+  const {
+    activeNationalPanel,
+    leftPanelOpen,
+    selectedProvinceId,
+    provinceTab,
+    activeLayer,
+    activeConversationId,
+    chatOpen,
+    toggleGlobalPanel,
+    closeNationalPanel,
+    openProvincePanel,
+    closeLeftPanel,
+    setProvinceTab,
+    setActiveLayer,
+    setActiveConversationId,
+    setChatOpen,
+    openChatWindow
+  } = useCourtUiStore();
 
   const [courtView, setCourtView] = useState<GameplayCourtView | null>(null);
-  const [conversations, setConversations] = useState<GameplayConversation[]>([]);
+  const [viewedTurnOverride, setViewedTurnOverride] = useState<
+    number | undefined
+  >(undefined);
+  const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
+  const [authFailure, setAuthFailure] = useState<{
+    status: number;
+    code: string;
+    message: string;
+  } | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const [camera, setCamera] = useState<MapCamera>(INITIAL_MAP_CAMERA);
+  const [overviewCollapsed, setOverviewCollapsed] = useState<boolean>(false);
+
+  // Plan approval draft per (game_id, active_turn)
+  const [planApprovalDraft, setPlanApprovalDraft] =
+    useState<TurnPlanApprovalDraft>({});
+
+  // Conversations & per-(conversation, turn) message cache
+  const [conversations, setConversations] = useState<GameplayConversation[]>(
+    []
+  );
+  const [selectedContactCharacterId, setSelectedContactCharacterId] =
+    useState<CharacterId | null>('character_a');
   const [messagesByTurnKey, setMessagesByTurnKey] = useState<
     Record<string, GameplayMessage[]>
   >({});
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState<boolean>(false);
+  const [chatBusy, setChatBusy] = useState<boolean>(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatDraftMap, setChatDraftMap] = useState<ConversationDraftMap>({});
+  const [groupMentionsByConv, setGroupMentionsByConv] = useState<
+    Record<string, CharacterId[]>
+  >({});
 
-  const [viewedTurnOverride, setViewedTurnOverride] = useState<number | null>(
+  // Modals: Person Card (biography), Event Window, Candidate Replacement, Report Archive, Settings
+  const [bioCharacterId, setBioCharacterId] = useState<CharacterId | null>(
     null
   );
-  const [camera, setCamera] = useState<MapCamera>(INITIAL_MAP_CAMERA);
-
-  const [loading, setLoading] = useState<boolean>(true);
-  const [fatalError, setFatalError] = useState<string | null>(null);
-  const [actionBanner, setActionBanner] = useState<{
-    tone: 'error' | 'info';
-    text: string;
-  } | null>(null);
-
-  const [turnBusy, setTurnBusy] = useState(false);
-  const [appointmentBusy, setAppointmentBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-
-  const [planApprovalDraft, setPlanApprovalDraft] =
-    useState<TurnPlanApprovalDraft>({});
-  const [conversationDrafts, setConversationDrafts] =
-    useState<ConversationDraftMap>({});
-  const [groupMentions, setGroupMentions] = useState<CharacterId[]>([]);
-
-  // HUD Overlays & Floating Windows
-  const [overviewCollapsed, setOverviewCollapsed] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerWidth <= 700 : false
+  const [bioPinned, setBioPinned] = useState<boolean>(false);
+  const [bioTargetOfficeId, setBioTargetOfficeId] = useState<OfficeId | ''>('');
+  const [bioAppointmentError, setBioAppointmentError] = useState<string | null>(
+    null
   );
-  const [chatWindowOpen, setChatWindowOpen] = useState(false);
-  const [selectedContactCharacterId, setSelectedContactCharacterId] =
-    useState<CharacterId | null>(null);
-  const [bioCharacterId, setBioCharacterId] = useState<CharacterId | null>(null);
-  const [bioPinned, setBioPinned] = useState(false);
-  const [bioPosition, setBioPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
   const bioAnchorRef = useRef<HTMLElement | null>(null);
-  const dismissedBioAnchorRef = useRef<HTMLElement | null>(null);
-  const bioCloseTimerRef = useRef<number | null>(null);
-  const [replaceOfficeId, setReplaceOfficeId] = useState<OfficeId | null>(null);
-  const [archiveProvinceId, setArchiveProvinceId] =
+  const suppressedHoverAnchorRef = useRef<HTMLElement | null>(null);
+  const [eventModalProvinceId, setEventModalProvinceId] =
     useState<ProvinceId | null>(null);
-  const [eventDialogProvinceId, setEventDialogProvinceId] =
+  const [replaceModalOfficeId, setReplaceModalOfficeId] =
+    useState<OfficeId | null>(null);
+  const [archiveModalProvinceId, setArchiveModalProvinceId] =
     useState<ProvinceId | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
-  // Settings & Runtime Profile Popup
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  // Busy flags
+  const [phaseBusy, setPhaseBusy] = useState<boolean>(false);
+  const [appointmentBusy, setAppointmentBusy] = useState<boolean>(false);
+  const [runtimeBusy, setRuntimeBusy] = useState<boolean>(false);
+
+  // Settings & optional Debug Truth
   const [monarchSettings, setMonarchSettings] = useState<MonarchClientSettings>(
     () => loadMonarchSettings()
   );
-  const [settingsSavedMsg, setSettingsSavedMsg] = useState<string | null>(null);
-
-  const [selectedRuntimeOfficeId, setSelectedRuntimeOfficeId] =
-    useState<OfficeId>('governor_shaanxi');
-  const [runtimeKind, setRuntimeKind] = useState<string>('claude');
-  const [runtimeModel, setRuntimeModel] = useState<string>('claude-sonnet-4-5');
-  const [runtimeEffort, setRuntimeEffort] = useState<string>('medium');
-  const [runtimeMode, setRuntimeMode] =
-    useState<RuntimeProfile['mode']>('json+mcp-read');
-  const [runtimeBusy, setRuntimeBusy] = useState(false);
-  const [runtimeSavedMsg, setRuntimeSavedMsg] = useState<string | null>(null);
-  const [runtimeError, setRuntimeError] = useState<string | null>(null);
-
-  const [debugEnabled, setDebugEnabled] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState<boolean>(false);
   const [debugTruth, setDebugTruth] = useState<GameplayDebugView | null>(null);
 
-  const initialPanelOpenedRef = useRef(false);
-  const authDialogRef = useRef<HTMLElement | null>(null);
-  const bioDialogRef = useRef<HTMLElement | null>(null);
-  const candidateDialogRef = useRef<HTMLElement | null>(null);
-  const archiveDialogRef = useRef<HTMLElement | null>(null);
-  const eventDialogRef = useRef<HTMLElement | null>(null);
-  const settingsDialogRef = useRef<HTMLElement | null>(null);
-
-  useModalDialogFocus(Boolean(fatalError && !courtView), authDialogRef);
-  useModalDialogFocus(bioPinned && bioCharacterId !== null, bioDialogRef);
-  useModalDialogFocus(replaceOfficeId !== null, candidateDialogRef);
-  useModalDialogFocus(archiveProvinceId !== null, archiveDialogRef);
-  useModalDialogFocus(eventDialogProvinceId !== null, eventDialogRef);
-  useModalDialogFocus(settingsModalOpen && Boolean(courtView), settingsDialogRef);
-
-  const clearBioCloseTimer = useCallback(() => {
-    if (bioCloseTimerRef.current !== null) {
-      window.clearTimeout(bioCloseTimerRef.current);
-      bioCloseTimerRef.current = null;
-    }
-  }, []);
-
-  const handleHoverBiography = useCallback(
-    (charId: CharacterId, anchorEl?: HTMLElement | null) => {
-      if (anchorEl && dismissedBioAnchorRef.current === anchorEl) return;
-      bioAnchorRef.current = anchorEl ?? null;
-      clearBioCloseTimer();
-      setBioCharacterId(charId);
-      if (anchorEl) {
-        setBioPosition(computeBioPopupPosition(anchorEl));
-      }
-    },
-    [clearBioCloseTimer]
+  // Office runtime profile form state inside Settings modal (preserves raw configured values including null effort)
+  const [runtimeOfficeId, setRuntimeOfficeId] =
+    useState<OfficeId>('governor_shaanxi');
+  const [runtimeProvider, setRuntimeProvider] = useState<string>('claude');
+  const [runtimeModel, setRuntimeModel] = useState<string>('claude-sonnet-4-5');
+  const [runtimeEffort, setRuntimeEffort] = useState<string>('medium');
+  const [runtimeMode, setRuntimeMode] = useState<'json' | 'json+mcp-read'>(
+    'json'
   );
 
-  const handleLeaveBiography = useCallback((anchorEl?: HTMLElement) => {
-    if (anchorEl === dismissedBioAnchorRef.current) dismissedBioAnchorRef.current = null;
-    if (bioPinned) return;
-    clearBioCloseTimer();
-    bioCloseTimerRef.current = window.setTimeout(() => {
+  const syncRuntimeFormFromOffice = useCallback((office?: OfficeView) => {
+    if (!office?.runtime_profile) return;
+    setRuntimeProvider(office.runtime_profile.runtime);
+    setRuntimeModel(office.runtime_profile.model);
+    setRuntimeEffort(
+      office.runtime_profile.effort === null
+        ? ''
+        : office.runtime_profile.effort
+    );
+    setRuntimeMode(office.runtime_profile.mode);
+  }, []);
+
+  const refreshAllCourtData = useCallback(
+    async (requestedTurn?: number) => {
+      try {
+        const [viewData, convData] = await Promise.all([
+          fetchCourtView(requestedTurn),
+          fetchCourtConversations()
+        ]);
+        setCourtView(viewData);
+        setConversations(convData.conversations);
+        setAuthFailure(null);
+
+        clearStalePlanApprovalDrafts(
+          viewData.game_id,
+          viewData.active_turn.turn_number
+        );
+        clearStaleConversationDrafts(
+          viewData.game_id,
+          viewData.active_turn.turn_number
+        );
+
+        const loadedPlanDraft = loadTurnPlanApprovalDraft(
+          viewData.game_id,
+          viewData.active_turn.turn_number
+        );
+        setPlanApprovalDraft(loadedPlanDraft);
+
+        const loadedChatDrafts = loadConversationDraftMap(
+          viewData.game_id,
+          viewData.active_turn.turn_number
+        );
+        setChatDraftMap(loadedChatDrafts);
+
+        return viewData;
+      } catch (err) {
+        if (
+          err instanceof CourtApiError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          setAuthFailure({
+            status: err.status,
+            code: err.code,
+            message: err.message
+          });
+        } else if (err instanceof Error) {
+          setErrorBanner(err.message);
+        }
+        return null;
+      } finally {
+        setLoadingInitial(false);
+      }
+    },
+    []
+  );
+
+  // Initial load + open Shaanxi context panel by default
+  useEffect(() => {
+    void refreshAllCourtData(viewedTurnOverride).then((view) => {
+      if (view && !useCourtUiStore.getState().selectedProvinceId) {
+        openProvincePanel('shaanxi', 'report');
+      }
+    });
+  }, [refreshAllCourtData, viewedTurnOverride, openProvincePanel]);
+
+  // Keep runtime profile form synced when courtView or selected office changes
+  useEffect(() => {
+    if (!courtView) return;
+    const office = courtView.offices.find(
+      (o) => o.office_id === runtimeOfficeId
+    );
+    syncRuntimeFormFromOffice(office);
+  }, [courtView, runtimeOfficeId, syncRuntimeFormFromOffice]);
+
+  // Reset person card office selection and error when switching character
+  useEffect(() => {
+    setBioTargetOfficeId('');
+    setBioAppointmentError(null);
+  }, [bioCharacterId]);
+
+  // Optional debug truth fetch
+  useEffect(() => {
+    if (!debugEnabled || !courtView) {
+      setDebugTruth(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchDebugTruth(
+      courtView.viewed_turn.turn_number,
+      monarchSettings.debugToken
+    )
+      .then((truth) => {
+        if (!cancelled) setDebugTruth(truth);
+      })
+      .catch(() => {
+        if (!cancelled) setDebugTruth(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debugEnabled, courtView, monarchSettings.debugToken]);
+
+  // Fetch messages for active conversation + viewed turn
+  const loadActiveConversationMessages = useCallback(
+    async (convId: string, turnNumber: number) => {
+      setMessagesLoading(true);
+      try {
+        const res = await fetchConversationMessages(convId, turnNumber);
+        const turnKey = getConversationTurnKey(convId, turnNumber);
+        setMessagesByTurnKey((prev) => ({
+          ...prev,
+          [turnKey]: res.messages
+        }));
+      } catch (err) {
+        if (err instanceof Error) {
+          setChatError(err.message);
+        }
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!courtView || !activeConversationId) return;
+    void loadActiveConversationMessages(
+      activeConversationId,
+      courtView.viewed_turn.turn_number
+    );
+  }, [
+    courtView,
+    activeConversationId,
+    loadActiveConversationMessages
+  ]);
+
+  const handleExplicitCloseBiography = useCallback(
+    (pointer?: { clientX: number; clientY: number }) => {
+      const anchor = bioAnchorRef.current;
+      if (pointer && anchor) {
+        const rect = anchor.getBoundingClientRect();
+        if (
+          pointer.clientX >= rect.left &&
+          pointer.clientX <= rect.right &&
+          pointer.clientY >= rect.top &&
+          pointer.clientY <= rect.bottom
+        ) {
+          suppressedHoverAnchorRef.current = anchor;
+        }
+      }
       setBioCharacterId(null);
       setBioPinned(false);
-    }, 240);
-  }, [bioPinned, clearBioCloseTimer]);
-
-  const handleOpenBiography = useCallback(
-    (charId: CharacterId, anchorEl?: HTMLElement | null) => {
-      dismissedBioAnchorRef.current = null;
-      bioAnchorRef.current = anchorEl ?? null;
-      clearBioCloseTimer();
-      setBioCharacterId(charId);
-      setBioPinned(true);
-      if (anchorEl) {
-        setBioPosition(computeBioPopupPosition(anchorEl));
-      }
     },
-    [clearBioCloseTimer]
+    []
   );
 
-  const handleCloseBiography = useCallback((pointer?: { clientX: number; clientY: number }) => {
-    const anchor = bioAnchorRef.current;
-    if (pointer && anchor) {
-      const rect = anchor.getBoundingClientRect();
-      if (pointer.clientX >= rect.left && pointer.clientX <= rect.right &&
-          pointer.clientY >= rect.top && pointer.clientY <= rect.bottom) {
-        dismissedBioAnchorRef.current = anchor;
-      }
-    }
-    clearBioCloseTimer();
-    setBioCharacterId(null);
-    setBioPinned(false);
-  }, [clearBioCloseTimer]);
-
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 700) {
-      setOverviewCollapsed(true);
-    }
+    const releaseHoverSuppression = (event: PointerEvent) => {
+      const anchor = suppressedHoverAnchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+        suppressedHoverAnchorRef.current = null;
+      }
+    };
+    window.addEventListener('pointermove', releaseHoverSuppression);
+    return () => window.removeEventListener('pointermove', releaseHoverSuppression);
   }, []);
 
-  useEffect(() => {
-    if (!bioCharacterId) return;
-    const onPointerDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      if (bioDialogRef.current?.contains(target)) return;
-      if (
-        target.closest('#minister-bio') ||
-        target.closest('[data-bio-person]')
-      ) {
-        return;
-      }
-      handleCloseBiography();
-    };
-    window.addEventListener('mousedown', onPointerDown);
-    return () => window.removeEventListener('mousedown', onPointerDown);
-  }, [bioCharacterId, handleCloseBiography]);
-
+  // Global Escape handler (nested modal priority)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      if (bioCharacterId !== null) {
-        e.preventDefault();
-        handleCloseBiography();
+      if (e.key !== 'Escape') return;
+      if (bioCharacterId) {
+        handleExplicitCloseBiography();
         return;
       }
-      if (replaceOfficeId !== null) {
-        e.preventDefault();
-        setReplaceOfficeId(null);
+      if (replaceModalOfficeId) {
+        setReplaceModalOfficeId(null);
         return;
       }
-      if (archiveProvinceId !== null) {
-        e.preventDefault();
-        setArchiveProvinceId(null);
+      if (archiveModalProvinceId) {
+        setArchiveModalProvinceId(null);
         return;
       }
-      if (settingsModalOpen) {
-        e.preventDefault();
-        setSettingsModalOpen(false);
+      if (eventModalProvinceId) {
+        setEventModalProvinceId(null);
         return;
       }
-      if (eventDialogProvinceId !== null) {
-        e.preventDefault();
-        setEventDialogProvinceId(null);
+      if (settingsOpen) {
+        setSettingsOpen(false);
         return;
       }
-      const activeEl = document.activeElement;
-      const chatEl = document.getElementById('floating-chat');
-      if (chatWindowOpen && chatEl && activeEl && chatEl.contains(activeEl)) {
-        e.preventDefault();
-        setChatWindowOpen(false);
+      if (activeNationalPanel) {
+        closeNationalPanel();
         return;
       }
-      if (activeLeftPanel !== null) {
-        e.preventDefault();
+      if (chatOpen) {
+        setChatOpen(false);
+        return;
+      }
+      if (leftPanelOpen) {
         closeLeftPanel();
-        return;
-      }
-      if (chatWindowOpen) {
-        e.preventDefault();
-        setChatWindowOpen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
     bioCharacterId,
-    handleCloseBiography,
-    replaceOfficeId,
-    archiveProvinceId,
-    settingsModalOpen,
-    eventDialogProvinceId,
-    chatWindowOpen,
-    activeLeftPanel,
+    handleExplicitCloseBiography,
+    replaceModalOfficeId,
+    archiveModalProvinceId,
+    eventModalProvinceId,
+    settingsOpen,
+    activeNationalPanel,
+    closeNationalPanel,
+    chatOpen,
+    setChatOpen,
+    leftPanelOpen,
     closeLeftPanel
   ]);
 
@@ -379,219 +410,13 @@ export const App: React.FC = () => {
     return map;
   }, [courtView]);
 
-  const provinceById = useMemo(() => {
-    const map = new Map<ProvinceId, CourtProvinceView>();
-    if (!courtView) return map;
-    for (const p of courtView.provinces) {
-      map.set(p.province.province_id, p);
-    }
-    return map;
-  }, [courtView]);
-
-  const activeProvinces = useMemo(
-    () =>
-      ACTIVE_PROVINCE_IDS.map((pid) => provinceById.get(pid)).filter(
-        (p): p is CourtProvinceView => Boolean(p)
-      ),
-    [provinceById]
+  const isHistoryView = Boolean(courtView?.is_history);
+  const canMutateAppointments = Boolean(
+    courtView &&
+      !courtView.is_history &&
+      courtView.active_turn.phase === 'OPEN' &&
+      !appointmentBusy
   );
-
-  const syncRuntimeFormFromOffice = useCallback((office: OfficeView) => {
-    if (office.runtime_profile) {
-      setRuntimeKind(office.runtime_profile.runtime);
-      setRuntimeModel(office.runtime_profile.model);
-      setRuntimeEffort(office.runtime_profile.effort ?? 'medium');
-      setRuntimeMode(office.runtime_profile.mode ?? 'json+mcp-read');
-    }
-  }, []);
-
-  const refreshAll = useCallback(
-    async (turnToLoad?: number | null) => {
-      try {
-        const targetTurn =
-          turnToLoad !== undefined ? turnToLoad : viewedTurnOverride;
-        const [viewRes, convRes] = await Promise.all([
-          fetchCourtView(targetTurn ?? undefined),
-          fetchCourtConversations()
-        ]);
-        setCourtView(viewRes);
-        setConversations(convRes.conversations);
-        setFatalError(null);
-
-        clearStalePlanApprovalDrafts(
-          viewRes.game_id,
-          viewRes.active_turn.turn_number
-        );
-        clearStaleConversationDrafts(
-          viewRes.game_id,
-          viewRes.active_turn.turn_number
-        );
-
-        const loadedPlanDraft = loadTurnPlanApprovalDraft(
-          viewRes.game_id,
-          viewRes.viewed_turn.turn_number
-        );
-        const nextPlanDraft: TurnPlanApprovalDraft = { ...loadedPlanDraft };
-        for (const pv of viewRes.provinces) {
-          if (!pv.province.active) continue;
-          for (const plan of pv.plans) {
-            if (
-              plan.status === 'LOCKED' &&
-              plan.requested_amount > 0 &&
-              !nextPlanDraft[plan.plan_id]
-            ) {
-              nextPlanDraft[plan.plan_id] = {
-                approved_amount: plan.requested_amount,
-                custom_input: String(plan.requested_amount)
-              };
-            }
-          }
-        }
-        setPlanApprovalDraft(nextPlanDraft);
-        setConversationDrafts(
-          loadConversationDraftMap(
-            viewRes.game_id,
-            viewRes.viewed_turn.turn_number
-          )
-        );
-
-        if (!initialPanelOpenedRef.current) {
-          initialPanelOpenedRef.current = true;
-          const storeState = useCourtUiStore.getState();
-          if (
-            storeState.activeLeftPanel === null &&
-            storeState.selectedProvinceId === null
-          ) {
-            openProvincePanel('shaanxi', 'report');
-          }
-        }
-
-        if (debugEnabled) {
-          try {
-            const dbg = await fetchDebugTruth(viewRes.viewed_turn.turn_number);
-            setDebugTruth(dbg);
-          } catch {
-            setDebugTruth(null);
-          }
-        } else {
-          setDebugTruth(null);
-        }
-      } catch (err) {
-        if (
-          err instanceof CourtApiError &&
-          (err.status === 401 || err.code === 'UNAUTHORIZED')
-        ) {
-          setSettingsModalOpen(true);
-        }
-        const msg =
-          err instanceof Error ? err.message : '无法加载朝堂状态，请检查服务连接';
-        setFatalError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [viewedTurnOverride, debugEnabled, openProvincePanel]
-  );
-
-  useEffect(() => {
-    void refreshAll();
-  }, [refreshAll]);
-
-  useEffect(() => {
-    if (!courtView) return;
-    const office = courtView.offices.find(
-      (o) => o.office_id === selectedRuntimeOfficeId
-    );
-    if (office) {
-      syncRuntimeFormFromOffice(office);
-    }
-  }, [courtView, selectedRuntimeOfficeId, syncRuntimeFormFromOffice]);
-
-  const loadMessagesForConversation = useCallback(
-    async (convId: string, turnNum: number) => {
-      setMessagesLoading(true);
-      try {
-        const res = await fetchConversationMessages(convId, turnNum);
-        const turnKey = getConversationTurnKey(convId, turnNum);
-        setMessagesByTurnKey((prev) => ({
-          ...prev,
-          [turnKey]: res.messages
-        }));
-      } catch (err) {
-        if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
-          await refreshAll(null);
-        }
-      } finally {
-        setMessagesLoading(false);
-      }
-    },
-    [refreshAll]
-  );
-
-  useEffect(() => {
-    if (!courtView || !activeConversationId) return;
-    void loadMessagesForConversation(
-      activeConversationId,
-      courtView.viewed_turn.turn_number
-    );
-  }, [
-    courtView?.viewed_turn.turn_number,
-    activeConversationId,
-    loadMessagesForConversation,
-    courtView
-  ]);
-
-  useEffect(() => {
-    if (!activeConversationId) {
-      setGroupMentions([]);
-      return;
-    }
-    const conv = conversations.find(
-      (c) => c.conversation_id === activeConversationId
-    );
-    if (conv && conv.kind === 'group') {
-      setGroupMentions(getConversationCharacterIds(conv));
-    } else {
-      setGroupMentions([]);
-    }
-  }, [activeConversationId, conversations]);
-
-  const handleApiError = useCallback(
-    async (err: unknown) => {
-      if (err instanceof CourtApiError) {
-        if (err.status === 401 || err.code === 'UNAUTHORIZED') {
-          setSettingsModalOpen(true);
-        }
-        if (err.isStaleOrPhaseConflict()) {
-          setViewedTurnOverride(null);
-          await refreshAll(null);
-          setActionBanner({
-            tone: 'info',
-            text: `朝局状态已变更 ${err.code}，已同步最新当期状态`
-          });
-          return;
-        }
-        setActionBanner({
-          tone: 'error',
-          text: `${err.message} ${err.code}`
-        });
-        return;
-      }
-      setActionBanner({
-        tone: 'error',
-        text: err instanceof Error ? err.message : '操作执行失败'
-      });
-    },
-    [refreshAll]
-  );
-
-  const isHistoryView = useMemo(() => {
-    if (!courtView) return false;
-    return (
-      courtView.is_history ||
-      courtView.viewed_turn.turn_number !== courtView.active_turn.turn_number
-    );
-  }, [courtView]);
 
   const planEvaluation = useMemo(() => {
     if (!courtView) {
@@ -603,11 +428,11 @@ export const App: React.FC = () => {
     );
   }, [courtView, planApprovalDraft]);
 
-  const handleSelectProvinceOnMap = useCallback(
+  const handleSelectProvince = useCallback(
     (
       provinceId: ProvinceId,
-      viewportWidth: number,
-      viewportHeight: number
+      viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1440,
+      viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 900
     ) => {
       openProvincePanel(provinceId);
       setCamera((prev) =>
@@ -616,151 +441,165 @@ export const App: React.FC = () => {
           prev,
           viewportWidth,
           viewportHeight,
-          428
+          248
         )
       );
     },
     [openProvincePanel]
   );
 
-  const handleSelectProvinceFromList = useCallback(
-    (provinceId: ProvinceId, tab?: ProvinceDrawerTab) => {
-      openProvincePanel(provinceId, tab ?? 'report');
-      const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
-      const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
-      setCamera((prev) =>
-        computeMinimalOcclusionPan(provinceId, prev, vw, vh, 428)
-      );
+  const handleSelectTurn = useCallback(
+    async (turnNumber: number) => {
+      if (!courtView) return;
+      const target =
+        turnNumber === courtView.active_turn.turn_number
+          ? undefined
+          : turnNumber;
+      setViewedTurnOverride(target);
+      await refreshAllCourtData(target);
     },
-    [openProvincePanel]
+    [courtView, refreshAllCourtData]
   );
 
   const handleChangePlanDraftInput = useCallback(
     (planId: string, rawInput: string, requestedAmount: number) => {
-      if (!courtView || isHistoryView) return;
-      const entry = validateCustomPlanApprovalInput(rawInput, requestedAmount);
-      setPlanApprovalDraft((prev) => {
-        const next: TurnPlanApprovalDraft = {
-          ...prev,
-          [planId]: entry
-        };
-        saveTurnPlanApprovalDraft(
-          courtView.game_id,
-          courtView.viewed_turn.turn_number,
-          next
-        );
-        return next;
-      });
-    },
-    [courtView, isHistoryView]
-  );
-
-  const handleSetPlanPresetAmount = useCallback(
-    (planId: string, amount: number, requestedAmount: number) => {
-      if (!courtView || isHistoryView) return;
-      const entry = validateCustomPlanApprovalInput(
-        String(amount),
+      if (!courtView || courtView.is_history) return;
+      const validated = validateCustomPlanApprovalInput(
+        rawInput,
         requestedAmount
       );
       setPlanApprovalDraft((prev) => {
         const next: TurnPlanApprovalDraft = {
           ...prev,
-          [planId]: entry
+          [planId]: validated
         };
         saveTurnPlanApprovalDraft(
           courtView.game_id,
-          courtView.viewed_turn.turn_number,
+          courtView.active_turn.turn_number,
           next
         );
         return next;
       });
     },
-    [courtView, isHistoryView]
+    [courtView]
   );
 
-  const handleLockTurn = useCallback(async () => {
-    if (
-      !courtView ||
-      isHistoryView ||
-      courtView.active_turn.phase !== 'OPEN'
-    ) {
+  const handleSetPlanPresetAmount = useCallback(
+    (planId: string, amount: number, requestedAmount: number) => {
+      handleChangePlanDraftInput(planId, String(amount), requestedAmount);
+    },
+    [handleChangePlanDraftInput]
+  );
+
+  const handlePrimaryPhaseAction = useCallback(async () => {
+    if (!courtView || phaseBusy) return;
+    setErrorBanner(null);
+
+    if (courtView.is_history) {
+      await handleSelectTurn(courtView.active_turn.turn_number);
       return;
     }
-    setTurnBusy(true);
-    setActionBanner(null);
-    try {
-      await postLockTurn({
-        game_id: courtView.game_id,
-        target_turn: courtView.active_turn.turn_number
-      });
-      await refreshAll(null);
-      if (selectedProvinceId) {
-        const pv = courtView.provinces.find(
-          (p) => p.province.province_id === selectedProvinceId
+
+    const phase = courtView.active_turn.phase;
+    if (phase === 'ARCHIVED') {
+      return;
+    }
+
+    if (phase === 'OPEN') {
+      setPhaseBusy(true);
+      try {
+        const nextView = await postLockTurn({
+          game_id: courtView.game_id,
+          target_turn: courtView.active_turn.turn_number
+        });
+        setCourtView(nextView);
+        const firstPlanProvince = nextView.provinces.find(
+          (p) =>
+            p.province.active &&
+            p.plans.some((pl) => pl.status === 'LOCKED' && pl.requested_amount > 0)
         );
-        if (pv?.province.active) {
-          setProvinceTab('approval');
+        if (firstPlanProvince) {
+          openProvincePanel(firstPlanProvince.province.province_id, 'approval');
         }
+      } catch (err) {
+        if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
+          setErrorBanner(`朝局状态已变更（${err.code}）：${err.message}`);
+          await refreshAllCourtData(viewedTurnOverride);
+        } else if (err instanceof Error) {
+          setErrorBanner(err.message);
+        }
+      } finally {
+        setPhaseBusy(false);
       }
+      return;
+    }
+
+    // phase === 'LOCKED' -> validate and settle
+    if (!planEvaluation.readyToSettle) {
+      const firstInvalidOrUndecided =
+        planEvaluation.invalidPlanIds[0] ?? planEvaluation.undecidedPlanIds[0];
+      const targetProv = courtView.provinces.find((p) =>
+        p.plans.some((pl) => pl.plan_id === firstInvalidOrUndecided)
+      );
+      if (targetProv) {
+        openProvincePanel(targetProv.province.province_id, 'approval');
+      }
+      setErrorBanner(
+        planEvaluation.invalidPlanIds.length > 0
+          ? '尚有方略批复数额格式有误或超出请拨上限，请核正后再行批红'
+          : `尚有 ${planEvaluation.undecidedPlanIds.length} 项请拨方略未批定数额（拒批请填 0）`
+      );
+      return;
+    }
+
+    setPhaseBusy(true);
+    try {
+      const settledView = await postSettleTurn({
+        game_id: courtView.game_id,
+        target_turn: courtView.active_turn.turn_number,
+        decisions: planEvaluation.decisions
+      });
+      setViewedTurnOverride(undefined);
+      setCourtView(settledView);
+      const nextDraft = loadTurnPlanApprovalDraft(
+        settledView.game_id,
+        settledView.active_turn.turn_number
+      );
+      setPlanApprovalDraft(nextDraft);
+      clearStalePlanApprovalDrafts(
+        settledView.game_id,
+        settledView.active_turn.turn_number
+      );
+      clearStaleConversationDrafts(
+        settledView.game_id,
+        settledView.active_turn.turn_number
+      );
     } catch (err) {
-      await handleApiError(err);
+      if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
+        setErrorBanner(`结算冲突（${err.code}）：${err.message}`);
+        await refreshAllCourtData(viewedTurnOverride);
+      } else if (err instanceof Error) {
+        setErrorBanner(err.message);
+      }
     } finally {
-      setTurnBusy(false);
+      setPhaseBusy(false);
     }
   }, [
     courtView,
-    isHistoryView,
-    refreshAll,
-    selectedProvinceId,
-    setProvinceTab,
-    handleApiError
+    phaseBusy,
+    handleSelectTurn,
+    openProvincePanel,
+    refreshAllCourtData,
+    viewedTurnOverride,
+    planEvaluation
   ]);
 
-  const handleSettleTurn = useCallback(async () => {
-    if (
-      !courtView ||
-      isHistoryView ||
-      courtView.active_turn.phase !== 'LOCKED'
-    ) {
-      return;
-    }
-    if (!planEvaluation.readyToSettle) {
-      setActionBanner({
-        tone: 'error',
-        text: '尚有请拨方略未完成有效整数核拨'
-      });
-      return;
-    }
-
-    setTurnBusy(true);
-    setActionBanner(null);
-    try {
-      const settledTurn = courtView.active_turn.turn_number;
-      await postSettleTurn({
-        game_id: courtView.game_id,
-        target_turn: settledTurn,
-        decisions: planEvaluation.decisions
-      });
-      clearTurnPlanApprovalDraft(courtView.game_id, settledTurn);
-      await refreshAll(null);
-    } catch (err) {
-      await handleApiError(err);
-    } finally {
-      setTurnBusy(false);
-    }
-  }, [courtView, isHistoryView, planEvaluation, refreshAll, handleApiError]);
-
-  const handleAppointCandidate = useCallback(
-    async (officeId: OfficeId, characterId: CharacterId) => {
-      if (
-        !courtView ||
-        isHistoryView ||
-        courtView.active_turn.phase !== 'OPEN'
-      ) {
-        return;
-      }
+  const handleAppointCharacter = useCallback(
+    async (officeId: OfficeId, characterId: CharacterId | null) => {
+      if (!courtView || appointmentBusy) return;
       setAppointmentBusy(true);
-      setActionBanner(null);
+      setErrorBanner(null);
+      setBioAppointmentError(null);
       try {
         await postAppointment({
           game_id: courtView.game_id,
@@ -768,172 +607,155 @@ export const App: React.FC = () => {
           office_id: officeId,
           character_id: characterId
         });
-        setReplaceOfficeId(null);
-        await refreshAll(null);
+        setReplaceModalOfficeId(null);
+        setBioTargetOfficeId('');
+        await refreshAllCourtData(viewedTurnOverride);
       } catch (err) {
-        await handleApiError(err);
+        if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
+          const msg = `任免未生效（${err.code}）：${err.message}`;
+          setErrorBanner(msg);
+          setBioAppointmentError(msg);
+          setReplaceModalOfficeId(null);
+          await refreshAllCourtData(viewedTurnOverride);
+        } else if (err instanceof Error) {
+          setErrorBanner(err.message);
+          setBioAppointmentError(err.message);
+        }
       } finally {
         setAppointmentBusy(false);
       }
     },
-    [courtView, isHistoryView, refreshAll, handleApiError]
+    [courtView, appointmentBusy, refreshAllCourtData, viewedTurnOverride]
   );
 
+  // Open chat for a character (from province panel or event dialog)
   const handleOpenChatForCharacter = useCallback(
     async (characterId: CharacterId) => {
       if (!courtView) return;
       setChatError(null);
-      setChatWindowOpen(true);
       setSelectedContactCharacterId(characterId);
-
       const existingDm = conversations.find(
-        (c) =>
-          c.kind === 'dm' &&
-          getConversationCharacterIds(c).length === 1 &&
-          getConversationCharacterIds(c)[0] === characterId
+        (c) => c.kind === 'dm' && getConversationCharacterIds(c)[0] === characterId
       );
-      if (existingDm) {
-        setActiveConversationId(existingDm.conversation_id);
-        return;
-      }
-
-      if (isHistoryView || courtView.active_turn.phase === 'ARCHIVED') {
-        setActiveConversationId(null);
-        return;
-      }
+      openChatWindow(existingDm?.conversation_id ?? null);
+      if (existingDm || courtView.is_history || courtView.active_turn.phase === 'ARCHIVED') return;
 
       setChatBusy(true);
       try {
-        const charName =
-          characterById.get(characterId)?.name ?? characterId;
         const created = await postCreateConversation({
           game_id: courtView.game_id,
           target_turn: courtView.active_turn.turn_number,
           kind: 'dm',
-          title: `与${charName}密谈`,
+          title: `与${characterById.get(characterId)!.name}密谈`,
           character_ids: [characterId]
         });
-        const convRes = await fetchCourtConversations();
-        setConversations(convRes.conversations);
-        setActiveConversationId(created.conversation_id);
+        setConversations((prev) => [...prev, created]);
+        openChatWindow(created.conversation_id);
       } catch (err) {
-        if (err instanceof Error) {
-          setChatError(err.message);
-        }
-        await handleApiError(err);
+        if (err instanceof Error) setChatError(err.message);
       } finally {
         setChatBusy(false);
       }
     },
-    [
-      courtView,
-      conversations,
-      isHistoryView,
-      characterById,
-      setActiveConversationId,
-      handleApiError
-    ]
+    [courtView, conversations, characterById, openChatWindow]
   );
 
-  const handleCreateGroupConversation = useCallback(
-    async (title: string, characterIds: CharacterId[]) => {
-      if (
-        !courtView ||
-        isHistoryView ||
-        courtView.active_turn.phase === 'ARCHIVED' ||
-        characterIds.length === 0
-      ) {
-        return;
-      }
-      setChatBusy(true);
+  const handleSelectConversation = useCallback(
+    (conversationId: string) => {
       setChatError(null);
-      try {
-        const created = await postCreateConversation({
-          game_id: courtView.game_id,
-          target_turn: courtView.active_turn.turn_number,
-          kind: 'group',
-          title: title.trim() || '三省廷议',
-          character_ids: characterIds
+      const conv = conversations.find(
+        (c) => c.conversation_id === conversationId
+      );
+      if (conv?.kind === 'dm') {
+        const charId = getConversationCharacterIds(conv)[0] ?? null;
+        setSelectedContactCharacterId(charId);
+      } else if (conv?.kind === 'group') {
+        const charIds = getConversationCharacterIds(conv);
+        setGroupMentionsByConv((prev) => {
+          if (prev[conversationId]) return prev;
+          return {
+            ...prev,
+            [conversationId]: charIds
+          };
         });
-        const convRes = await fetchCourtConversations();
-        setConversations(convRes.conversations);
-        setActiveConversationId(created.conversation_id);
-        setSelectedContactCharacterId(null);
-      } catch (err) {
-        if (err instanceof Error) {
-          setChatError(err.message);
-        }
-        await handleApiError(err);
-      } finally {
-        setChatBusy(false);
       }
+      openChatWindow(conversationId);
     },
-    [courtView, isHistoryView, setActiveConversationId, handleApiError]
+    [conversations, openChatWindow]
   );
 
-  const currentDraftStorageId =
-    activeConversationId ??
-    (selectedContactCharacterId ? `contact:${selectedContactCharacterId}` : '');
+  const handleSelectCharacterContact = useCallback(
+    (characterId: CharacterId) => {
+      handleOpenChatForCharacter(characterId);
+    },
+    [handleOpenChatForCharacter]
+  );
 
-  const activeDraftText = currentDraftStorageId
-    ? (conversationDrafts[currentDraftStorageId] ?? '')
+  const activeDraftKey =
+    activeConversationId ??
+    (selectedContactCharacterId ? `dm:${selectedContactCharacterId}` : '');
+  const currentChatDraftText = activeDraftKey
+    ? (chatDraftMap[activeDraftKey] ?? '')
     : '';
 
   const handleChangeChatDraft = useCallback(
-    (content: string) => {
-      if (!courtView || !currentDraftStorageId) return;
+    (text: string) => {
+      if (!courtView || !activeDraftKey) return;
       const next = saveConversationDraft(
         courtView.game_id,
-        courtView.viewed_turn.turn_number,
-        currentDraftStorageId,
-        content
+        courtView.active_turn.turn_number,
+        activeDraftKey,
+        text
       );
-      setConversationDrafts(next);
+      setChatDraftMap(next);
     },
-    [courtView, currentDraftStorageId]
+    [courtView, activeDraftKey]
   );
 
-  const handleToggleGroupMention = useCallback((characterId: CharacterId) => {
-    setGroupMentions((prev) =>
-      prev.includes(characterId)
-        ? prev.filter((id) => id !== characterId)
-        : [...prev, characterId]
-    );
-  }, []);
+  const handleToggleGroupMention = useCallback(
+    (characterId: CharacterId) => {
+      if (!activeConversationId) return;
+      setGroupMentionsByConv((prev) => {
+        const current = prev[activeConversationId] ?? [];
+        const nextList = current.includes(characterId)
+          ? current.filter((id) => id !== characterId)
+          : [...current, characterId];
+        return {
+          ...prev,
+          [activeConversationId]: nextList
+        };
+      });
+    },
+    [activeConversationId]
+  );
 
   const handleSendChatMessage = useCallback(async () => {
-    if (
-      !courtView ||
-      isHistoryView ||
-      courtView.active_turn.phase === 'ARCHIVED'
-    ) {
-      return;
-    }
-
-    const content = activeDraftText.trim();
-    if (!content) return;
+    if (!courtView || courtView.is_history || chatBusy) return;
+    const trimmed = currentChatDraftText.trim();
+    if (!trimmed) return;
 
     setChatBusy(true);
     setChatError(null);
     try {
       let targetConvId = activeConversationId;
-      let targetConv = conversations.find(
-        (c) => c.conversation_id === targetConvId
-      );
+      let targetConv =
+        conversations.find((c) => c.conversation_id === targetConvId) ?? null;
 
       if (!targetConv && selectedContactCharacterId) {
-        const charName =
-          characterById.get(selectedContactCharacterId)?.name ??
-          selectedContactCharacterId;
+        const char = characterById.get(selectedContactCharacterId);
         const created = await postCreateConversation({
           game_id: courtView.game_id,
           target_turn: courtView.active_turn.turn_number,
           kind: 'dm',
-          title: `与${charName}密谈`,
+          title: `与${char?.name ?? selectedContactCharacterId}密谈`,
           character_ids: [selectedContactCharacterId]
         });
         targetConv = created;
         targetConvId = created.conversation_id;
+        setConversations((prev) => [
+          ...prev.filter((c) => c.conversation_id !== created.conversation_id),
+          created
+        ]);
         setActiveConversationId(created.conversation_id);
       }
 
@@ -942,199 +764,271 @@ export const App: React.FC = () => {
       }
 
       const mentions =
-        targetConv.kind === 'dm'
-          ? getConversationCharacterIds(targetConv)
-          : groupMentions;
+        targetConv.kind === 'group'
+          ? (groupMentionsByConv[targetConvId] ?? [])
+          : [];
 
-      await postCourtMessage({
+      const { message } = await postCourtMessage({
         game_id: courtView.game_id,
         target_turn: courtView.active_turn.turn_number,
         conversation_id: targetConvId,
-        content,
+        content: trimmed,
         mentions
       });
 
-      const cleared = saveConversationDraft(
+      const turnKey = getConversationTurnKey(
+        targetConvId,
+        courtView.viewed_turn.turn_number
+      );
+      setMessagesByTurnKey((prev) => ({
+        ...prev,
+        [turnKey]: [...(prev[turnKey] ?? []), message]
+      }));
+
+      // Clear draft for both the conversation ID and any pre-creation dm key
+      const cleared1 = saveConversationDraft(
         courtView.game_id,
-        courtView.viewed_turn.turn_number,
-        currentDraftStorageId,
+        courtView.active_turn.turn_number,
+        targetConvId,
         ''
       );
-      setConversationDrafts(cleared);
-
-      await Promise.all([
-        loadMessagesForConversation(
-          targetConvId,
-          courtView.viewed_turn.turn_number
-        ),
-        refreshAll(null)
-      ]);
+      const cleared2 = selectedContactCharacterId
+        ? saveConversationDraft(
+            courtView.game_id,
+            courtView.active_turn.turn_number,
+            `dm:${selectedContactCharacterId}`,
+            ''
+          )
+        : cleared1;
+      setChatDraftMap(cleared2);
     } catch (err) {
-      if (err instanceof Error) {
+      if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
+        setChatError(`发送未生效（${err.code}）：${err.message}`);
+        await refreshAllCourtData(viewedTurnOverride);
+      } else if (err instanceof Error) {
         setChatError(err.message);
       }
-      await handleApiError(err);
     } finally {
       setChatBusy(false);
     }
   }, [
     courtView,
-    isHistoryView,
-    activeDraftText,
+    chatBusy,
+    currentChatDraftText,
     activeConversationId,
     conversations,
     selectedContactCharacterId,
     characterById,
     setActiveConversationId,
-    groupMentions,
-    currentDraftStorageId,
-    loadMessagesForConversation,
-    refreshAll,
-    handleApiError
+    groupMentionsByConv,
+    refreshAllCourtData,
+    viewedTurnOverride
   ]);
 
-  const handleSaveRuntimeProfile = useCallback(async () => {
-    if (!courtView || isHistoryView) return;
+  const handleCreateGroupConversation = useCallback(
+    async (title: string, characterIds: CharacterId[]) => {
+      if (!courtView || courtView.is_history || characterIds.length === 0)
+        return;
+      setChatBusy(true);
+      setChatError(null);
+      try {
+        const created = await postCreateConversation({
+          game_id: courtView.game_id,
+          target_turn: courtView.active_turn.turn_number,
+          kind: 'group',
+          title,
+          character_ids: characterIds
+        });
+        setConversations((prev) => [...prev, created]);
+        setGroupMentionsByConv((prev) => ({
+          ...prev,
+          [created.conversation_id]: characterIds
+        }));
+        setActiveConversationId(created.conversation_id);
+      } catch (err) {
+        if (err instanceof CourtApiError && err.isStaleOrPhaseConflict()) {
+          setChatError(`创建廷议未生效（${err.code}）：${err.message}`);
+          await refreshAllCourtData(viewedTurnOverride);
+        } else if (err instanceof Error) {
+          setChatError(err.message);
+        }
+      } finally {
+        setChatBusy(false);
+      }
+    },
+    [courtView, setActiveConversationId, refreshAllCourtData, viewedTurnOverride]
+  );
+
+  const handleSaveMonarchCredentials = useCallback(async () => {
+    saveMonarchSettings(monarchSettings);
+    setErrorBanner(null);
+    await refreshAllCourtData(viewedTurnOverride);
+  }, [monarchSettings, refreshAllCourtData, viewedTurnOverride]);
+
+  const handleSaveOfficeRuntime = useCallback(async () => {
+    if (!courtView || runtimeBusy) return;
     setRuntimeBusy(true);
-    setRuntimeSavedMsg(null);
-    setRuntimeError(null);
+    setErrorBanner(null);
     try {
-      await putRuntimeProfile({
+      const updatedOffice = await putRuntimeProfile({
         game_id: courtView.game_id,
-        office_id: selectedRuntimeOfficeId,
+        office_id: runtimeOfficeId,
         profile: {
-          runtime: runtimeKind,
+          runtime: runtimeProvider.trim() || 'claude',
           model: runtimeModel.trim() || 'claude-sonnet-4-5',
-          effort: runtimeEffort,
+          effort: runtimeEffort.trim() === '' ? null : runtimeEffort.trim(),
           mode: runtimeMode
         }
       });
-      setRuntimeSavedMsg('已保存官职运行配置');
-      await refreshAll(null);
+      setCourtView((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          offices: prev.offices.map((o) =>
+            o.office_id === updatedOffice.office_id ? updatedOffice : o
+          )
+        };
+      });
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : '保存官职运行配置失败';
-      setRuntimeError(msg);
-      await handleApiError(err);
+      if (err instanceof Error) {
+        setErrorBanner(err.message);
+      }
     } finally {
       setRuntimeBusy(false);
     }
   }, [
     courtView,
-    isHistoryView,
-    selectedRuntimeOfficeId,
-    runtimeKind,
+    runtimeBusy,
+    runtimeOfficeId,
+    runtimeProvider,
     runtimeModel,
     runtimeEffort,
-    runtimeMode,
-    refreshAll,
-    handleApiError
+    runtimeMode
   ]);
 
-  const handleSaveLocalSettings = useCallback(() => {
-    saveMonarchSettings(monarchSettings);
-    setSettingsSavedMsg('凭据已存');
-    void refreshAll();
-  }, [monarchSettings, refreshAll]);
+  const bioDialogRef = useRef<HTMLElement | null>(null);
+  const eventDialogRef = useRef<HTMLElement | null>(null);
+  const candidateDialogRef = useRef<HTMLElement | null>(null);
+  const archiveDialogRef = useRef<HTMLElement | null>(null);
+  const settingsDialogRef = useRef<HTMLElement | null>(null);
+  const authDialogRef = useRef<HTMLElement | null>(null);
 
-  const handleSelectHistoryTurn = useCallback(
-    async (turnNum: number | null) => {
-      setViewedTurnOverride(turnNum);
-      await refreshAll(turnNum);
-    },
-    [refreshAll]
+  const personCardData = useMemo(
+    () =>
+      bioCharacterId && courtView
+        ? buildCharacterPersonCardData(
+            bioCharacterId,
+            courtView,
+            appointmentBusy
+          )
+        : null,
+    [bioCharacterId, courtView, appointmentBusy]
   );
 
-  if (loading && !courtView) {
-    return (
-      <main className="hud-root">
-        <div className="court-dialog" role="status">
-          <div className="win-bar">
-            <div className="win-id">
-              <strong>大明乾清宫</strong>
-            </div>
-          </div>
-          <div className="dialog-body">
-            <p className="event-copy">正在调取六科廊奏章与户部黄册...</p>
-          </div>
-        </div>
-      </main>
+  const activeEventDialogData = useMemo(() => {
+    if (!eventModalProvinceId || !courtView) return null;
+    const pv = courtView.provinces.find(
+      (p) => p.province.province_id === eventModalProvinceId
     );
-  }
+    if (!pv) return null;
+    return buildProvinceEventDialogData(
+      pv,
+      courtView.viewed_turn.turn_number,
+      characterById
+    );
+  }, [eventModalProvinceId, courtView, characterById]);
 
-  if (fatalError && !courtView) {
+  const eventProvinceView = useMemo(
+    () =>
+      eventModalProvinceId && courtView
+        ? (courtView.provinces.find(
+            (p) => p.province.province_id === eventModalProvinceId
+          ) ?? null)
+        : null,
+    [eventModalProvinceId, courtView]
+  );
+
+  const replaceCandidates = useMemo(
+    () =>
+      replaceModalOfficeId && courtView
+        ? buildOfficeReplacementCandidates(
+            replaceModalOfficeId,
+            courtView,
+            appointmentBusy
+          )
+        : [],
+    [replaceModalOfficeId, courtView, appointmentBusy]
+  );
+
+  const archiveProvinceView = useMemo(
+    () =>
+      archiveModalProvinceId && courtView
+        ? (courtView.provinces.find(
+            (p) => p.province.province_id === archiveModalProvinceId
+          ) ?? null)
+        : null,
+    [archiveModalProvinceId, courtView]
+  );
+
+  useModalDialogFocus(Boolean(personCardData && bioPinned), bioDialogRef);
+  useModalDialogFocus(Boolean(activeEventDialogData), eventDialogRef);
+  useModalDialogFocus(Boolean(replaceModalOfficeId), candidateDialogRef);
+  useModalDialogFocus(Boolean(archiveProvinceView), archiveDialogRef);
+  useModalDialogFocus(settingsOpen, settingsDialogRef);
+  useModalDialogFocus(
+    Boolean(!courtView && (authFailure || !loadingInitial)),
+    authDialogRef
+  );
+
+  // If credentials are missing or invalid (`401`/`403`) before initial courtView is loaded,
+  // render a dedicated credential recovery screen so the browser never dead-ends.
+  if (!courtView && (authFailure || !loadingInitial)) {
     return (
-      <main className="hud-root">
+      <main
+        className="court-shell auth-recovery-shell"
+        data-testid="auth-recovery-dialog"
+      >
         <section
           ref={authDialogRef}
-          className="court-dialog settings-dialog"
-          id="settings-window"
+          className="modal-card"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="auth-dialog-title"
+          aria-label="君主凭据核验"
           tabIndex={-1}
-          data-testid="auth-recovery-dialog"
         >
-          <div className="win-bar">
-            <div className="win-id">
-              <strong id="auth-dialog-title">朝堂连接受阻</strong>
+          <div className="modal-head">
+            <div>
+              <h2>御前凭据核验</h2>
             </div>
           </div>
-          <div className="dialog-body settings-body">
-            <p className="event-copy" role="alert">
-              {fatalError}
+          <div className="modal-body">
+            <p className="report-box">
+              {authFailure
+                ? `凭据校验未通过（${authFailure.code}）：${authFailure.message}`
+                : '请输入君主凭据以调阅崇祯九年朝局。'}
             </p>
-            <div className="settings-grid">
-              <label className="dialog-field" htmlFor="setting-token">
-                <span>君主凭据</span>
-                <input
-                  id="setting-token"
-                  type="password"
-                  value={monarchSettings.courtToken}
-                  placeholder="Bearer Token"
-                  onChange={(e) =>
-                    setMonarchSettings((prev) => ({
-                      ...prev,
-                      courtToken: e.target.value
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="dialog-field" htmlFor="setting-debug-token">
-                <span>调试口令</span>
-                <input
-                  id="setting-debug-token"
-                  type="password"
-                  value={monarchSettings.debugToken}
-                  placeholder="Debug Token"
-                  onChange={(e) =>
-                    setMonarchSettings((prev) => ({
-                      ...prev,
-                      debugToken: e.target.value
-                    }))
-                  }
-                />
-              </label>
-            </div>
+            <label className="dialog-field" htmlFor="recovery-court-token">
+              <span>君主凭据</span>
+              <input
+                id="recovery-court-token"
+                type="password"
+                value={monarchSettings.courtToken}
+                placeholder="输入 Bearer 凭据..."
+                onChange={(e) =>
+                  setMonarchSettings((prev) => ({
+                    ...prev,
+                    courtToken: e.target.value
+                  }))
+                }
+              />
+            </label>
           </div>
-          <div className="dialog-actions">
-            {settingsSavedMsg && (
-              <span className="settings-saved-msg">{settingsSavedMsg}</span>
-            )}
+          <div className="modal-actions">
             <button
               type="button"
-              className="brass-action"
-              onClick={() => void refreshAll()}
-            >
-              重新通传
-            </button>
-            <button
-              type="button"
-              className="brass-action primary"
-              id="save-settings"
-              data-testid="save-settings-btn"
-              onClick={handleSaveLocalSettings}
+              className="send-btn"
+              data-testid="save-recovery-token-btn"
+              onClick={() => void handleSaveMonarchCredentials()}
             >
               存凭据
             </button>
@@ -1145,758 +1039,1121 @@ export const App: React.FC = () => {
   }
 
   if (!courtView) {
-    return null;
+    return (
+      <main className="court-shell" data-testid="court-loading">
+        <div
+          className="top-row"
+          style={{ justifyContent: 'center', pointerEvents: 'none' }}
+        >
+          <div className="panel top-bar">
+            <strong>调取崇祯九年朝堂卷宗...</strong>
+          </div>
+        </div>
+      </main>
+    );
   }
 
-  const viewedTurn = courtView.viewed_turn;
-  const activeTurn = courtView.active_turn;
-  const activeTurnKey = activeConversationId
-    ? getConversationTurnKey(activeConversationId, viewedTurn.turn_number)
+  const viewedTurnNumber = courtView.viewed_turn.turn_number;
+  const viewedTurnDateLabel = formatTurnCalendarDate(
+    viewedTurnNumber,
+    courtView.viewed_turn.date
+  );
+  const phaseText = !isHistoryView && courtView.active_turn.turn_number === 4 && courtView.active_turn.phase === 'ARCHIVED'
+    ? '终局'
+    : PHASE_LABELS[courtView.viewed_turn.phase];
+
+  const activeTurnMessagesKey = activeConversationId
+    ? getConversationTurnKey(activeConversationId, viewedTurnNumber)
     : '';
-  const activeMessages = activeTurnKey
-    ? (messagesByTurnKey[activeTurnKey] ?? [])
+  const activeMessages = activeTurnMessagesKey
+    ? (messagesByTurnKey[activeTurnMessagesKey] ?? [])
     : [];
 
-  const phaseBadgeText = isHistoryView
-    ? '旧档'
-    : viewedTurn.phase === 'OPEN'
-      ? '议政'
-      : viewedTurn.phase === 'LOCKED'
-        ? '批复'
-        : '终局';
+  let primaryActionButtonLabel = '截奏';
+  if (isHistoryView) {
+    primaryActionButtonLabel = `返第${courtView.active_turn.turn_number}轮`;
+  } else if (courtView.active_turn.phase === 'OPEN') {
+    primaryActionButtonLabel = phaseBusy ? '截奏中' : '截奏';
+  } else if (courtView.active_turn.phase === 'LOCKED') {
+    primaryActionButtonLabel = phaseBusy ? '下发中' : '下发';
+  } else {
+    primaryActionButtonLabel = '四轮终局';
+  }
 
-  const phaseButtonText = isHistoryView
-    ? '返回当期'
-    : viewedTurn.phase === 'OPEN'
-      ? '截奏'
-      : viewedTurn.phase === 'LOCKED'
-        ? '下发朱批'
-        : '四轮终局';
+  const remainingSilver =
+    courtView.central.gross_silver - planEvaluation.draftApprovedSilver;
+  const remainingGrain =
+    courtView.central.gross_grain - planEvaluation.draftApprovedGrain;
 
-  const phaseButtonDisabled = isHistoryView
-    ? false
-    : viewedTurn.phase === 'OPEN'
-      ? turnBusy
-      : viewedTurn.phase === 'LOCKED'
-        ? turnBusy || !planEvaluation.readyToSettle
-        : true;
-
-  const handlePhaseButtonClick = () => {
-    if (isHistoryView) {
-      void handleSelectHistoryTurn(null);
-      return;
-    }
-    if (viewedTurn.phase === 'OPEN') {
-      void handleLockTurn();
-      return;
-    }
-    if (viewedTurn.phase === 'LOCKED') {
-      void handleSettleTurn();
-    }
-  };
-
-  const bioCharacter = bioCharacterId
-    ? (characterById.get(bioCharacterId) ?? null)
-    : null;
-
-  const replaceTargetOffice = replaceOfficeId
-    ? (courtView.offices.find((o) => o.office_id === replaceOfficeId) ?? null)
-    : null;
-  const replacementCandidates = replaceOfficeId
-    ? buildOfficeReplacementCandidates(
-        replaceOfficeId,
-        courtView,
-        appointmentBusy
+  const eventProvincePlans = eventProvinceView
+    ? eventProvinceView.plans.filter(
+        (p) => p.turn_number === viewedTurnNumber && p.status !== 'WITHDRAWN'
       )
     : [];
-
-  const archiveProvinceView = archiveProvinceId
-    ? (provinceById.get(archiveProvinceId) ?? null)
-    : null;
-
-  const eventProvinceView = eventDialogProvinceId
-    ? (provinceById.get(eventDialogProvinceId) ?? null)
-    : null;
-  const eventDialogData = eventProvinceView
-    ? buildProvinceEventDialogData(
-        eventProvinceView,
-        viewedTurn.turn_number,
-        characterById
-      )
-    : null;
 
   return (
-    <main className="hud-root" data-testid="court-shell">
-      <section className="map-stage" aria-label="大明两京十三省舆图">
-        <MapViewport
-          provinces={courtView.provinces}
-          viewedTurnNumber={viewedTurn.turn_number}
+    <main className="court-shell" data-testid="court-shell">
+      {/* Fullscreen Jiangshan s_ming_c Map */}
+      <MapViewport
+        provinces={courtView.provinces}
+        viewedTurnNumber={viewedTurnNumber}
+        selectedProvinceId={selectedProvinceId}
+        leftPanelOpen={leftPanelOpen}
+        activeLayer={activeLayer}
+        camera={camera}
+        debugTruth={debugTruth}
+        onSelectProvince={handleSelectProvince}
+        onClearSelection={closeLeftPanel}
+        onChangeCamera={setCamera}
+      />
+
+      {/* Top HUD Row: Resources + Function Icons on Left, Time + Phase on Right */}
+      <div className="top-row">
+        <header className="panel resources" aria-label="朝廷要素">
+          <img
+            className="badge"
+            src="/assets/eu-hud/imperial-badge.svg"
+            alt="大明"
+          />
+          <div className="resource" title="户部太仓存银">
+            <small>银</small>
+            <strong id="treasury-silver">
+              {formatSilverAmountWan(courtView.central.gross_silver)}
+            </strong>
+          </div>
+          <div className="resource" title="京仓存粮">
+            <small>粮</small>
+            <strong id="treasury-grain">
+              {formatGrainAmountWan(courtView.central.gross_grain)}
+            </strong>
+          </div>
+
+          <div
+            className="top-actions"
+            id="top-actions"
+            role="toolbar"
+            aria-label="中枢面板"
+          >
+            <button
+              type="button"
+              className={`icon-button ${activeNationalPanel === 'economy' ? 'active' : ''}`}
+              data-panel="economy"
+              data-national="economy"
+              data-top-panel="economy"
+              data-testid="top-btn-economy"
+              aria-pressed={activeNationalPanel === 'economy'}
+              title="太仓钱粮"
+              aria-label="太仓钱粮"
+              onClick={() => toggleGlobalPanel('economy')}
+            >
+              <span className="painted" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`icon-button ${activeNationalPanel === 'population' ? 'active' : ''}`}
+              data-panel="population"
+              data-national="population"
+              data-top-panel="population"
+              data-testid="top-btn-population"
+              aria-pressed={activeNationalPanel === 'population'}
+              title="户口灾情"
+              aria-label="户口灾情"
+              onClick={() => toggleGlobalPanel('population')}
+            >
+              <span className="painted population" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`icon-button ${activeNationalPanel === 'talent' ? 'active' : ''}`}
+              data-panel="talent"
+              data-national="talent"
+              data-top-panel="talent"
+              data-testid="top-btn-talent"
+              aria-pressed={activeNationalPanel === 'talent'}
+              title="百官"
+              aria-label="百官"
+              onClick={() => toggleGlobalPanel('talent')}
+            >
+              <span className="painted talent" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`icon-button ${activeNationalPanel === 'history' ? 'active' : ''}`}
+              data-panel="history"
+              data-national="history"
+              data-top-panel="history"
+              data-testid="top-btn-history"
+              aria-pressed={activeNationalPanel === 'history'}
+              title="起居注"
+              aria-label="起居注"
+              onClick={() => toggleGlobalPanel('history')}
+            >
+              <span className="painted history" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`icon-button ${settingsOpen ? 'active' : ''}`}
+              id="open-settings"
+              data-panel="settings"
+              data-testid="top-btn-settings"
+              title="机务"
+              aria-label="机务"
+              onClick={() => setSettingsOpen((v) => !v)}
+            >
+              <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 3-1 3-3 1-2 4 2 2v4l4 2 3-1 3 1 4-2v-4l2-2-2-4-3-1-1-3z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <aside className="panel timebar" aria-label="轮次与阶段">
+          <strong id="court-year-date">{viewedTurnDateLabel}</strong>
+          <span className="muted" id="court-turn-number">
+            第{viewedTurnNumber}轮
+          </span>
+          <span id="phase" className="muted" data-testid="hud-phase-badge">
+            {phaseText}
+            {isHistoryView ? ' 旧档' : ''}
+          </span>
+          <button
+            type="button"
+            className="primary"
+            id="phase-action"
+            data-testid="phase-action-btn"
+            disabled={
+              phaseBusy ||
+              (!isHistoryView && courtView.active_turn.phase === 'ARCHIVED')
+            }
+            onClick={() => void handlePrimaryPhaseAction()}
+          >
+            <span id="phase-action-label">{primaryActionButtonLabel}</span>
+          </button>
+        </aside>
+      </div>
+
+      {/* Error / Conflict Banner */}
+      {errorBanner && (
+        <div
+          className="error-banner"
+          role="alert"
+          data-testid="court-error-banner"
+        >
+          <span>{errorBanner}</span>
+          <button
+            type="button"
+            className="icon-close"
+            aria-label="关闭提示"
+            onClick={() => setErrorBanner(null)}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Main 3-Column Desktop Workspace */}
+      <div className="workspace">
+        {/* Column 1: Left Province Side Card */}
+        <RightDrawer
+          leftPanelOpen={leftPanelOpen}
           selectedProvinceId={selectedProvinceId}
-          leftPanelOpen={activeLeftPanel !== null}
-          activeLeftPanel={activeLeftPanel}
-          activeLayer={activeLayer}
-          camera={camera}
+          provinceTab={provinceTab}
+          courtView={courtView}
+          characterById={characterById}
           debugTruth={debugTruth}
-          onSelectProvince={handleSelectProvinceOnMap}
-          onClearSelection={closeLeftPanel}
-          onChangeLayer={(layer: MapLayerKind) => setActiveLayer(layer)}
-          onChangeCamera={setCamera}
-          onToggleGlobalPanel={toggleGlobalPanel}
-          onOpenSettings={() => {
-            setSettingsModalOpen(true);
-            setSettingsSavedMsg(null);
-            setRuntimeSavedMsg(null);
-            setRuntimeError(null);
+          planApprovalDraft={planApprovalDraft}
+          isHistoryView={isHistoryView}
+          onCloseLeftPanel={closeLeftPanel}
+          onChangeProvinceTab={setProvinceTab}
+          onOpenBiography={(charId, anchorEl) => {
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            suppressedHoverAnchorRef.current = null;
+            setBioCharacterId(charId);
+            setBioPinned(true);
           }}
+          onHoverBiography={(charId, anchorEl) => {
+            if (anchorEl && suppressedHoverAnchorRef.current === anchorEl) {
+              return;
+            }
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            if (!bioPinned) setBioCharacterId(charId);
+          }}
+          onLeaveBiography={(anchorEl) => {
+            if (!anchorEl || suppressedHoverAnchorRef.current === anchorEl) {
+              suppressedHoverAnchorRef.current = null;
+            }
+            if (!bioPinned) {
+              setBioCharacterId(null);
+            }
+          }}
+          onOpenChatForCharacter={handleOpenChatForCharacter}
+          onOpenReportArchive={(pid) => setArchiveModalProvinceId(pid)}
+          onOpenProvinceEvent={(pid) => setEventModalProvinceId(pid)}
+          onChangePlanDraftInput={handleChangePlanDraftInput}
+          onSetPlanPresetAmount={handleSetPlanPresetAmount}
         />
 
-        {/* Event Icon Row Below Top-Left Resources */}
-        <div
-          className="map-crisis-select"
-          aria-label="当值奏报"
-          data-testid="event-icon-row"
+        {/* Column 2: Centered 4:3 Chat OR Central National Panel */}
+        <NationalPanel
+          activeNationalPanel={activeNationalPanel}
+          courtView={courtView}
+          characterById={characterById}
+          planApprovalDraft={planApprovalDraft}
+          isHistoryView={isHistoryView}
+          canMutateAppointments={canMutateAppointments}
+          onCloseNationalPanel={closeNationalPanel}
+          onSelectProvince={(pid) => handleSelectProvince(pid)}
+          onOpenProvinceEvent={(pid) => setEventModalProvinceId(pid)}
+          onOpenReplaceCandidateModal={(officeId) =>
+            setReplaceModalOfficeId(officeId)
+          }
+          onOpenBiography={(charId, anchorEl) => {
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            suppressedHoverAnchorRef.current = null;
+            setBioCharacterId(charId);
+            setBioPinned(true);
+          }}
+          onHoverBiography={(charId, anchorEl) => {
+            if (anchorEl && suppressedHoverAnchorRef.current === anchorEl) {
+              return;
+            }
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            if (!bioPinned) setBioCharacterId(charId);
+          }}
+          onLeaveBiography={(anchorEl) => {
+            if (!anchorEl || suppressedHoverAnchorRef.current === anchorEl) {
+              suppressedHoverAnchorRef.current = null;
+            }
+            if (!bioPinned) {
+              setBioCharacterId(null);
+            }
+          }}
+          onSelectTurn={(t) => void handleSelectTurn(t)}
+        />
+
+        <FloatingChatWindow
+          open={chatOpen && activeNationalPanel === null}
+          courtView={courtView}
+          characterById={characterById}
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          selectedContactCharacterId={selectedContactCharacterId}
+          activeMessages={activeMessages}
+          messagesLoading={messagesLoading}
+          chatBusy={chatBusy}
+          chatError={chatError}
+          isHistoryView={isHistoryView}
+          draftText={currentChatDraftText}
+          groupMentions={
+            activeConversationId
+              ? (groupMentionsByConv[activeConversationId] ?? [])
+              : []
+          }
+          onClose={() => setChatOpen(false)}
+          onSelectCharacterContact={handleSelectCharacterContact}
+          onSelectConversation={handleSelectConversation}
+          onRefreshConversation={() => {
+            if (activeConversationId) {
+              void loadActiveConversationMessages(
+                activeConversationId,
+                viewedTurnNumber
+              );
+            }
+          }}
+          onChangeDraft={handleChangeChatDraft}
+          onToggleGroupMention={handleToggleGroupMention}
+          onSendMessage={() => void handleSendChatMessage()}
+          onCreateGroupConversation={handleCreateGroupConversation}
+          onOpenBiography={(charId, anchorEl) => {
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            suppressedHoverAnchorRef.current = null;
+            setBioCharacterId(charId);
+            setBioPinned(true);
+          }}
+          onHoverBiography={(charId, anchorEl) => {
+            if (anchorEl && suppressedHoverAnchorRef.current === anchorEl) {
+              return;
+            }
+            if (anchorEl) bioAnchorRef.current = anchorEl;
+            if (!bioPinned) setBioCharacterId(charId);
+          }}
+          onLeaveBiography={(anchorEl) => {
+            if (!anchorEl || suppressedHoverAnchorRef.current === anchorEl) {
+              suppressedHoverAnchorRef.current = null;
+            }
+            if (!bioPinned) {
+              setBioCharacterId(null);
+            }
+          }}
+          biographyOpen={Boolean(bioCharacterId)}
+        />
+
+        {/* Column 3: Right 15-Province Overview */}
+        <aside
+          className={`panel right-window overview ${overviewCollapsed ? 'collapsed' : ''}`}
+          id="overview"
+          aria-label="十五地简况"
+          data-testid="right-overview-panel"
         >
-          {activeProvinces.map((pv) => {
-            const pid = pv.province.province_id;
-            const iconClass = EVENT_ICON_BY_PROVINCE[pid] ?? 'icon-document';
-            const isActiveEvent =
-              eventDialogProvinceId === pid || selectedProvinceId === pid;
-            return (
-              <button
-                key={pid}
-                type="button"
-                className={`crisis-pill ${isActiveEvent ? 'active' : ''}`}
-                data-event={pid}
-                data-testid={`event-pill-${pid}`}
-                title={`${pv.province.name}奏报`}
-                aria-label={`${pv.province.name}奏报`}
-                onClick={() => setEventDialogProvinceId(pid)}
-              >
-                <span className={`painted-icon ${iconClass}`} aria-hidden="true" />
-              </button>
-            );
-          })}
-        </div>
-      </section>
+          <div className="panel-head">
+            <h2>十五地简况</h2>
+            <button
+              type="button"
+              className="icon-button"
+              id="toggle-overview"
+              data-testid="toggle-overview-btn"
+              aria-expanded={!overviewCollapsed}
+              title={overviewCollapsed ? '展开简况' : '收起简况'}
+              aria-label={overviewCollapsed ? '展开简况' : '收起简况'}
+              onClick={() => setOverviewCollapsed((v) => !v)}
+            >
+              <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+                {overviewCollapsed ? (
+                  <path d="M12 5v14M5 12h14" />
+                ) : (
+                  <path d="M5 12h14" />
+                )}
+              </svg>
+            </button>
+          </div>
 
-      {/* Top-Left Compact Resources & Panel Buttons */}
-      <header
-        className="hud-resources"
-        aria-label="朝廷要素"
-        data-testid="hud-resources-bar"
-      >
-        <div className="resource" title="户部太仓存银">
-          <span className="res-name">银</span>
-          <strong id="hud-silver" data-testid="treasury-silver">
-            {formatSilverAmountWan(courtView.central.gross_silver)}
-          </strong>
-        </div>
-        <div className="resource" title="京通仓场存粮">
-          <span className="res-name">粮</span>
-          <strong id="hud-grain" data-testid="treasury-grain">
-            {formatGrainAmountWan(courtView.central.gross_grain)}
-          </strong>
-        </div>
-        <div className="hud-top-icons" role="toolbar" aria-label="朝廷总览">
-          <button
-            type="button"
-            className={`top-icon-btn ${activeLeftPanel === 'economy' ? 'active' : ''}`}
-            data-top-panel="economy"
-            data-testid="top-btn-economy"
-            title="太仓钱粮"
-            aria-label="太仓钱粮"
-            onClick={() => toggleGlobalPanel('economy')}
+          <div
+            className={`overview-list ${overviewCollapsed ? 'hidden' : ''}`}
+            id="overview-list"
           >
-            <span className="painted-icon icon-economy" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={`top-icon-btn ${activeLeftPanel === 'population' ? 'active' : ''}`}
-            data-top-panel="population"
-            data-testid="top-btn-population"
-            title="户口灾情"
-            aria-label="户口灾情"
-            onClick={() => toggleGlobalPanel('population')}
-          >
-            <span className="painted-icon icon-population" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={`top-icon-btn ${activeLeftPanel === 'talent' ? 'active' : ''}`}
-            data-top-panel="talent"
-            data-testid="top-btn-talent"
-            title="百官"
-            aria-label="百官"
-            onClick={() => toggleGlobalPanel('talent')}
-          >
-            <span className="painted-icon icon-talent" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={`top-icon-btn ${activeLeftPanel === 'history' ? 'active' : ''}`}
-            data-top-panel="history"
-            data-testid="top-btn-history"
-            title="起居注"
-            aria-label="起居注"
-            onClick={() => toggleGlobalPanel('history')}
-          >
-            <span className="painted-icon icon-history" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="top-icon-btn"
-            id="open-settings"
-            data-testid="top-btn-settings"
-            title="机务"
-            aria-label="机务"
-            onClick={() => {
-              setSettingsModalOpen(true);
-              setSettingsSavedMsg(null);
-              setRuntimeSavedMsg(null);
-              setRuntimeError(null);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.4 3h3.2l.5 2.2a7 7 0 0 1 1.7.9l2-1 2.2 2.2-1 2a7 7 0 0 1 .9 1.7L22 11.5v3.1l-2.1.5a7 7 0 0 1-.9 1.7l1 2-2.2 2.2-2-1a7 7 0 0 1-1.7.9L13.6 23h-3.2l-.5-2.1a7 7 0 0 1-1.7-.9l-2 1L4 18.8l1-2a7 7 0 0 1-.9-1.7L2 14.6v-3.1l2.1-.5a7 7 0 0 1 .9-1.7l-1-2L6.2 5.1l2 1a7 7 0 0 1 1.7-.9L10.4 3z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              />
-              <circle
-                cx="12"
-                cy="13"
-                r="2.9"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              />
-            </svg>
-          </button>
-        </div>
-      </header>
+            {courtView.provinces.map((pv) => {
+              const ov = formatProvinceOverviewNumbers(
+                pv,
+                viewedTurnNumber,
+                characterById
+              );
+              const isSelected = selectedProvinceId === ov.province_id;
 
-      {/* Top-Right Date & Phase Advance */}
-      <aside
-        className="hud-time-phase"
-        aria-label="轮次与阶段"
-        data-testid="hud-time-phase"
-      >
-        <div className="time-block">
-          <strong id="hud-date" data-testid="court-calendar-date">
-            {formatTurnCalendarDate(viewedTurn.turn_number, viewedTurn.date)}
-          </strong>
+              return (
+                <button
+                  key={ov.province_id}
+                  type="button"
+                  className={`overview-item province-row ${isSelected ? 'active' : ''}`}
+                  data-state={ov.province_id}
+                  data-select-province={ov.province_id}
+                  data-testid={`overview-item-${ov.province_id}`}
+                  title={ov.accessibleProvenance}
+                  aria-label={`${ov.name} ${ov.silverText} ${ov.grainText}（${ov.accessibleProvenance}）`}
+                  onClick={() => handleSelectProvince(ov.province_id)}
+                >
+                  <div className="overview-name">
+                    <span
+                      className="color-dot dot"
+                      style={{ background: ov.baseColor }}
+                      aria-hidden="true"
+                    />
+                    <span className="province-name">{ov.name}</span>
+                  </div>
+                  <div className="overview-numbers amount">
+                    <span className="t-num">{ov.silverText}</span>
+                    <span className="t-num">{ov.grainText}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+      </div>
+
+      {/* Bottom Row: Map Layer Controls + Reopen Chat */}
+      <div className="bottom-row">
+        <div
+          className="panel layer-controls"
+          id="layers"
+          role="group"
+          aria-label="舆图图层"
+          data-testid="map-layer-switcher"
+        >
+          <button
+            type="button"
+            className={`layer-chip ${activeLayer === 'disaster' ? 'active' : ''}`}
+            data-layer="disaster"
+            data-testid="layer-btn-disaster"
+            aria-pressed={activeLayer === 'disaster'}
+            title="灾情图层"
+            aria-label="灾情图层"
+            onClick={() => setActiveLayer('disaster')}
+          >
+            灾情
+          </button>
+          <button
+            type="button"
+            className={`layer-chip ${activeLayer === 'silver' ? 'active' : ''}`}
+            data-layer="silver"
+            data-testid="layer-btn-silver"
+            aria-pressed={activeLayer === 'silver'}
+            title="存银图层"
+            aria-label="存银图层"
+            onClick={() => setActiveLayer('silver')}
+          >
+            存银
+          </button>
+          <button
+            type="button"
+            className={`layer-chip ${activeLayer === 'grain' ? 'active' : ''}`}
+            data-layer="grain"
+            data-testid="layer-btn-grain"
+            aria-pressed={activeLayer === 'grain'}
+            title="存粮图层"
+            aria-label="存粮图层"
+            onClick={() => setActiveLayer('grain')}
+          >
+            存粮
+          </button>
         </div>
-        <span className="phase-badge" id="hud-round">
-          第{viewedTurn.turn_number}轮
-        </span>
-        <span className="phase-badge" id="hud-phase" data-testid="hud-phase-badge">
-          {phaseBadgeText}
-        </span>
+
         <button
           type="button"
-          className="phase-advance"
-          id="phase-action"
-          data-testid="phase-action-btn"
-          disabled={phaseButtonDisabled}
-          onClick={handlePhaseButtonClick}
+          className="panel open-chat-button"
+          id="open-chat"
+          data-testid="open-chat-btn"
+          onClick={() => openChatWindow()}
         >
-          {phaseButtonText}
+          <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 5h14v11H9l-4 4z" />
+          </svg>
+          御前密谈
         </button>
-      </aside>
+      </div>
 
-      {/* Collapsible Right Province Overview */}
-      <aside
-        className={`province-overview ${overviewCollapsed ? 'collapsed' : ''}`}
-        id="province-overview"
-        aria-label="三省简况"
-        data-testid="province-overview"
-      >
-        <div className="overview-header">
-          <strong>三省简况</strong>
-          <button
-            type="button"
-            className="win-btn small"
-            id="toggle-overview"
-            data-testid="toggle-overview-btn"
-            aria-label="收起简况"
-            onClick={() => setOverviewCollapsed((prev) => !prev)}
-          >
-            {overviewCollapsed ? (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M12 5v14M5 12h14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 12h14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </button>
-        </div>
-        <div className="overview-list" id="overview-list">
-          {activeProvinces.map((pv) => {
-            const pid = pv.province.province_id;
-            const incumbentId = pv.appointment?.character_id ?? null;
-            const governorName = incumbentId
-              ? (characterById.get(incumbentId)?.name ?? incumbentId)
-              : '悬缺';
-            const headline = getProvinceOverviewHeadline(pv);
-            const isActive =
-              activeLeftPanel === 'province' && selectedProvinceId === pid;
-            return (
-              <button
-                key={pid}
-                type="button"
-                className={`overview-item ${isActive ? 'active' : ''}`}
-                data-overview-province={pid}
-                data-testid={`overview-item-${pid}`}
-                onClick={() => handleSelectProvinceFromList(pid, 'report')}
-              >
-                <strong>{pv.province.name}</strong>
-                <span>{headline}</span>
-                <em>{governorName}</em>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Action Banner Toast */}
-      {actionBanner && (
+      {/* Centered Event Window (`#court-dialog`) */}
+      {activeEventDialogData && (
         <div
-          className={`hud-toast-banner tone-${actionBanner.tone}`}
-          role="alert"
-          data-testid="hud-action-banner"
+          className="modal-scrim"
+          onClick={() => setEventModalProvinceId(null)}
         >
-          <span>{actionBanner.text}</span>
-          <button
-            type="button"
-            className="win-btn small"
-            aria-label="关闭提示"
-            onClick={() => setActionBanner(null)}
+          <section
+            ref={eventDialogRef}
+            className="modal-card"
+            id="court-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dialog-title"
+            tabIndex={-1}
+            data-testid="event-dialog"
+            onClick={(e) => e.stopPropagation()}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M5 5l14 14M19 5L5 19"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+            <div className="modal-head">
+              <div>
+                <h2 id="dialog-title">{activeEventDialogData.title}</h2>
+                <div className="modal-sub" id="dialog-meta">
+                  {activeEventDialogData.metaText}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                id="close-dialog"
+                aria-label="关闭"
+                onClick={() => setEventModalProvinceId(null)}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="report-box" id="dialog-text">
+                {activeEventDialogData.bodyText}
+              </div>
+
+              {eventProvinceView && eventProvinceView.province.active && (
+                <div className="event-known-grid" data-testid="event-known-facts">
+                  <div className="stat">
+                    <span>已奏灾情</span>
+                    <strong>
+                      {getStringFactValue(
+                        eventProvinceView.known.disaster_label
+                      ) ?? '未奏报'}
+                    </strong>
+                  </div>
+                  <div className="stat">
+                    <span>待赈饥民</span>
+                    <strong>
+                      {formatKnownNumericFact(
+                        eventProvinceView.known.relief_population,
+                        'population'
+                      )}
+                    </strong>
+                  </div>
+                  <div className="stat">
+                    <span>赈粮需求</span>
+                    <strong>
+                      {formatKnownNumericFact(
+                        eventProvinceView.known.relief_demand_grain,
+                        'grain'
+                      )}
+                    </strong>
+                  </div>
+                  <div className="stat">
+                    <span>可用银 / 粮</span>
+                    <strong>
+                      {formatKnownNumericFact(
+                        eventProvinceView.known.disposable_silver,
+                        'silver'
+                      )}{' '}
+                      /{' '}
+                      {formatKnownNumericFact(
+                        eventProvinceView.known.disposable_grain,
+                        'grain'
+                      )}
+                    </strong>
+                  </div>
+                </div>
+              )}
+
+              {eventProvincePlans.length > 0 && (
+                <div
+                  className="event-plans-section"
+                  data-testid="event-plans-section"
+                >
+                  {eventProvincePlans.map((plan) => (
+                    <PlanApprovalCard
+                      key={plan.plan_id}
+                      plan={plan}
+                      courtView={courtView}
+                      characterById={characterById}
+                      isHistoryView={isHistoryView}
+                      planApprovalDraft={planApprovalDraft}
+                      remainingSilver={remainingSilver}
+                      remainingGrain={remainingGrain}
+                      idPrefix="event-"
+                      onChangePlanDraftInput={handleChangePlanDraftInput}
+                      onSetPlanPresetAmount={handleSetPlanPresetAmount}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              {activeEventDialogData.active && (
+                <>
+                  <button
+                    type="button"
+                    className="send-btn"
+                    id="dialog-chat"
+                    disabled={!activeEventDialogData.summonCharacterId}
+                    onClick={() => {
+                      if (!activeEventDialogData.summonCharacterId) return;
+                      const targetId = activeEventDialogData.summonCharacterId;
+                      setEventModalProvinceId(null);
+                      handleOpenChatForCharacter(targetId);
+                    }}
+                  >
+                    召询
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-head-btn"
+                    id="dialog-report"
+                    onClick={() => {
+                      const pid = activeEventDialogData.province_id;
+                      setEventModalProvinceId(null);
+                      openProvincePanel(pid, 'report');
+                    }}
+                  >
+                    阅奏
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-head-btn"
+                    id="dialog-approve"
+                    onClick={() => {
+                      const pid = activeEventDialogData.province_id;
+                      setEventModalProvinceId(null);
+                      openProvincePanel(pid, 'approval');
+                    }}
+                  >
+                    批复
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
-      {/* Shared Left Inset Operating Panel */}
-      <RightDrawer
-        courtView={courtView}
-        debugTruth={debugTruth}
-        activeLeftPanel={activeLeftPanel}
-        selectedProvinceId={selectedProvinceId}
-        provinceTab={provinceTab}
-        characterById={characterById}
-        planApprovalDraft={planApprovalDraft}
-        planEvaluation={planEvaluation}
-        isHistoryView={isHistoryView}
-        appointmentBusy={appointmentBusy}
-        onCloseLeftPanel={closeLeftPanel}
-        onSelectProvince={handleSelectProvinceFromList}
-        onChangeProvinceTab={setProvinceTab}
-        onChangePlanDraftInput={handleChangePlanDraftInput}
-        onSetPlanPresetAmount={handleSetPlanPresetAmount}
-        onOpenBiography={handleOpenBiography}
-        onHoverBiography={handleHoverBiography}
-        onLeaveBiography={handleLeaveBiography}
-        onOpenChatForCharacter={(charId) =>
-          void handleOpenChatForCharacter(charId)
-        }
-        onOpenReplaceCandidateDialog={(officeId) => setReplaceOfficeId(officeId)}
-        onOpenReportArchive={(pid) => setArchiveProvinceId(pid)}
-        onSelectHistoryTurn={(t) => void handleSelectHistoryTurn(t)}
-      />
-
-      {/* Independent Floating Chat Window */}
-      <FloatingChatWindow
-        open={chatWindowOpen}
-        courtView={courtView}
-        characterById={characterById}
-        conversations={conversations}
-        activeConversationId={activeConversationId}
-        selectedContactCharacterId={selectedContactCharacterId}
-        activeMessages={activeMessages}
-        messagesLoading={messagesLoading}
-        chatBusy={chatBusy}
-        chatError={chatError}
-        isHistoryView={isHistoryView}
-        draftText={activeDraftText}
-        groupMentions={groupMentions}
-        onClose={() => setChatWindowOpen(false)}
-        onSelectCharacterContact={(charId) =>
-          void handleOpenChatForCharacter(charId)
-        }
-        onSelectConversation={(convId) => {
-          setChatError(null);
-          setActiveConversationId(convId);
-        }}
-        onRefreshConversation={() => {
-          if (activeConversationId) {
-            void loadMessagesForConversation(
-              activeConversationId,
-              viewedTurn.turn_number
-            );
-          }
-        }}
-        onChangeDraft={handleChangeChatDraft}
-        onToggleGroupMention={handleToggleGroupMention}
-        onSendMessage={() => void handleSendChatMessage()}
-        onCreateGroupConversation={handleCreateGroupConversation}
-        onOpenBiography={handleOpenBiography}
-        onHoverBiography={handleHoverBiography}
-        onLeaveBiography={handleLeaveBiography}
-        biographyOpen={bioCharacterId !== null}
-      />
-
-      {/* Biography Popup */}
-      {bioCharacter && (
-        <section
-          ref={bioDialogRef}
-          className="court-dialog"
-          id="bio-window"
-          role="dialog"
-          aria-modal={bioPinned ? 'true' : 'false'}
-          aria-labelledby="bio-name"
-          tabIndex={-1}
-          data-testid="bio-dialog"
-          style={
-            bioPosition
-              ? {
-                  top: `${bioPosition.top}px`,
-                  left: `${bioPosition.left}px`,
-                  transform: 'none'
-                }
-              : undefined
-          }
-          onMouseEnter={clearBioCloseTimer}
-          onMouseLeave={() => {
-            if (!bioPinned) handleLeaveBiography();
+      {/* Person Card (`#bio-window`) */}
+      {personCardData && (
+        <div
+          className={bioPinned ? 'modal-scrim bio-layer' : 'bio-hover-layer'}
+          onClick={(e) => {
+            if (bioPinned)
+              handleExplicitCloseBiography({
+                clientX: e.clientX,
+                clientY: e.clientY
+              });
           }}
         >
-          <div className="win-bar">
-            <div className="win-id">
-              <span
-                className={`portrait small ${getCharacterPortraitClass(bioCharacter.character_id)}`}
-                id="bio-portrait"
-                aria-hidden="true"
-              />
-              <div>
-                <strong id="bio-name">{bioCharacter.name}</strong>
-                <span id="bio-skill">{bioCharacter.specialty}</span>
+          <section
+            ref={bioDialogRef}
+            className="modal-card bio-modal-card"
+            id="bio-window"
+            role="dialog"
+            aria-modal={bioPinned ? 'true' : 'false'}
+            aria-labelledby="bio-name"
+            tabIndex={-1}
+            data-testid="bio-dialog"
+            onClick={(e) => e.stopPropagation()}
+            onMouseEnter={() => {
+              // Keep hover card open when pointer enters the card itself
+            }}
+            onMouseLeave={() => {
+              if (!bioPinned) {
+                setBioCharacterId(null);
+              }
+            }}
+          >
+            <div className="modal-head">
+              <div className="bio-head-row">
+                <div
+                  className={`portrait ${personCardData.portraitClass}`}
+                  id="bio-portrait"
+                  aria-hidden="true"
+                />
+                <div>
+                  <h2 id="bio-name">{personCardData.character.name}</h2>
+                  <div className="modal-sub" id="bio-courtesy">
+                    {personCardData.currentOfficeTitle}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                id="close-bio"
+                aria-label="关闭"
+                onClick={(e) =>
+                  handleExplicitCloseBiography({
+                    clientX: e.clientX,
+                    clientY: e.clientY
+                  })
+                }
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="stat">
+                <span>政务专长</span>
+                <strong id="bio-specialty">
+                  {personCardData.character.specialty}
+                </strong>
+              </div>
+
+              <div className="report-box" id="bio-summary">
+                {personCardData.character.biography}
+              </div>
+
+              <div
+                className="timeline"
+                id="bio-timeline"
+                data-testid="bio-timeline"
+              >
+                {personCardData.timeline.length === 0 ? (
+                  <div className="timeline-item">
+                    <strong>尚无历任记录</strong>
+                    <span>当前候任</span>
+                  </div>
+                ) : (
+                  personCardData.timeline.map((item) => (
+                    <div
+                      key={item.appointment_id}
+                      className="timeline-item"
+                      data-testid={`bio-history-${item.appointment_id}`}
+                    >
+                      <strong>{item.dateRangeText}</strong>
+                      <span>{item.summaryText}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div
+                className="bio-appointment-box"
+                data-testid="bio-appointment-controls"
+              >
+                <div className="bio-appoint-row">
+                  <select
+                    id="bio-office-select"
+                    data-testid="bio-office-select"
+                    aria-label="拟授官职"
+                    value={bioTargetOfficeId}
+                    disabled={!personCardData.canMutateAppointments}
+                    onChange={(e) =>
+                      setBioTargetOfficeId(e.target.value as OfficeId | '')
+                    }
+                  >
+                    <option value="">请选择拟授官职...</option>
+                    {personCardData.eligibleOffices.map((opt) => (
+                      <option
+                        key={opt.office_id}
+                        value={opt.office_id}
+                        disabled={!opt.selectable}
+                      >
+                        {opt.optionLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="send-btn"
+                    id="bio-appoint-btn"
+                    data-testid="bio-appoint-submit-btn"
+                    disabled={
+                      !personCardData.canMutateAppointments ||
+                      !bioTargetOfficeId
+                    }
+                    onClick={() => {
+                      if (!bioTargetOfficeId) return;
+                      void handleAppointCharacter(
+                        bioTargetOfficeId,
+                        personCardData.character.character_id
+                      );
+                    }}
+                  >
+                    {appointmentBusy
+                      ? '调任中...'
+                      : personCardData.currentOfficeId
+                        ? '调任官职'
+                        : '授任官职'}
+                  </button>
+                  {personCardData.currentOfficeId && (
+                    <button
+                      type="button"
+                      className="chat-head-btn"
+                      id="bio-dismiss-btn"
+                      data-testid="bio-dismiss-btn"
+                      disabled={!personCardData.canDismissCurrentOffice}
+                      onClick={() => {
+                        if (!personCardData.currentOfficeId) return;
+                        void handleAppointCharacter(
+                          personCardData.currentOfficeId,
+                          null
+                        );
+                      }}
+                    >
+                      {appointmentBusy ? '处理中...' : '免去现职'}
+                    </button>
+                  )}
+                </div>
+
+                {personCardData.readOnlyReason && (
+                  <small className="bio-readonly-note">
+                    {personCardData.readOnlyReason}
+                  </small>
+                )}
+
+                {bioAppointmentError && (
+                  <div className="plan-error-line" role="alert">
+                    {bioAppointmentError}
+                  </div>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              className="win-btn"
-              id="close-bio"
-              aria-label="关闭"
-              onClick={handleCloseBiography}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 5l14 14M19 5L5 19"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="dialog-body">
-            <p className="event-copy" id="bio-copy">
-              {bioCharacter.biography}
-            </p>
-          </div>
-        </section>
+          </section>
+        </div>
       )}
 
-      {/* Single-Click Candidate Replacement Dialog */}
-      {replaceTargetOffice && (
-        <section
-          ref={candidateDialogRef}
-          className="court-dialog"
-          id="candidate-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="candidate-dialog-title"
-          tabIndex={-1}
-          data-testid="candidate-dialog"
+      {/* Single-Click Candidate Replacement Dialog (`#candidate-dialog`) */}
+      {replaceModalOfficeId && (
+        <div
+          className="modal-scrim"
+          onClick={() => setReplaceModalOfficeId(null)}
         >
-          <div className="win-bar">
-            <div className="win-id">
-              <strong id="candidate-dialog-title">
-                更换 {replaceTargetOffice.title}
-              </strong>
-            </div>
-            <button
-              type="button"
-              className="win-btn"
-              aria-label="关闭"
-              onClick={() => setReplaceOfficeId(null)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 5l14 14M19 5L5 19"
+          <section
+            ref={candidateDialogRef}
+            className="modal-card"
+            id="candidate-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="candidate-dialog-title"
+            tabIndex={-1}
+            data-testid="candidate-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="candidate-dialog-title">
+                  更换
+                  {courtView.offices.find(
+                    (o) => o.office_id === replaceModalOfficeId
+                  )?.title ?? '巡抚'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                aria-label="关闭"
+                onClick={() => setReplaceModalOfficeId(null)}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.2"
                   strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="dialog-body">
-            <div className="candidate-list">
-              {replacementCandidates.map((cand) => (
-                <button
-                  key={cand.character.character_id}
-                  type="button"
-                  className="candidate-row"
-                  data-appoint-office={replaceTargetOffice.office_id}
-                  data-appoint-person={cand.character.character_id}
-                  data-testid={`candidate-row-${cand.character.character_id}`}
-                  disabled={!cand.actionable}
-                  onClick={() =>
-                    void handleAppointCandidate(
-                      replaceTargetOffice.office_id,
-                      cand.character.character_id
-                    )
-                  }
+                  strokeLinejoin="round"
+                  aria-hidden="true"
                 >
-                  <span
-                    className={`portrait small ${cand.portraitClass}`}
-                    aria-hidden="true"
-                  />
-                  <span className="candidate-copy">
-                    <strong>{cand.character.name}</strong>
-                    <span>{cand.character.specialty}</span>
-                  </span>
-                  <em className="candidate-state">{cand.statusLabel}</em>
-                </button>
-              ))}
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
             </div>
-          </div>
-        </section>
+            <div className="modal-body">
+              <div className="candidate-list">
+                {replaceCandidates.map((item) => (
+                  <button
+                    key={item.character.character_id}
+                    type="button"
+                    className={`candidate-row ${item.isCurrentOccupant ? 'is-current' : ''}`}
+                    data-testid={`candidate-row-${item.character.character_id}`}
+                    disabled={!item.actionable}
+                    onClick={() =>
+                      void handleAppointCharacter(
+                        replaceModalOfficeId,
+                        item.character.character_id
+                      )
+                    }
+                  >
+                    <span
+                      className={`portrait ${item.portraitClass}`}
+                      aria-hidden="true"
+                    />
+                    <div className="candidate-copy">
+                      <strong>{item.character.name}</strong>
+                      <span>{item.character.specialty}</span>
+                    </div>
+                    <em className="candidate-status-tag">{item.statusLabel}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
       )}
 
-      {/* Historical Report Archive Dialog */}
+      {/* Province Report Archive Modal (`#report-archive-dialog`) */}
       {archiveProvinceView && (
-        <section
-          ref={archiveDialogRef}
-          className="court-dialog"
-          id="report-archive-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="report-archive-dialog-title"
-          tabIndex={-1}
-          data-testid="report-archive-dialog"
+        <div
+          className="modal-scrim"
+          onClick={() => setArchiveModalProvinceId(null)}
         >
-          <div className="win-bar">
-            <div className="win-id">
-              <strong id="report-archive-dialog-title">
-                {archiveProvinceView.province.name}往期奏报
-              </strong>
-            </div>
-            <button
-              type="button"
-              className="win-btn"
-              aria-label="关闭"
-              onClick={() => setArchiveProvinceId(null)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 5l14 14M19 5L5 19"
+          <section
+            ref={archiveDialogRef}
+            className="modal-card"
+            id="report-archive-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="report-archive-dialog-title"
+            tabIndex={-1}
+            data-testid="report-archive-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="report-archive-dialog-title">
+                  {archiveProvinceView.province.name}往期奏报卷宗
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                aria-label="关闭"
+                onClick={() => setArchiveModalProvinceId(null)}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.2"
                   strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="dialog-body">
-            <div className="archive-list">
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
               {archiveProvinceView.reports.length === 0 ? (
-                <div className="archive-item">
-                  <p>尚无本省奏报记录。</p>
-                </div>
+                <p className="report-box">尚无历史奏报归档。</p>
               ) : (
-                [...archiveProvinceView.reports]
-                  .reverse()
-                  .map((rep) => {
+                <div className="archive-report-list">
+                  {[...archiveProvinceView.reports].reverse().map((rep) => {
                     const authorName =
                       characterById.get(rep.author_character_id)?.name ??
                       rep.author_character_id;
                     return (
-                      <div key={rep.report_id} className="archive-item">
-                        <div className="archive-meta">
+                      <article
+                        key={rep.report_id}
+                        className="archive-report-card"
+                      >
+                        <header>
                           <strong>
                             {formatTurnCalendarDate(rep.turn_number, rep.date)}
                           </strong>
-                          <span>{authorName}奏</span>
-                        </div>
+                          <span>
+                            第{rep.turn_number}轮 {authorName}奏
+                          </span>
+                        </header>
                         <p>{rep.body}</p>
-                      </div>
+                      </article>
                     );
-                  })
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Centered Event Window */}
-      {eventDialogData && (
-        <section
-          ref={eventDialogRef}
-          className="court-dialog event-dialog"
-          id="court-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dialog-title"
-          tabIndex={-1}
-          data-testid="event-dialog"
-        >
-          <div className="win-bar">
-            <div className="win-id">
-              <strong id="dialog-title">{eventDialogData.title}</strong>
-            </div>
-            <button
-              type="button"
-              className="win-btn"
-              id="close-dialog"
-              aria-label="关闭"
-              onClick={() => setEventDialogProvinceId(null)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 5l14 14M19 5L5 19"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-          <div className="dialog-body">
-            <span className="seal-mark">{eventDialogData.sealText}</span>
-            <div className="event-copy" id="dialog-copy">
-              <div className="event-meta-line">{eventDialogData.metaText}</div>
-              <p>{eventDialogData.bodyText}</p>
-              {eventDialogData.planSummaryText && (
-                <div className="event-plan-line">
-                  方略：{eventDialogData.planSummaryText}
+                  })}
                 </div>
               )}
             </div>
-          </div>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="brass-action"
-              id="dialog-open-report"
-              data-testid="event-open-report-btn"
-              onClick={() => {
-                const pid = eventDialogData.province_id;
-                setEventDialogProvinceId(null);
-                handleSelectProvinceFromList(pid, 'report');
-              }}
-            >
-              阅奏
-            </button>
-            <button
-              type="button"
-              className="brass-action primary"
-              id="dialog-chat"
-              data-testid="event-summon-btn"
-              disabled={!eventDialogData.summonCharacterId}
-              onClick={() => {
-                const cid = eventDialogData.summonCharacterId;
-                setEventDialogProvinceId(null);
-                if (cid) {
-                  void handleOpenChatForCharacter(cid);
-                }
-              }}
-            >
-              召询
-            </button>
-          </div>
-        </section>
+          </section>
+        </div>
       )}
 
-      {/* Settings & Office Runtime Profile Popup */}
-      {settingsModalOpen && (
-        <section
-          ref={settingsDialogRef}
-          className="court-dialog settings-dialog"
-          id="settings-window"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="settings-dialog-title"
-          tabIndex={-1}
-          data-testid="settings-dialog"
-        >
-          <div className="win-bar">
-            <div className="win-id">
-              <strong id="settings-dialog-title">机务</strong>
-            </div>
-            <button
-              type="button"
-              className="win-btn"
-              aria-label="关闭"
-              onClick={() => setSettingsModalOpen(false)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 5l14 14M19 5L5 19"
+      {/* Settings & Office Runtime Profile Modal (`#settings-window`) */}
+      {settingsOpen && (
+        <div className="modal-scrim" onClick={() => setSettingsOpen(false)}>
+          <section
+            ref={settingsDialogRef}
+            className="modal-card"
+            id="settings-window"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-dialog-title"
+            tabIndex={-1}
+            data-testid="settings-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id="settings-dialog-title">机务设置</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-close"
+                id="close-settings"
+                aria-label="关闭"
+                onClick={() => setSettingsOpen(false)}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.2"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <label className="dialog-field" htmlFor="setting-court-token">
+                <span>君主凭据</span>
+                <input
+                  id="setting-court-token"
+                  type="password"
+                  value={monarchSettings.courtToken}
+                  placeholder="Bearer 凭据"
+                  onChange={(e) =>
+                    setMonarchSettings((prev) => ({
+                      ...prev,
+                      courtToken: e.target.value
+                    }))
+                  }
                 />
-              </svg>
-            </button>
-          </div>
-          <div className="dialog-body settings-body">
-            <div className="settings-grid">
-              <label className="dialog-field">
-                <span>遴选官署</span>
+              </label>
+              <label className="dialog-field" htmlFor="setting-debug-token">
+                <span>校核凭据</span>
+                <input
+                  id="setting-debug-token"
+                  type="password"
+                  value={monarchSettings.debugToken}
+                  placeholder="可选 Debug 凭据"
+                  onChange={(e) =>
+                    setMonarchSettings((prev) => ({
+                      ...prev,
+                      debugToken: e.target.value
+                    }))
+                  }
+                />
+              </label>
+              <label
+                className="member-check"
+                style={{ cursor: 'pointer', marginBottom: '12px' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={debugEnabled}
+                  onChange={(e) => setDebugEnabled(e.target.checked)}
+                />
+                <span>真值校核</span>
+              </label>
+
+              <hr className="dialog-divider" />
+
+              <label className="dialog-field" htmlFor="setting-runtime-office">
+                <span>官职</span>
                 <select
-                  value={selectedRuntimeOfficeId}
-                  disabled={isHistoryView}
-                  onChange={(e) => {
-                    const oid = e.target.value as OfficeId;
-                    setSelectedRuntimeOfficeId(oid);
-                    setRuntimeSavedMsg(null);
-                    setRuntimeError(null);
-                    const off = courtView.offices.find(
-                      (o) => o.office_id === oid
-                    );
-                    if (off) syncRuntimeFormFromOffice(off);
-                  }}
+                  id="setting-runtime-office"
+                  value={runtimeOfficeId}
+                  onChange={(e) =>
+                    setRuntimeOfficeId(e.target.value as OfficeId)
+                  }
                 >
                   {courtView.offices.map((o) => (
                     <option key={o.office_id} value={o.office_id}>
@@ -1906,156 +2163,88 @@ export const App: React.FC = () => {
                 </select>
               </label>
 
-              <label className="dialog-field">
-                <span>推理引擎</span>
+              <label className="dialog-field" htmlFor="setting-engine">
+                <span>运行架构</span>
                 <select
                   id="setting-engine"
-                  value={runtimeKind}
-                  disabled={isHistoryView}
-                  onChange={(e) => setRuntimeKind(e.target.value)}
+                  value={runtimeProvider}
+                  onChange={(e) => setRuntimeProvider(e.target.value)}
                 >
-                  {RUNTIME_ENGINE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                  {runtimeKind.trim() !== '' &&
-                    !RUNTIME_ENGINE_OPTIONS.includes(
-                      runtimeKind as (typeof RUNTIME_ENGINE_OPTIONS)[number]
-                    ) && (
-                      <option value={runtimeKind}>{runtimeKind}</option>
-                    )}
+                  {!['claude', 'codex', 'gemini'].includes(runtimeProvider) && (
+                    <option value={runtimeProvider}>{runtimeProvider}</option>
+                  )}
+                  <option value="claude">claude</option>
+                  <option value="codex">codex</option>
+                  <option value="gemini">gemini</option>
                 </select>
               </label>
 
-              <label className="dialog-field">
-                <span>模型标识</span>
+              <label className="dialog-field" htmlFor="setting-model">
+                <span>模型</span>
                 <input
                   id="setting-model"
                   type="text"
                   value={runtimeModel}
-                  disabled={isHistoryView}
                   onChange={(e) => setRuntimeModel(e.target.value)}
                 />
               </label>
 
-              <label className="dialog-field">
+              <label className="dialog-field" htmlFor="setting-effort">
                 <span>筹思力度</span>
                 <select
+                  id="setting-effort"
                   value={runtimeEffort}
-                  disabled={isHistoryView}
                   onChange={(e) => setRuntimeEffort(e.target.value)}
                 >
-                  {RUNTIME_EFFORT_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                  {runtimeEffort.trim() !== '' &&
-                    !RUNTIME_EFFORT_OPTIONS.includes(
-                      runtimeEffort as (typeof RUNTIME_EFFORT_OPTIONS)[number]
-                    ) && (
+                  <option value="">null</option>
+                  {runtimeEffort !== '' &&
+                    !['low', 'medium', 'high'].includes(runtimeEffort) && (
                       <option value={runtimeEffort}>{runtimeEffort}</option>
                     )}
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
                 </select>
               </label>
 
-              <label className="dialog-field">
+              <label className="dialog-field" htmlFor="setting-mode">
                 <span>推演模式</span>
                 <select
+                  id="setting-mode"
                   value={runtimeMode}
-                  disabled={isHistoryView}
                   onChange={(e) =>
-                    setRuntimeMode(e.target.value as RuntimeProfile['mode'])
+                    setRuntimeMode(e.target.value as 'json' | 'json+mcp-read')
                   }
                 >
                   <option value="json">json</option>
                   <option value="json+mcp-read">json+mcp-read</option>
                 </select>
               </label>
-
-              <div className="settings-inline-actions">
-                <button
-                  type="button"
-                  className="brass-action primary"
-                  data-testid="save-runtime-profile-btn"
-                  disabled={runtimeBusy || isHistoryView}
-                  onClick={() => void handleSaveRuntimeProfile()}
-                >
-                  {runtimeBusy ? '保存中' : '保存官职配置'}
-                </button>
-                {runtimeSavedMsg && (
-                  <span className="settings-saved-msg">{runtimeSavedMsg}</span>
-                )}
-                {runtimeError && (
-                  <span className="settings-error-msg" role="alert">
-                    {runtimeError}
-                  </span>
-                )}
-              </div>
-
-              <label className="dialog-field" htmlFor="setting-token">
-                <span>君主凭据</span>
-                <input
-                  id="setting-token"
-                  type="password"
-                  value={monarchSettings.courtToken}
-                  placeholder="Bearer Token"
-                  onChange={(e) =>
-                    setMonarchSettings((prev) => ({
-                      ...prev,
-                      courtToken: e.target.value
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="dialog-field" htmlFor="setting-debug-token">
-                <span>调试口令</span>
-                <input
-                  id="setting-debug-token"
-                  type="password"
-                  value={monarchSettings.debugToken}
-                  placeholder="Debug Token"
-                  onChange={(e) =>
-                    setMonarchSettings((prev) => ({
-                      ...prev,
-                      debugToken: e.target.value
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="member-check">
-                <input
-                  type="checkbox"
-                  checked={debugEnabled}
-                  onChange={(e) => setDebugEnabled(e.target.checked)}
-                />
-                <span>
-                  <strong>真值校核</strong>
-                </span>
-              </label>
             </div>
-          </div>
-          <div className="dialog-actions">
-            {settingsSavedMsg && (
-              <span className="settings-saved-msg">{settingsSavedMsg}</span>
-            )}
-            <button
-              type="button"
-              className="brass-action primary"
-              id="save-settings"
-              data-testid="save-settings-btn"
-              onClick={handleSaveLocalSettings}
-            >
-              存凭据
-            </button>
-          </div>
-        </section>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="chat-head-btn"
+                id="save-settings"
+                data-testid="save-settings-btn"
+                onClick={() => void handleSaveMonarchCredentials()}
+              >
+                存凭据
+              </button>
+              <button
+                type="button"
+                className="send-btn"
+                id="save-runtime-profile"
+                data-testid="save-runtime-profile-btn"
+                disabled={runtimeBusy}
+                onClick={() => void handleSaveOfficeRuntime()}
+              >
+                {runtimeBusy ? '存配置中' : '存官职配置'}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </main>
   );
-};
-
-export default App;
+}

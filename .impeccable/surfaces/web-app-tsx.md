@@ -1,35 +1,64 @@
 ---
 surface: web/App.tsx
 mode: operate
-world: simple-cartographic-interface
-direction_source: DeanChensj/jiangshan-map (a9cd67c3c4c5eef5902d31104df9b5a7ec83aa0e) cartographic layer + EU4 spatial layout only
+world: navy-brass-court-paper-conversation
+direction_source: https://raft-artifacts.com/p/solidyang/simu-fifteen-provinces-hud-reference/v/4
 ---
 
-# Surface Brief: `web/App.tsx` (Operate — Simple Cartographic Interface + `jiangshan-map` Layer)
+# Surface Brief: `web/App.tsx`
 
-## 1. Visual World & Cartographic Layer (`DeanChensj/jiangshan-map`)
-- **Primary Canvas**: Full-viewport (`100vw × 100vh`) geographic map directly incorporating `MercatorProjector`, `terrain_relief.webp` (`web/assets/jiangshan/terrain_relief.webp` at `opacity: 0.72`), deduplicated interior/outer regional boundary construction (`getBackgroundGeographyLayer`), ranked rivers/lakes (`getProjectedHydroLayer`), and 2D occlusion-aware SVG `viewBox` camera math (`computeSvgCameraViewBox`, `zoomCameraAtClientPoint`, `computeMinimalOcclusionPan`) adapted from `DeanChensj/jiangshan-map` (`a9cd67c3c4c5eef5902d31104df9b5a7ec83aa0e`, GPL-3.0; see `THIRD_PARTY_NOTICES.md`).
-- **Playable Territories**: Three neutral fictional territories (`甲州` north-central, `乙州` center-east, `丙州` southwest) constructed from merged reference provincial rings and rendered with low-opacity watercolor washes (`mix-blend-mode: multiply; fill-opacity: 0.30`, `0.36` selected, `0.38` hover) over the shaded relief so topographic mountains, rivers (`清河`, `沧澜水`), and lakes remain clearly visible.
-- **UI Panels & Typography**: Warm ivory floating panels (`rgba(250, 247, 242, 0.96)`, solid `#FAF7F2` on `<=960px` mobile) with `1px solid #DCD4C6` hairlines and `1px solid #EAE3D5` row dividers. Classical Chinese Songti (`--font-serif-cn`) carries state titles, top treasury figures, sheet tabs, report key-value labels/values, outliner rows, and map labels; clean sans-serif (`--font-sans-cn`) handles operational buttons, timeline pills, chat streams, and inputs. Zero ornate frames, crests, pennants, province paintings, or dark chrome.
-- **Semantic Palette (Report-Only)**:
-  - Urgent (`urgent`): Cinnabar (`#9E3A2E` UI accent, `#B54434` map wash, `#8C2D22` selected border)
-  - Mild (`mild`): Ochre (`#B87328` UI accent, `#C88A3B` map wash)
-  - Stable (`stable`): Sage (`#587854` UI accent, `#7A9A76` map wash)
-  - Unknown (`unknown`): Slate (`#7A7067` UI dot/border, `#9A9488` wash + `url(#unknown-hatch-pattern)` 45-degree diagonal hatch, `本周未奏报（未知）`), strictly distinct from `0` and from `background` (`周边地域`).
+## Direction & Scope
 
-## 2. Spatial Architecture (EU4 Layout Only)
-- **Unified Top HUD Bar (`.court-top-bar`, `52px` default / `50px` at `<=1460px` / `min-height: 48px` at `<=1320px`)**:
-  - Left: `朝廷存银 X.X万两` | `朝廷存粮 X.X万石` + `来源：第N周度支奏报` pill (or `本周未奏报（未知）` when `UNKNOWN`), plus `[真值 ...]` pill when Debug Truth is active.
-  - Center (flanked by two `1px × 20px` vertical stone dividers on desktop): 4 connected week timeline pills (`第1周·已归档` › `第2周·征询中` › `第3周` › `第4周`) + `返回第N周` when viewing history, or `四周已完结` badge on completion.
-  - Right: `[同步]`, `[截止征询]`, `[批复结算]`, conditional `[展开奏报]`, and soft-underlined `调试` / `凭证` links.
-- **Left Closable State Sheet (`.left-court-sheet`, `404px` wide at `top: 76px, left: 18px` default; `386px` at `<=1460px`; `360px` at `<=1320px`)**:
-  - Report tab (`.is-tab-report`) maintains `min-height: min(702px, calc(100vh - 96px))` (`684px` at `<=1460px`, `636px` at `<=1320px`).
-  - Header with 27px Songti state title (`乙州`), subtitle (`第N周官员奏报 · 洪灾`), compact state pills (`甲`/`乙`/`丙`, shown on `<=960px` mobile), and `✕` close button.
-  - 3 equal-width Songti text tabs (`本州奏报` | `朝堂会话` | `提案批复`) with `2.5px` cinnabar active underline.
-  - `本州奏报` presents 5 hairline-separated Songti key-value rows (`灾情状态`, `可支配存粮` + `已扣本周支出` sub-note with full ledger formula in `title`, `可支配存银`, `本州赈灾需求`, `向朝廷请拨`), `奏折摘要` + `来源：第N周`, optional Debug Truth diff card, and 2 side-by-side footer buttons (`传讯{X}州官员`, `审阅{X}州提案`).
-- **Right Concise Outliner (`.right-court-outliner`, `324px` wide at `top: 76px, right: 18px` default; `312px` at `<=1460px`; `296px` at `<=1320px`)**:
-  - `各州奏报（第N周）` Songti header + 3 single-line Songti state status rows (`甲州`, `乙州`, `丙州` with severity dot and `white-space: nowrap` summary such as `旱灾 · 请粮1.0万石/请银1.5万两`).
-- **Lower-Right Map Controls & 5-State Legend (`.map-bottom-right-controls`, `right: 18px, bottom: 18px`)**:
-  - Layer switcher (`灾情` | `存粮` | `存银`) + camera buttons (`+`, `−`, `复位视图`) + 5-state legend (`水患`/`旱灾`/`平稳`/`未奏报`/`周边地域`, dynamically relabeled for `存粮` and `存银` layers).
-- **Mobile Reflow (`<=960px`, validated at `390×844`)**:
-  - Stacked flex column (`padding: 6px; gap: 6px`): top HUD bar wraps into a relative card, `.right-court-outliner` hides (`display: none`), header `甲`/`乙`/`丙` pills enable state switching, `.left-court-sheet` fills remaining height (`flex: 1; width: 100%; background: #FAF7F2`), `.chat-messages-stream` expands with `max-height: none; flex: 1`, and `.map-viewport.is-drawer-open` hides `.map-camera-stage` and `.map-bottom-right-controls` while the sheet is open; closing the sheet reveals the full pinch/drag map and `[展开奏报]` button.
+以 Kimi v4 的桌面朝堂 HUD 为当前设计方向。深蓝顶部及左右栏围绕中央纸面会话；全国面板使用同一中央位置与深蓝材质，事件和人物等对话框使用暖纸面。黄铜细线、短角饰、圆形画像与朱红主操作构成统一识别。实际 token 和复用组件见根目录 `DESIGN.md` 与 `.impeccable/design.json`。
+
+当前游戏只有陕西、河南、湖广三个活动省份、十二个冻结地区、四名真实人物和四轮流程。原型中的额外人物、资源金额、人口或属性评分不构成产品数据。此次界面范围不新增后台能力或手机布局。
+
+## Desktop Composition
+
+- 全视口地理地图在所有窗口下连续显示；顶部与底部控制贴近视口外缘。地图仍使用江山图 `s_ming_c` 地理数据、地形、水系和 SVG viewBox 摄像机。
+- 外缘 24px；工作区为左右各 224px 的固定栏与居中槽位，网格最小间距 16px。工作区在视口垂直居中。
+- 中央会话和全国面板维持 4:3，最大 880×660px。工作区高度为 `min(660px, calc(100vh - 200px), calc((100vw - 528px) * 0.75))`。
+- 1280×800：中央 752×564px；1440×900、1920×1080、3840×2160：中央 880×660px。4K 留出地图，不放大中央内容。
+- 顶部资源 / 功能区与日期 / 阶段区分别独立，高 54px；底部图层控制和御前密谈入口高 42px。每个内容容器内部滚动，页面本身不滚动。
+
+## Primary Regions
+
+### Top HUD
+
+左侧显示真实太仓银与京仓粮、徽章及太仓钱粮 / 户口灾情 / 百官 / 起居注 / 机务入口。右侧显示所查看轮次的日期、轮号、阶段和主要操作。普通阶段为议政、批复、归档；历史归档明确标旧档，仅当前实际第四轮 ARCHIVED 才显示终局。
+
+### Left Province Panel
+
+省份栏在全国视图切换时保留。活动省份展示当轮任职人、圆形画像、奏报 / 批复标签、日期及来源、已知钱粮与事件入口；冻结地区只显示建置、治所和冻结范围说明。省份正文和批复内容独立滚动，底部召询与阅方略入口保持可用位置。未奏报不补零，也不填原型金额。
+
+### Central Conversations
+
+纸面会话左侧是 224px 的纵向联系人列，真实人物用圆形画像，群联系人用最多四个环形小画像。右侧标题、消息流和输入区分层；官员消息左侧纸卡，君主消息右侧深蓝气泡与君主章。来源轮次、点名、迟达和传召回执属于辅助信息。联系人、群成员、对话和草稿沿用现有接口与状态。
+
+### Central National Panels
+
+顶部入口在中央打开全国太仓钱粮、户口灾情、百官与起居注，保留左右两栏。钱粮和灾情汇总仅计算实际已知值并保留来源；冻结地区使用短横线。百官显示三个真实官职及四名真实人物；起居注可进入已存在轮次，历史只读并可返回当前轮次。
+
+### Right Financial Overview
+
+十五地简况为逐省钱粮列表，显示稳定身份色点、省名、银、粮。数值取真实已知字段，来源保留在可访问名称与悬停说明中。冻结与未奏报明确区分；折叠仅收起列表，不改变其他窗口尺寸。
+
+## Dialogs & Shared Actions
+
+事件、人物履历、候选人、群成员、新廷议、机务和凭据窗口使用纸面容器。点击打开的保护性对话框使用遮罩、焦点限制、Escape 关闭与焦点恢复；人物 hover 预览不拦截底层操作，点击固定后才可任免。
+
+- 人物履历只呈现真实生平、专长与任职记录。历史从当轮任职快照生成，不泄露后续任命；任命、调任、免职由当前 OPEN 阶段与既有原子任职接口决定。
+- 事件与省份批复使用同一个 `PlanApprovalCard` 和同一份按游戏 / 轮次保存的草稿，金额在两处同步。地方自筹、请拨、中央实存、余款与输入约束取实际计划。纸面事件中的输入、全额、拒批、余款使用纸面配色。
+- 下发以既有结算契约为准；省份用印不伪装成另一套后端结算操作。
+
+## Map Identity & Information
+
+四个稳定政区底色由 `PROVINCE_BASE_COLOR_BY_ID` 提供；同样出现在地图、右侧圆点和全国表格中。`PROVINCE_ADJACENT_PAIRS` 明确记录 31 组相邻关系。地图选择用金色轮廓突出；灾情、存银、存粮切换改变事实描述和相应状态表达，不重置身份底色。活动省份未奏报有斜纹与未知文字；冻结地区保留可识别疆域。调试真值只有显式启用后展示。
+
+## Assets & Type
+
+全界面使用本地 CourtSans（`/assets/NotoSansSC-ui.woff2`），数字对齐使用 tabular-nums。继承的 `eu-hud/portraits.png`、`function-icons.png`、`imperial-badge.svg` 与江山图地形 / 地理资源继续使用；不通过额外图片制造不存在的人物和玩法数据。资产许可仍以 `THIRD_PARTY_NOTICES.md` 为准。
+
+## Acceptance Evidence
+
+本表面以 1280、1440、1920、3840 四档桌面宽度的中央尺寸、等宽侧栏、间距、内部滚动，以及全国入口保留省份栏为可观察标准。交互检查覆盖真实会话、群成员、事件 / 省份共享草稿、人物历史任职和任免可用性。文档描述已实现的界面契约；完整整局验证另行记录，不由截图推断。
