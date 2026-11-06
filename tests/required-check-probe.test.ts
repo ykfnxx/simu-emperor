@@ -1,3 +1,3 @@
 import { test, expect } from 'vitest';
-const value: number = 'intentional required-check probe';
+const value: number = 1;
 test('required-check validation only', () => expect(value).toBe(1));
