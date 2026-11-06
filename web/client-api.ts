@@ -27,69 +27,72 @@ import {
   type MapLayerKind
 } from './map-data';
 
-export type LeftPanelMode =
-  | 'economy'
-  | 'population'
-  | 'talent'
-  | 'history'
-  | 'province'
-  | null;
+export type NationalPanelMode = 'economy' | 'population' | 'talent' | 'history' | null;
+
 export type ProvinceDrawerTab = 'report' | 'approval';
 
 export interface CourtUiState {
-  activeLeftPanel: LeftPanelMode;
+  activeNationalPanel: NationalPanelMode;
+  leftPanelOpen: boolean;
   selectedProvinceId: ProvinceId | null;
   provinceTab: ProvinceDrawerTab;
   activeLayer: MapLayerKind;
   activeConversationId: string | null;
+  chatOpen: boolean;
   toggleGlobalPanel: (panel: 'economy' | 'population' | 'talent' | 'history') => void;
+  closeNationalPanel: () => void;
   openProvincePanel: (provinceId: ProvinceId, tab?: ProvinceDrawerTab) => void;
   closeLeftPanel: () => void;
   setProvinceTab: (tab: ProvinceDrawerTab) => void;
   setActiveLayer: (layer: MapLayerKind) => void;
   setActiveConversationId: (conversationId: string | null) => void;
+  setChatOpen: (open: boolean) => void;
+  openChatWindow: (conversationId?: string | null) => void;
 }
 
 export function createCourtUiStore(
-  initial?: Partial<
-    Pick<
-      CourtUiState,
-      | 'activeLeftPanel'
-      | 'selectedProvinceId'
-      | 'provinceTab'
-      | 'activeLayer'
-      | 'activeConversationId'
-    >
-  >
+  initial?: Partial<Pick<CourtUiState,
+    'activeNationalPanel' | 'leftPanelOpen' | 'selectedProvinceId' | 'provinceTab' |
+    'activeLayer' | 'activeConversationId' | 'chatOpen'>>
 ) {
   return create<CourtUiState>((set) => ({
-    activeLeftPanel: initial?.activeLeftPanel ?? null,
+    activeNationalPanel: initial?.activeNationalPanel ?? null,
+    leftPanelOpen: initial?.leftPanelOpen ?? initial?.selectedProvinceId != null,
     selectedProvinceId: initial?.selectedProvinceId ?? null,
     provinceTab: initial?.provinceTab ?? 'report',
     activeLayer: initial?.activeLayer ?? 'silver',
     activeConversationId: initial?.activeConversationId ?? null,
-    toggleGlobalPanel: (panel) =>
-      set((state) => ({
-        activeLeftPanel: state.activeLeftPanel === panel ? null : panel
-      })),
-    openProvincePanel: (provinceId, tab) =>
-      set((state) => ({
-        selectedProvinceId: provinceId,
-        activeLeftPanel: 'province',
-        provinceTab: tab ?? state.provinceTab
-      })),
-    closeLeftPanel: () =>
-      set({
-        activeLeftPanel: null,
-        selectedProvinceId: null
-      }),
+    chatOpen: initial?.chatOpen ?? true,
+    toggleGlobalPanel: (panel) => set((state) => ({
+      activeNationalPanel: state.activeNationalPanel === panel ? null : panel
+    })),
+    closeNationalPanel: () => set({ activeNationalPanel: null }),
+    openProvincePanel: (provinceId, tab) => set((state) => ({
+      selectedProvinceId: provinceId,
+      leftPanelOpen: true,
+      provinceTab: tab ?? state.provinceTab
+    })),
+    closeLeftPanel: () => set({ leftPanelOpen: false }),
     setProvinceTab: (tab) => set({ provinceTab: tab }),
     setActiveLayer: (layer) => set({ activeLayer: layer }),
-    setActiveConversationId: (conversationId) => set({ activeConversationId: conversationId })
+    setActiveConversationId: (conversationId) => set({ activeConversationId: conversationId }),
+    setChatOpen: (open) => set((state) => ({
+      chatOpen: open,
+      activeNationalPanel: open ? null : state.activeNationalPanel
+    })),
+    openChatWindow: (conversationId) => set((state) => ({
+      chatOpen: true,
+      activeNationalPanel: null,
+      activeConversationId: conversationId !== undefined ? conversationId : state.activeConversationId
+    }))
   }));
 }
 
-export const useCourtUiStore = createCourtUiStore();
+export const useCourtUiStore = createCourtUiStore({
+  selectedProvinceId: 'shaanxi',
+  leftPanelOpen: true,
+  chatOpen: true
+});
 
 export const CONFLICT_ERROR_CODES = new Set([
   'STALE_TURN',
@@ -904,5 +907,204 @@ export function buildProvinceEventDialogData(
     planSummaryText,
     summonCharacterId: incumbentId,
     hasCurrentTurnReport: provinceView.current_officer_reported
+  };
+}
+
+export interface CharacterAppointmentHistoryItem {
+  appointment_id: string;
+  office_id: OfficeId;
+  office_title: string;
+  started_turn: number;
+  ended_turn: number | null;
+  is_active_at_viewed_turn: boolean;
+  dateRangeText: string;
+  summaryText: string;
+}
+
+export interface PersonCardEligibleOfficeOption {
+  office_id: OfficeId;
+  title: string;
+  occupantCharacterId: CharacterId | null;
+  occupantName: string | null;
+  isSelfOccupied: boolean;
+  optionLabel: string;
+  selectable: boolean;
+}
+
+export interface CharacterPersonCardData {
+  character: CharacterPublicView;
+  portraitClass: string;
+  currentOfficeId: OfficeId | null;
+  currentOfficeTitle: string;
+  timeline: CharacterAppointmentHistoryItem[];
+  eligibleOffices: PersonCardEligibleOfficeOption[];
+  canMutateAppointments: boolean;
+  canDismissCurrentOffice: boolean;
+  readOnlyReason: string | null;
+}
+
+/**
+ * Builds the Person Card (`#bio-window`) view model from actual public character data,
+ * `courtView.appointments`, and selected-turn `courtView.provinces` (`pv.appointment`) snapshots.
+ * - Never fabricates personal attribute numbers or exposes hidden `stance`.
+ * - Historical views retain the official who held office on `viewed_turn` even if later dismissed,
+ *   and never leak future appointments (`started_turn > viewed_turn.turn_number`).
+ */
+export function buildCharacterPersonCardData(
+  characterId: CharacterId,
+  courtView: Pick<
+    GameplayCourtView,
+    'provinces' | 'offices' | 'characters' | 'appointments' | 'active_turn' | 'viewed_turn'
+  >,
+  isSubmitting = false
+): CharacterPersonCardData | null {
+  const character = courtView.characters.find((c) => c.character_id === characterId);
+  if (!character) {
+    return null;
+  }
+
+  const viewedTurnNumber = courtView.viewed_turn.turn_number;
+  const isHistoryView = viewedTurnNumber !== courtView.active_turn.turn_number;
+  const isOpenPhase = !isHistoryView && courtView.active_turn.phase === 'OPEN';
+
+  const characterById = new Map<CharacterId, CharacterPublicView>(
+    courtView.characters.map((c) => [c.character_id, c])
+  );
+  const officeById = new Map<OfficeId, OfficeView>(
+    courtView.offices.map((o) => [o.office_id, o])
+  );
+
+  // Selected-turn active appointments come strictly from `pv.appointment` snapshots.
+  const activeAppointmentIdsAtViewedTurn = new Set<string>();
+  const occupantByOfficeId = new Map<OfficeId, CharacterId>();
+  let currentOfficeId: OfficeId | null = null;
+  let currentOfficeTitle = '候任';
+
+  for (const pv of courtView.provinces) {
+    const appt = pv.appointment;
+    if (!appt) continue;
+    activeAppointmentIdsAtViewedTurn.add(appt.appointment_id);
+    occupantByOfficeId.set(appt.office_id, appt.character_id);
+    if (appt.character_id === characterId) {
+      currentOfficeId = appt.office_id;
+      currentOfficeTitle =
+        officeById.get(appt.office_id)?.title ?? `${pv.province.name}巡抚`;
+    }
+  }
+
+  // Merge `courtView.appointments` (filtered to `started_turn <= viewedTurnNumber`) with any `pv.appointment` snapshot.
+  const appointmentById = new Map<
+    string,
+    {
+      appointment_id: string;
+      office_id: OfficeId;
+      character_id: CharacterId;
+      started_turn: number;
+      ended_turn: number | null;
+    }
+  >();
+
+  for (const appt of courtView.appointments) {
+    if (appt.character_id !== characterId) continue;
+    if (appt.started_turn > viewedTurnNumber) continue;
+    appointmentById.set(appt.appointment_id, appt);
+  }
+  for (const pv of courtView.provinces) {
+    const appt = pv.appointment;
+    if (appt && appt.character_id === characterId && appt.started_turn <= viewedTurnNumber) {
+      if (!appointmentById.has(appt.appointment_id)) {
+        appointmentById.set(appt.appointment_id, appt);
+      }
+    }
+  }
+
+  const timeline: CharacterAppointmentHistoryItem[] = Array.from(
+    appointmentById.values()
+  )
+    .sort((a, b) => a.started_turn - b.started_turn)
+    .map((appt) => {
+      const officeTitle = officeById.get(appt.office_id)?.title ?? appt.office_id;
+      const isActiveAtViewedTurn = activeAppointmentIdsAtViewedTurn.has(
+        appt.appointment_id
+      );
+      const startDateText = formatTurnCalendarDate(appt.started_turn);
+
+      if (isActiveAtViewedTurn) {
+        return {
+          appointment_id: appt.appointment_id,
+          office_id: appt.office_id,
+          office_title: officeTitle,
+          started_turn: appt.started_turn,
+          ended_turn: null,
+          is_active_at_viewed_turn: true,
+          dateRangeText: isHistoryView ? `${startDateText} 当轮在任` : `${startDateText} 至今`,
+          summaryText: `现任 ${officeTitle}`
+        };
+      }
+
+      const endedTurn =
+        appt.ended_turn !== null && appt.ended_turn <= viewedTurnNumber
+          ? appt.ended_turn
+          : viewedTurnNumber;
+      const endDateText = formatTurnCalendarDate(endedTurn);
+      const dateRangeText =
+        endedTurn === appt.started_turn
+          ? `${startDateText} 卸任`
+          : `${startDateText} 至 ${endDateText}`;
+
+      return {
+        appointment_id: appt.appointment_id,
+        office_id: appt.office_id,
+        office_title: officeTitle,
+        started_turn: appt.started_turn,
+        ended_turn: endedTurn,
+        is_active_at_viewed_turn: false,
+        dateRangeText,
+        summaryText: `曾任 ${officeTitle}`
+      };
+    });
+
+  const eligibleOffices: PersonCardEligibleOfficeOption[] = courtView.offices.map(
+    (office) => {
+      const occupantId = occupantByOfficeId.get(office.office_id) ?? null;
+      const occupantName = occupantId
+        ? (characterById.get(occupantId)?.name ?? occupantId)
+        : null;
+      const isSelfOccupied = occupantId === characterId;
+      const optionLabel = isSelfOccupied
+        ? `${office.title} 在任`
+        : occupantName
+          ? `${office.title} ${occupantName}`
+          : `${office.title} 悬缺`;
+
+      return {
+        office_id: office.office_id,
+        title: office.title,
+        occupantCharacterId: occupantId,
+        occupantName,
+        isSelfOccupied,
+        optionLabel,
+        selectable: isOpenPhase && !isSelfOccupied && !isSubmitting
+      };
+    }
+  );
+
+  let readOnlyReason: string | null = null;
+  if (isHistoryView) {
+    readOnlyReason = '历史卷宗只读，不可更易任免';
+  } else if (courtView.active_turn.phase !== 'OPEN') {
+    readOnlyReason = '当前非听政阶段，不可更易任免';
+  }
+
+  return {
+    character,
+    portraitClass: getCharacterPortraitClass(characterId),
+    currentOfficeId,
+    currentOfficeTitle,
+    timeline,
+    eligibleOffices,
+    canMutateAppointments: isOpenPhase && !isSubmitting,
+    canDismissCurrentOffice: currentOfficeId !== null && isOpenPhase && !isSubmitting,
+    readOnlyReason
   };
 }

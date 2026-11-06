@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import type {
   CharacterId,
   CharacterPublicView,
@@ -15,13 +15,11 @@ import type {
 import {
   evaluatePlanApprovalCompleteness,
   getCharacterPortraitClass,
-  type LeftPanelMode,
-  type PlanApprovalEvaluation,
+  type NationalPanelMode,
   type ProvinceDrawerTab,
   type TurnPlanApprovalDraft
 } from '../client-api';
 import {
-  ACTIVE_PROVINCE_IDS,
   buildAvailableHistoryTurnOptions,
   formatFactProvenanceTag,
   formatGrainAmountWan,
@@ -30,24 +28,29 @@ import {
   formatSilverAmountWan,
   formatTurnCalendarDate,
   getNumericFactValue,
+  getProvinceBaseColor,
   getStringFactValue,
   MING_PROVINCE_GEOMETRY_BY_ID
 } from '../map-data';
 
-export interface RightDrawerProps {
+export function formatPlanResourceAmount(
+  amount: number,
+  resource: 'silver' | 'grain'
+): string {
+  return resource === 'silver'
+    ? formatSilverAmountWan(amount)
+    : formatGrainAmountWan(amount);
+}
+
+export interface PlanApprovalCardProps {
+  plan: PlanRecord;
   courtView: GameplayCourtView;
-  debugTruth: GameplayDebugView | null;
-  activeLeftPanel: LeftPanelMode;
-  selectedProvinceId: ProvinceId | null;
-  provinceTab: ProvinceDrawerTab;
   characterById: ReadonlyMap<CharacterId, CharacterPublicView>;
-  planApprovalDraft: TurnPlanApprovalDraft;
-  planEvaluation: PlanApprovalEvaluation;
   isHistoryView: boolean;
-  appointmentBusy: boolean;
-  onCloseLeftPanel: () => void;
-  onSelectProvince: (provinceId: ProvinceId, tab?: ProvinceDrawerTab) => void;
-  onChangeProvinceTab: (tab: ProvinceDrawerTab) => void;
+  planApprovalDraft: TurnPlanApprovalDraft;
+  remainingSilver: number;
+  remainingGrain: number;
+  idPrefix?: string;
   onChangePlanDraftInput: (
     planId: string,
     rawInput: string,
@@ -58,47 +61,214 @@ export interface RightDrawerProps {
     amount: number,
     requestedAmount: number
   ) => void;
-  onOpenBiography: (characterId: CharacterId, anchorEl?: HTMLElement | null) => void;
-  onHoverBiography?: (characterId: CharacterId, anchorEl?: HTMLElement | null) => void;
-  onLeaveBiography?: (anchorEl?: HTMLElement) => void;
-  onOpenChatForCharacter: (characterId: CharacterId) => void;
-  onOpenReplaceCandidateDialog: (officeId: OfficeId) => void;
-  onOpenReportArchive: (provinceId: ProvinceId) => void;
-  onSelectHistoryTurn: (turnNumber: number | null) => void;
 }
 
-function formatPlanResourceAmount(
-  amount: number,
-  resource: 'silver' | 'grain'
-): string {
-  return resource === 'silver'
-    ? formatSilverAmountWan(amount)
-    : formatGrainAmountWan(amount);
+export const PlanApprovalCard: React.FC<PlanApprovalCardProps> = ({
+  plan,
+  courtView,
+  characterById,
+  isHistoryView,
+  planApprovalDraft,
+  remainingSilver,
+  remainingGrain,
+  idPrefix = '',
+  onChangePlanDraftInput,
+  onSetPlanPresetAmount
+}) => {
+  const authorName =
+    characterById.get(plan.author_character_id)?.name ??
+    plan.author_character_id;
+  const isInteractiveLocked =
+    !isHistoryView &&
+    courtView.viewed_turn.phase === 'LOCKED' &&
+    plan.status === 'LOCKED' &&
+    plan.requested_amount > 0;
+  const isPureLocal = plan.requested_amount === 0;
+  const draftEntry = planApprovalDraft[plan.plan_id];
+  const inputVal =
+    draftEntry?.custom_input !== undefined ? draftEntry.custom_input : '';
+  const unitLabel = plan.resource === 'silver' ? '两' : '石';
+  const centralBalance =
+    plan.resource === 'silver'
+      ? formatSilverAmountWan(courtView.central.gross_silver)
+      : formatGrainAmountWan(courtView.central.gross_grain);
+  const remainingAfterDraft =
+    plan.resource === 'silver' ? remainingSilver : remainingGrain;
+  const inputDomId = `${idPrefix}grant-input-${plan.plan_id}`;
+
+  return (
+    <div
+      className="plan-sheet"
+      data-testid={`${idPrefix}plan-sheet-${plan.plan_id}`}
+    >
+      <div className="plan-title">
+        <span className="seal-mark">{isPureLocal ? '筹' : '请'}</span>
+        <div>
+          <strong className="plan-name">{plan.purpose}</strong>
+          <p className="plan-author">{authorName} 奏请</p>
+        </div>
+      </div>
+
+      <div className="approval-grid">
+        <div>
+          <span>请拨</span>
+          <strong>
+            {formatPlanResourceAmount(plan.requested_amount, plan.resource)}
+          </strong>
+        </div>
+        <div>
+          <span>地方自筹</span>
+          <strong>
+            {formatPlanResourceAmount(plan.local_amount, plan.resource)}
+          </strong>
+        </div>
+        <div>
+          <span>{plan.resource === 'silver' ? '户部实存' : '京仓实存'}</span>
+          <strong>{centralBalance}</strong>
+        </div>
+
+        {isInteractiveLocked ? (
+          <label className="grant-label" htmlFor={inputDomId}>
+            <span>核拨</span>
+            <span className="grant-input-row">
+              <input
+                id={inputDomId}
+                data-testid={`${idPrefix}grant-input-${plan.plan_id}`}
+                type="number"
+                min={0}
+                max={plan.requested_amount}
+                step={1}
+                value={inputVal}
+                onChange={(e) =>
+                  onChangePlanDraftInput(
+                    plan.plan_id,
+                    e.target.value,
+                    plan.requested_amount
+                  )
+                }
+              />
+              <em>{unitLabel}</em>
+            </span>
+          </label>
+        ) : (
+          <div>
+            <span>状态</span>
+            <strong>
+              {isPureLocal
+                ? '地方自理'
+                : plan.status === 'SETTLED'
+                  ? `已拨 ${formatPlanResourceAmount(plan.approved_amount ?? 0, plan.resource)}`
+                  : plan.status === 'OPEN'
+                    ? '待截奏核拨'
+                    : draftEntry?.approved_amount !== undefined
+                      ? `拟拨 ${formatPlanResourceAmount(draftEntry.approved_amount, plan.resource)}`
+                      : '待核拨'}
+            </strong>
+          </div>
+        )}
+      </div>
+
+      {draftEntry?.error && (
+        <div className="plan-error-line" role="alert">
+          {draftEntry.error}
+        </div>
+      )}
+
+      {isInteractiveLocked && (
+        <div className="approval-controls">
+          <button
+            type="button"
+            className="preset-btn"
+            data-grant="max"
+            data-testid={`${idPrefix}grant-max-${plan.plan_id}`}
+            onClick={() =>
+              onSetPlanPresetAmount(
+                plan.plan_id,
+                plan.requested_amount,
+                plan.requested_amount
+              )
+            }
+          >
+            全额
+          </button>
+          <button
+            type="button"
+            className="preset-btn"
+            data-grant="0"
+            data-testid={`${idPrefix}grant-zero-${plan.plan_id}`}
+            onClick={() =>
+              onSetPlanPresetAmount(plan.plan_id, 0, plan.requested_amount)
+            }
+          >
+            拒批
+          </button>
+          <span className="approval-remaining">
+            余{' '}
+            <strong className={remainingAfterDraft < 0 ? 'is-overbudget' : ''}>
+              {formatPlanResourceAmount(remainingAfterDraft, plan.resource)}
+              {remainingAfterDraft < 0 ? ' 超支' : ''}
+            </strong>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export interface RightDrawerProps {
+  leftPanelOpen: boolean;
+  selectedProvinceId: ProvinceId | null;
+  provinceTab: ProvinceDrawerTab;
+  courtView: GameplayCourtView;
+  characterById: ReadonlyMap<CharacterId, CharacterPublicView>;
+  debugTruth: GameplayDebugView | null;
+  planApprovalDraft: TurnPlanApprovalDraft;
+  isHistoryView: boolean;
+  onCloseLeftPanel: () => void;
+  onChangeProvinceTab: (tab: ProvinceDrawerTab) => void;
+  onOpenBiography: (
+    characterId: CharacterId,
+    anchorEl?: HTMLElement | null
+  ) => void;
+  onHoverBiography?: (
+    characterId: CharacterId,
+    anchorEl?: HTMLElement | null
+  ) => void;
+  onLeaveBiography?: (anchorEl?: HTMLElement) => void;
+  onOpenChatForCharacter: (characterId: CharacterId) => void;
+  onOpenReportArchive: (provinceId: ProvinceId) => void;
+  onOpenProvinceEvent: (provinceId: ProvinceId) => void;
+  onChangePlanDraftInput: (
+    planId: string,
+    rawInput: string,
+    requestedAmount: number
+  ) => void;
+  onSetPlanPresetAmount: (
+    planId: string,
+    amount: number,
+    requestedAmount: number
+  ) => void;
 }
 
 export const RightDrawer: React.FC<RightDrawerProps> = ({
-  courtView,
-  debugTruth,
-  activeLeftPanel,
+  leftPanelOpen,
   selectedProvinceId,
   provinceTab,
+  courtView,
   characterById,
+  debugTruth,
   planApprovalDraft,
-  planEvaluation,
   isHistoryView,
-  appointmentBusy,
   onCloseLeftPanel,
-  onSelectProvince,
   onChangeProvinceTab,
-  onChangePlanDraftInput,
-  onSetPlanPresetAmount,
   onOpenBiography,
   onHoverBiography,
   onLeaveBiography,
   onOpenChatForCharacter,
-  onOpenReplaceCandidateDialog,
   onOpenReportArchive,
-  onSelectHistoryTurn
+  onOpenProvinceEvent,
+  onChangePlanDraftInput,
+  onSetPlanPresetAmount
 }) => {
   const [stampedProvinceIds, setStampedProvinceIds] = useState<
     Record<string, boolean>
@@ -109,495 +279,96 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
 
   const viewedTurnNumber = courtView.viewed_turn.turn_number;
 
-  const provinceById = useMemo(() => {
-    const map = new Map<ProvinceId, CourtProvinceView>();
-    for (const p of courtView.provinces) {
-      map.set(p.province.province_id, p);
-    }
-    return map;
-  }, [courtView.provinces]);
-
-  const activeProvinces = useMemo(
-    () =>
-      ACTIVE_PROVINCE_IDS.map((pid) => provinceById.get(pid)).filter(
-        (p): p is CourtProvinceView => Boolean(p)
-      ),
-    [provinceById]
-  );
-
-  const officeById = useMemo(
-    () =>
-      new Map<OfficeId, OfficeView>(
-        courtView.offices.map((o) => [o.office_id, o])
-      ),
-    [courtView.offices]
-  );
-
   const selectedProvinceView = selectedProvinceId
-    ? (provinceById.get(selectedProvinceId) ?? null)
+    ? (courtView.provinces.find(
+        (p) => p.province.province_id === selectedProvinceId
+      ) ?? null)
     : null;
 
+  const planEvaluation = evaluatePlanApprovalCompleteness(
+    courtView.provinces,
+    planApprovalDraft
+  );
   const remainingSilver =
     courtView.central.gross_silver - planEvaluation.draftApprovedSilver;
   const remainingGrain =
     courtView.central.gross_grain - planEvaluation.draftApprovedGrain;
 
-  const historyOptions = useMemo(
-    () => buildAvailableHistoryTurnOptions(courtView.active_turn.turn_number),
-    [courtView.active_turn.turn_number]
-  );
-
-  if (!activeLeftPanel) {
+  if (!leftPanelOpen || !selectedProvinceView) {
     return null;
   }
 
-  if (activeLeftPanel === 'province' && !selectedProvinceView) {
-    return null;
-  }
+  const pv = selectedProvinceView;
+  const geom = MING_PROVINCE_GEOMETRY_BY_ID[pv.province.province_id];
 
-  const panelTitle =
-    activeLeftPanel === 'economy'
-      ? '太仓钱粮'
-      : activeLeftPanel === 'population'
-        ? '户口灾情'
-        : activeLeftPanel === 'talent'
-          ? '百官'
-          : activeLeftPanel === 'history'
-            ? '起居注'
-            : (selectedProvinceView?.province.name ?? '省情');
-
-  const renderEconomyPanel = () => (
-    <div className="global-panel-body" data-testid="panel-economy">
-      <div className="treasury-ledger">
-        <div className="ledger-cell">
-          <span>太仓银</span>
-          <strong>{formatSilverAmountWan(courtView.central.gross_silver)}</strong>
-        </div>
-        <div className="ledger-cell">
-          <span>京仓粮</span>
-          <strong>{formatGrainAmountWan(courtView.central.gross_grain)}</strong>
-        </div>
-        {courtView.viewed_turn.phase === 'LOCKED' &&
-          planEvaluation.requiredPlans.length > 0 && (
-            <>
-              <div className="ledger-cell">
-                <span>核拨后余银</span>
-                <strong className={remainingSilver < 0 ? 'is-overbudget' : ''}>
-                  {formatSilverAmountWan(remainingSilver)}
-                  {remainingSilver < 0 ? ' 超支' : ''}
-                </strong>
-              </div>
-              <div className="ledger-cell">
-                <span>核拨后余粮</span>
-                <strong className={remainingGrain < 0 ? 'is-overbudget' : ''}>
-                  {formatGrainAmountWan(remainingGrain)}
-                  {remainingGrain < 0 ? ' 超支' : ''}
-                </strong>
-              </div>
-            </>
-          )}
+  const renderFrozenProvince = () => (
+    <div
+      className="left-body"
+      id="frozen-view"
+      data-testid={`frozen-province-${pv.province.province_id}`}
+    >
+      <div className="stat">
+        <span>建置</span>
+        <strong id="frozen-category">{geom?.category ?? '布政使司'}</strong>
       </div>
-
-      <div className="panel-table">
-        <div className="table-row head">
-          <span>省</span>
-          <span>存银</span>
-          <span>存粮</span>
-        </div>
-        {activeProvinces.map((pv) => {
-          const silverText = formatKnownNumericFact(
-            pv.known.disposable_silver ?? pv.known.gross_silver,
-            'silver'
-          );
-          const grainText = formatKnownNumericFact(
-            pv.known.disposable_grain ?? pv.known.gross_grain,
-            'grain'
-          );
-          return (
-            <button
-              key={pv.province.province_id}
-              type="button"
-              className="table-row"
-              data-select-province={pv.province.province_id}
-              data-testid={`economy-row-${pv.province.province_id}`}
-              onClick={() => onSelectProvince(pv.province.province_id, 'report')}
-            >
-              <strong>{pv.province.name}</strong>
-              <span>{silverText}</span>
-              <span>{grainText}</span>
-            </button>
-          );
-        })}
+      <div className="stat">
+        <span>治所</span>
+        <strong id="frozen-seat">{geom?.seat_name ?? pv.province.name}</strong>
       </div>
-
-      {activeProvinces.map((pv) => {
-        if (!pv.project) return null;
-        const pct =
-          pv.project.total_cost > 0
-            ? Math.min(
-                100,
-                Math.round((pv.project.paid_silver / pv.project.total_cost) * 100)
-              )
-            : 0;
-        return (
-          <div key={pv.project.project_id} className="work-progress">
-            <div className="progress-head">
-              <span>{pv.province.name}修河工程</span>
-              <strong>
-                {pv.project.completed_turn !== null
-                  ? `第${pv.project.completed_turn}轮竣工`
-                  : `${formatSilverAmountWan(pv.project.paid_silver)} / ${formatSilverAmountWan(pv.project.total_cost)}`}
-              </strong>
-            </div>
-            <div className="progress-track">
-              <span style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        );
-      })}
-
-      <div className="source-list">
-        {activeProvinces.map((pv) => {
-          const fact =
-            pv.known.disposable_silver ??
-            pv.known.gross_silver ??
-            pv.known.disposable_grain ??
-            pv.known.gross_grain;
-          const prov = formatFactProvenanceTag(
-            fact,
-            viewedTurnNumber,
-            characterById
-          );
-          return (
-            <div key={pv.province.province_id} className="source-line">
-              <span>{pv.province.name}</span>
-              <em>
-                {prov.authorName && prov.dateText
-                  ? `${prov.authorName} ${prov.dateText}`
-                  : '未奏报'}
-              </em>
-            </div>
-          );
-        })}
+      <div className="stat">
+        <span>政区状态</span>
+        <strong>冻结疆域</strong>
+      </div>
+      <div className="report-box" id="frozen-summary">
+        {geom?.jurisdiction_summary ??
+          `${pv.province.name}属两京十三省疆域`}
+        。当前未开启巡抚奏事与钱粮核拨。
       </div>
     </div>
   );
 
-  const renderPopulationPanel = () => (
-    <div className="global-panel-body" data-testid="panel-population">
-      <div className="situation-list">
-        {activeProvinces.map((pv) => {
-          const reliefPop = getNumericFactValue(pv.known.relief_population);
-          const regPop = getNumericFactValue(pv.known.registered_population);
-          const disasterLabel = getStringFactValue(pv.known.disaster_label);
-          const demandGrain = getNumericFactValue(pv.known.relief_demand_grain);
-
-          const popSummary =
-            reliefPop !== undefined
-              ? `饥民 ${formatPopulationCount(reliefPop)}`
-              : regPop !== undefined
-                ? `在册 ${formatPopulationCount(regPop)}`
-                : '户口 未奏报';
-
-          const rightBadge =
-            disasterLabel !== undefined
-              ? demandGrain !== undefined && demandGrain > 0
-                ? `${disasterLabel} 需粮${formatGrainAmountWan(demandGrain)}`
-                : disasterLabel
-              : '未奏报';
-
-          return (
-            <button
-              key={pv.province.province_id}
-              type="button"
-              className="situation-row"
-              data-select-province={pv.province.province_id}
-              data-testid={`population-row-${pv.province.province_id}`}
-              onClick={() => onSelectProvince(pv.province.province_id, 'report')}
-            >
-              <div>
-                <strong>{pv.province.name}</strong>
-                <span>{popSummary}</span>
-              </div>
-              <em>{rightBadge}</em>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="source-list">
-        {activeProvinces.map((pv) => {
-          const fact =
-            pv.known.relief_population ??
-            pv.known.disaster_label ??
-            pv.known.relief_demand_grain ??
-            pv.known.registered_population;
-          const prov = formatFactProvenanceTag(
-            fact,
-            viewedTurnNumber,
-            characterById
-          );
-          return (
-            <div key={pv.province.province_id} className="source-line">
-              <span>{pv.province.name}</span>
-              <em>
-                {prov.authorName && prov.dateText
-                  ? `${prov.authorName} ${prov.dateText}`
-                  : '未奏报'}
-              </em>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const renderTalentPanel = () => {
-    const canReplaceInCurrentPhase =
-      !isHistoryView &&
-      courtView.active_turn.phase === 'OPEN' &&
-      !appointmentBusy;
-
-    return (
-      <div className="global-panel-body" data-testid="panel-talent">
-        <div className="office-list">
-          {courtView.offices.map((office) => {
-            const provinceForOffice = courtView.provinces.find(
-              (pv) =>
-                pv.province.office_id === office.office_id ||
-                pv.appointment?.office_id === office.office_id
-            );
-            const activeAppt = provinceForOffice?.appointment ?? null;
-            const occupant = activeAppt
-              ? (characterById.get(activeAppt.character_id) ?? null)
-              : null;
-            return (
-              <div
-                key={office.office_id}
-                className="office-row"
-                data-testid={`office-row-${office.office_id}`}
-              >
-                <span
-                  className={`portrait small ${getCharacterPortraitClass(occupant?.character_id)}`}
-                  aria-hidden="true"
-                />
-                <div className="office-copy">
-                  <strong>{office.title}</strong>
-                  <span>{occupant ? occupant.name : '悬缺'}</span>
-                </div>
-                <button
-                  type="button"
-                  className="mini-action"
-                  data-replace={office.office_id}
-                  data-testid={`replace-office-${office.office_id}`}
-                  disabled={!canReplaceInCurrentPhase}
-                  onClick={() => onOpenReplaceCandidateDialog(office.office_id)}
-                >
-                  更换
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="person-roster">
-          {courtView.characters.map((char) => (
-            <div
-              key={char.character_id}
-              className="roster-person"
-              data-testid={`roster-person-${char.character_id}`}
-            >
-              <span
-                className={`portrait small ${getCharacterPortraitClass(char.character_id)}`}
-                aria-hidden="true"
-              />
-              <div className="roster-copy">
-                <strong>{char.name}</strong>
-                <span>{char.specialty}</span>
-              </div>
-              <button
-                type="button"
-                className="icon-btn small"
-                data-bio-person={char.character_id}
-                data-testid={`roster-bio-${char.character_id}`}
-                title="履历"
-                aria-label={`${char.name}履历`}
-                onMouseEnter={(e) =>
-                  onHoverBiography?.(char.character_id, e.currentTarget)
-                }
-                onMouseLeave={(e) => onLeaveBiography?.(e.currentTarget)}
-                onBlur={() => onLeaveBiography?.()}
-                onClick={(e) =>
-                  onOpenBiography(char.character_id, e.currentTarget)
-                }
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="8.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  />
-                  <path
-                    d="M12 10.2v5.4M12 7.4h.01"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="icon-btn small"
-                data-chat-person={char.character_id}
-                data-testid={`roster-chat-${char.character_id}`}
-                title="密谈"
-                aria-label={`密谈${char.name}`}
-                onClick={() => onOpenChatForCharacter(char.character_id)}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M5 6.5h14v9.5H9l-4 3.5V6.5z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderHistoryPanel = () => (
-    <div className="global-panel-body" data-testid="panel-history">
-      <div className="history-list">
-        {historyOptions.map((opt) => {
-          const isSelected = viewedTurnNumber === opt.turn_number;
-          return (
-            <button
-              key={opt.turn_number}
-              type="button"
-              className={`history-item history-turn-btn ${isSelected ? 'active' : ''}`}
-              data-testid={`history-turn-${opt.turn_number}`}
-              onClick={() =>
-                onSelectHistoryTurn(opt.is_active ? null : opt.turn_number)
-              }
-            >
-              <div>
-                <strong>
-                  第{opt.turn_number}轮{' '}
-                  {formatTurnCalendarDate(opt.turn_number, opt.date_iso)}
-                </strong>
-                <span>{opt.is_active ? '当期轮次' : '历史旧档'}</span>
-              </div>
-              <em>{isSelected ? '检视中' : opt.is_active ? '当前' : '查阅'}</em>
-            </button>
-          );
-        })}
-      </div>
-
-      {isHistoryView && (
-        <button
-          type="button"
-          className="seal-action"
-          data-testid="return-active-turn-btn"
-          onClick={() => onSelectHistoryTurn(null)}
-        >
-          返回当期 第{courtView.active_turn.turn_number}轮
-        </button>
-      )}
-
-      {courtView.settlement && (
-        <div className="history-list">
-          <div className="history-item">
-            <div>
-              <strong>第{courtView.settlement.turn_number}轮朱批结算</strong>
-              <span>
-                拨银 {formatSilverAmountWan(courtView.settlement.central_spent_silver)}{' '}
-                拨粮 {formatGrainAmountWan(courtView.settlement.central_spent_grain)}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderProvincePanel = (pv: CourtProvinceView) => {
-    const geom = MING_PROVINCE_GEOMETRY_BY_ID[pv.province.province_id];
-
-    if (!pv.province.active) {
-      return (
-        <div
-          className="frozen-view"
-          id="frozen-view"
-          data-testid={`frozen-province-${pv.province.province_id}`}
-        >
-          <div className="facts" id="frozen-facts">
-            <div className="fact">
-              <span>治所</span>
-              <strong>{geom?.seat_name ?? pv.province.name}</strong>
-            </div>
-            <div className="fact">
-              <span>建置</span>
-              <strong>大明两京十三省</strong>
-            </div>
-            <div className="fact">
-              <span>疆域状态</span>
-              <strong>冻结省区</strong>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
+  const renderActiveProvince = () => {
     const incumbentId = pv.appointment?.character_id ?? null;
     const incumbent = incumbentId
       ? (characterById.get(incumbentId) ?? null)
       : null;
-    const officeTitle = pv.appointment
-      ? (officeById.get(pv.appointment.office_id)?.title ??
-        `${pv.province.name}巡抚`)
-      : `${pv.province.name}巡抚`;
+    const officeTitle = `${pv.province.name}巡抚`;
 
-    const currentOfficerReports =
-      pv.current_officer_reported && pv.appointment
-        ? pv.reports.filter(
-            (r) =>
-              r.turn_number === viewedTurnNumber &&
-              r.appointment_id === pv.appointment!.appointment_id
-          )
-        : [];
-    const latestCurrentOfficerReport =
-      currentOfficerReports[currentOfficerReports.length - 1] ?? null;
-    const latestAnyReport = pv.reports[pv.reports.length - 1] ?? null;
-    const displayedReport = latestCurrentOfficerReport ?? latestAnyReport;
+    const currentTurnReports = pv.reports.filter(
+      (r) => r.turn_number === viewedTurnNumber
+    );
+    const latestCurrentTurnReport =
+      currentTurnReports[currentTurnReports.length - 1] ?? null;
+    const latestOverallReport = pv.reports[pv.reports.length - 1] ?? null;
+    const displayedReport = latestCurrentTurnReport ?? latestOverallReport;
 
     let reportDateLabel = formatTurnCalendarDate(
       viewedTurnNumber,
       courtView.viewed_turn.date
     );
-    let reportAuthorLabel = '本轮未奏';
-    let reportBodyText = `${pv.province.name}本轮尚未呈递奏报。`;
+    let reportAuthorLabel = incumbent
+      ? `${incumbent.name} 本轮未奏`
+      : '巡抚悬缺';
+    let reportBodyText = '本轮尚无奏报呈递。';
 
     if (displayedReport) {
       const authorName =
         characterById.get(displayedReport.author_character_id)?.name ??
         displayedReport.author_character_id;
+      const isStaleReport = displayedReport.turn_number < viewedTurnNumber;
+      const isReplacedSameTurnReport =
+        !isStaleReport &&
+        !pv.current_officer_reported &&
+        displayedReport.appointment_id !== pv.appointment?.appointment_id;
       reportDateLabel = formatTurnCalendarDate(
         displayedReport.turn_number,
         displayedReport.date
       );
-      reportAuthorLabel = !pv.current_officer_reported
-        ? `${authorName}奏 本轮未奏`
-        : `${authorName}奏`;
+      reportAuthorLabel = isStaleReport
+        ? `旧档 ${authorName}奏`
+        : isReplacedSameTurnReport
+          ? `前任 ${authorName}奏`
+          : `${authorName}奏`;
       reportBodyText = displayedReport.body;
     }
 
@@ -619,14 +390,6 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
           (dp) => dp.province_id === pv.province.province_id
         )
       : null;
-
-    const projectPct =
-      pv.project && pv.project.total_cost > 0
-        ? Math.min(
-            100,
-            Math.round((pv.project.paid_silver / pv.project.total_cost) * 100)
-          )
-        : 0;
 
     const viewedTurnPlans = pv.plans.filter(
       (p) => p.turn_number === viewedTurnNumber && p.status !== 'WITHDRAWN'
@@ -674,202 +437,45 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
       }));
     };
 
-    const renderPlanCard = (plan: PlanRecord) => {
-      const authorName =
-        characterById.get(plan.author_character_id)?.name ??
-        plan.author_character_id;
-      const isInteractiveLocked =
-        !isHistoryView &&
-        courtView.viewed_turn.phase === 'LOCKED' &&
-        plan.status === 'LOCKED' &&
-        plan.requested_amount > 0;
-      const isPureLocal = plan.requested_amount === 0;
-      const draftEntry = planApprovalDraft[plan.plan_id];
-      const inputVal =
-        draftEntry?.custom_input !== undefined ? draftEntry.custom_input : '';
-      const unitLabel = plan.resource === 'silver' ? '两' : '石';
-      const centralBalance =
-        plan.resource === 'silver'
-          ? formatSilverAmountWan(courtView.central.gross_silver)
-          : formatGrainAmountWan(courtView.central.gross_grain);
-      const remainingAfterDraft =
-        plan.resource === 'silver' ? remainingSilver : remainingGrain;
-
-      return (
-        <div
-          key={plan.plan_id}
-          className="plan-sheet"
-          data-testid={`plan-sheet-${plan.plan_id}`}
-        >
-          <div className="plan-title">
-            <span className="seal-mark">{isPureLocal ? '筹' : '请'}</span>
-            <div>
-              <strong id="plan-name">{plan.purpose}</strong>
-              <p id="plan-author">{authorName} 奏请</p>
-            </div>
-          </div>
-
-          <div className="approval-grid">
-            <div>
-              <span>请拨</span>
-              <strong id="plan-request">
-                {formatPlanResourceAmount(plan.requested_amount, plan.resource)}
-              </strong>
-            </div>
-            <div>
-              <span>地方自筹</span>
-              <strong id="plan-local">
-                {formatPlanResourceAmount(plan.local_amount, plan.resource)}
-              </strong>
-            </div>
-            <div>
-              <span>{plan.resource === 'silver' ? '户部实存' : '京仓实存'}</span>
-              <strong id="treasury-balance">{centralBalance}</strong>
-            </div>
-
-            {isInteractiveLocked ? (
-              <label
-                className="grant-box"
-                htmlFor={`grant-input-${plan.plan_id}`}
-              >
-                <span>核拨</span>
-                <span className="input-unit">
-                  <input
-                    id={`grant-input-${plan.plan_id}`}
-                    data-testid={`grant-input-${plan.plan_id}`}
-                    type="number"
-                    min={0}
-                    max={plan.requested_amount}
-                    step={1}
-                    value={inputVal}
-                    onChange={(e) =>
-                      onChangePlanDraftInput(
-                        plan.plan_id,
-                        e.target.value,
-                        plan.requested_amount
-                      )
-                    }
-                  />
-                  <em>{unitLabel}</em>
-                </span>
-              </label>
-            ) : (
-              <div>
-                <span>状态</span>
-                <strong>
-                  {isPureLocal
-                    ? '地方自理'
-                    : plan.status === 'SETTLED'
-                      ? `已拨 ${formatPlanResourceAmount(plan.approved_amount ?? 0, plan.resource)}`
-                      : plan.status === 'OPEN'
-                        ? '待截奏核拨'
-                        : draftEntry?.approved_amount !== undefined
-                          ? `拟拨 ${formatPlanResourceAmount(draftEntry.approved_amount, plan.resource)}`
-                          : '待核拨'}
-                </strong>
-              </div>
-            )}
-          </div>
-
-          {draftEntry?.error && (
-            <div className="plan-error-line" role="alert">
-              {draftEntry.error}
-            </div>
-          )}
-
-          {isInteractiveLocked && (
-            <div className="quick-grants">
-              <button
-                type="button"
-                className="mini-action"
-                data-grant="max"
-                data-testid={`grant-max-${plan.plan_id}`}
-                onClick={() =>
-                  onSetPlanPresetAmount(
-                    plan.plan_id,
-                    plan.requested_amount,
-                    plan.requested_amount
-                  )
-                }
-              >
-                全额
-              </button>
-              <button
-                type="button"
-                className="mini-action"
-                data-grant="0"
-                data-testid={`grant-zero-${plan.plan_id}`}
-                onClick={() =>
-                  onSetPlanPresetAmount(plan.plan_id, 0, plan.requested_amount)
-                }
-              >
-                拒批
-              </button>
-              <span className="remain-line">
-                核拨后余{' '}
-                <strong
-                  id="grant-remaining"
-                  className={remainingAfterDraft < 0 ? 'is-overbudget' : ''}
-                >
-                  {formatPlanResourceAmount(remainingAfterDraft, plan.resource)}
-                  {remainingAfterDraft < 0 ? ' 超支' : ''}
-                </strong>
-              </span>
-            </div>
-          )}
-        </div>
-      );
-    };
+    const disasterLabel = getStringFactValue(pv.known.disaster_label);
+    const reliefPop = getNumericFactValue(pv.known.relief_population);
+    const reliefDemand = getNumericFactValue(pv.known.relief_demand_grain);
+    const eventHeadline =
+      disasterLabel && disasterLabel !== '无灾'
+        ? `${pv.province.name}${disasterLabel}`
+        : `${pv.province.name}奏报急务`;
+    const eventSubline =
+      reliefPop !== undefined || reliefDemand !== undefined
+        ? `${reliefPop !== undefined ? `饥民${formatPopulationCount(reliefPop)} ` : ''}${reliefDemand !== undefined ? `需粮${formatGrainAmountWan(reliefDemand)}` : ''}`.trim()
+        : viewedTurnPlans.length > 0
+          ? `方略 ${viewedTurnPlans.length} 项 点击批阅`
+          : '点击查阅奏折与方略';
 
     return (
-      <div
-        id="governed-view"
-        data-testid={`governed-province-${pv.province.province_id}`}
-      >
-        <div className="tabs" role="tablist" aria-label="本省政务">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={provinceTab === 'report'}
-            className={`tab ${provinceTab === 'report' ? 'active' : ''}`}
-            data-tab="report"
-            data-testid="province-tab-report"
-            onClick={() => onChangeProvinceTab('report')}
-          >
-            奏报
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={provinceTab === 'approval'}
-            className={`tab ${provinceTab === 'approval' ? 'active' : ''}`}
-            data-tab="approval"
-            data-testid="province-tab-approval"
-            onClick={() => onChangeProvinceTab('approval')}
-          >
-            批复
-          </button>
-        </div>
-
-        <div className="minister">
-          <div
-            className={`portrait ${getCharacterPortraitClass(incumbent?.character_id)}`}
-            id="minister-portrait"
-            role="img"
-            aria-label="巡抚画像"
-          />
-          <div className="minister-info">
-            <div className="minister-name-row">
-              <h2 id="minister-name">
+      <>
+        <div
+          className="left-body"
+          id="governed-view"
+          data-testid={`governed-province-${pv.province.province_id}`}
+        >
+          <div className="official">
+            <div
+              className={`portrait ${getCharacterPortraitClass(incumbent?.character_id)}`}
+              id="minister-portrait"
+              role="img"
+              aria-label="巡抚画像"
+            />
+            <div>
+              <div className="official-name" id="minister-name">
                 {incumbent ? incumbent.name : '巡抚悬缺'}
-              </h2>
+              </div>
+              <div className="official-role" id="minister-role">
+                {officeTitle}
+              </div>
             </div>
-            <p id="minister-role">{officeTitle}</p>
-          </div>
-          <div className="minister-actions">
             <button
               type="button"
-              className="icon-btn"
+              className="info-btn"
               id="minister-bio"
               data-testid="minister-bio-btn"
               title="履历"
@@ -886,239 +492,876 @@ export const RightDrawer: React.FC<RightDrawerProps> = ({
                   onOpenBiography(incumbent.character_id, e.currentTarget);
               }}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="8.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                />
-                <path
-                  d="M12 10.2v5.4M12 7.4h.01"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              id="minister-chat"
-              data-testid="minister-chat-btn"
-              title="密谈"
-              aria-label="密谈"
-              disabled={!incumbent}
-              onClick={() => {
-                if (incumbent) onOpenChatForCharacter(incumbent.character_id);
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M5 6.5h14v9.5H9l-4 3.5V6.5z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinejoin="round"
-                />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 11v5" />
+                <path d="M12 8h.01" />
               </svg>
             </button>
           </div>
-        </div>
 
-        {provinceTab === 'report' ? (
-          <section
-            className="tab-view"
-            data-view="report"
-            data-testid="province-report-view"
-          >
-            <div className="document-meta">
-              <span id="report-date">{reportDateLabel}</span>
-              <span id="report-author">{reportAuthorLabel}</span>
-              <button
-                type="button"
-                className="icon-btn small"
-                id="report-history"
-                data-report-archive={pv.province.province_id}
-                data-testid="report-archive-btn"
-                title="往期奏报"
-                aria-label="往期奏报"
-                onClick={() => onOpenReportArchive(pv.province.province_id)}
-              >
-                <span className="painted-icon icon-history" aria-hidden="true" />
-              </button>
-            </div>
-
-            <p className="report-text" id="report-text">
-              {reportBodyText}
-            </p>
-
-            <div className="facts" id="province-facts">
-              <div className="fact">
-                <span>存银</span>
-                <strong>
-                  {formatKnownNumericFact(pv.known.gross_silver, 'silver')}
-                </strong>
-              </div>
-              <div className="fact">
-                <span>存粮</span>
-                <strong>
-                  {formatKnownNumericFact(pv.known.gross_grain, 'grain')}
-                </strong>
-              </div>
-              <div className="fact">
-                <span>可用银</span>
-                <strong>
-                  {formatKnownNumericFact(pv.known.disposable_silver, 'silver')}
-                </strong>
-              </div>
-              <div className="fact">
-                <span>可用粮</span>
-                <strong>
-                  {formatKnownNumericFact(pv.known.disposable_grain, 'grain')}
-                </strong>
-              </div>
-              {factProvenance.label && (
-                <div className="fact">
-                  <span>奏报来源</span>
-                  <strong>{factProvenance.label}</strong>
-                </div>
-              )}
-              {debugProvince && (
-                <div className="fact">
-                  <span>真值核验</span>
-                  <strong>
-                    银{formatSilverAmountWan(debugProvince.facts.gross_silver)}{' '}
-                    粮{formatGrainAmountWan(debugProvince.facts.gross_grain)}
-                  </strong>
-                </div>
-              )}
-            </div>
-
-            {pv.project && (
-              <div className="work-progress" id="province-progress">
-                <div className="progress-head">
-                  <span>修河工程</span>
-                  <strong>
-                    {pv.project.completed_turn !== null
-                      ? `第${pv.project.completed_turn}轮竣工`
-                      : `${formatSilverAmountWan(pv.project.paid_silver)} / ${formatSilverAmountWan(pv.project.total_cost)}`}
-                  </strong>
-                </div>
-                <div className="progress-track">
-                  <span style={{ width: `${projectPct}%` }} />
-                </div>
-              </div>
-            )}
-
+          <div className="tabs" role="tablist" aria-label="本省政务">
             <button
               type="button"
-              className="seal-action"
-              id="go-approval"
-              data-testid="go-approval-btn"
+              role="tab"
+              aria-selected={provinceTab === 'report'}
+              className={`tab ${provinceTab === 'report' ? 'active' : ''}`}
+              data-tab="report"
+              data-testid="province-tab-report"
+              onClick={() => onChangeProvinceTab('report')}
+            >
+              奏报
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={provinceTab === 'approval'}
+              className={`tab ${provinceTab === 'approval' ? 'active' : ''}`}
+              data-tab="approval"
+              data-testid="province-tab-approval"
               onClick={() => onChangeProvinceTab('approval')}
             >
-              <span>阅方略</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="inline-glyph">
-                <path
-                  d="M4 12h16M14 6l6 6-6 6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              批复
             </button>
-          </section>
-        ) : (
-          <section
-            className="tab-view"
-            data-view="approval"
-            data-testid="province-approval-view"
-          >
-            {viewedTurnPlans.length === 0 ? (
-              <div className="plan-sheet">
-                <div className="plan-title">
-                  <span className="seal-mark">请</span>
-                  <div>
-                    <strong id="plan-name">本轮暂无请旨方略</strong>
-                    <p id="plan-author">
-                      {incumbent ? incumbent.name : '巡抚悬缺'}
-                    </p>
-                  </div>
+          </div>
+
+          {provinceTab === 'report' ? (
+            <section
+              className="tab-view"
+              data-view="report"
+              data-testid="province-report-view"
+            >
+              <div className="document-meta">
+                <span id="report-date">{reportDateLabel}</span>
+                <span id="report-author">{reportAuthorLabel}</span>
+                <button
+                  type="button"
+                  className="button small-btn"
+                  id="report-history"
+                  data-report-archive={pv.province.province_id}
+                  data-testid="report-archive-btn"
+                  title="往期奏报"
+                  aria-label="往期奏报"
+                  onClick={() => onOpenReportArchive(pv.province.province_id)}
+                >
+                  旧档
+                </button>
+              </div>
+
+              <div className="report-box" id="report-text">
+                {reportBodyText}
+              </div>
+
+              <div id="province-facts">
+                <div className="stat">
+                  <span>存银</span>
+                  <strong>
+                    {formatKnownNumericFact(pv.known.gross_silver, 'silver')}
+                  </strong>
                 </div>
+                <div className="stat">
+                  <span>存粮</span>
+                  <strong>
+                    {formatKnownNumericFact(pv.known.gross_grain, 'grain')}
+                  </strong>
+                </div>
+                <div className="stat">
+                  <span>可用银</span>
+                  <strong>
+                    {formatKnownNumericFact(
+                      pv.known.disposable_silver,
+                      'silver'
+                    )}
+                  </strong>
+                </div>
+                <div className="stat">
+                  <span>可用粮</span>
+                  <strong>
+                    {formatKnownNumericFact(pv.known.disposable_grain, 'grain')}
+                  </strong>
+                </div>
+                {pv.project && (
+                  <div className="stat" id="province-progress">
+                    <span>修河进度</span>
+                    <strong>
+                      {pv.project.completed_turn !== null
+                        ? `第${pv.project.completed_turn}轮竣工`
+                        : `${formatSilverAmountWan(pv.project.paid_silver)} / ${formatSilverAmountWan(pv.project.total_cost)}`}
+                    </strong>
+                  </div>
+                )}
+                {factProvenance.label && (
+                  <div className="stat">
+                    <span>奏报来源</span>
+                    <strong>{factProvenance.label}</strong>
+                  </div>
+                )}
+                {debugProvince && (
+                  <div className="stat">
+                    <span>真值核验</span>
+                    <strong>
+                      银{formatSilverAmountWan(debugProvince.facts.gross_silver)}{' '}
+                      粮{formatGrainAmountWan(debugProvince.facts.gross_grain)}
+                    </strong>
+                  </div>
+                )}
               </div>
-            ) : (
-              viewedTurnPlans.map((plan) => renderPlanCard(plan))
-            )}
 
-            {provinceStampError && (
-              <div className="plan-error-line" role="alert">
-                {provinceStampError}
-              </div>
-            )}
+              {viewedTurnPlans.length > 0 && (
+                <div className="province-plans-mini">
+                  {viewedTurnPlans.map((plan) => (
+                    <div key={plan.plan_id} className="stat">
+                      <span>{plan.purpose}</span>
+                      <strong>
+                        {plan.requested_amount > 0
+                          ? `请拨${formatPlanResourceAmount(plan.requested_amount, plan.resource)}`
+                          : `自筹${formatPlanResourceAmount(plan.local_amount, plan.resource)}`}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {interactiveLockedPlans.length > 0 && !isHistoryView && (
               <button
                 type="button"
-                className="seal-action"
-                id="confirm-approval"
-                data-testid="confirm-approval-btn"
-                onClick={handleStampProvinceApproval}
+                className="event-card"
+                data-event={pv.province.province_id}
+                data-testid={`event-pill-${pv.province.province_id}`}
+                onClick={() => onOpenProvinceEvent(pv.province.province_id)}
               >
-                {isProvinceStamped ? '已用印' : '准奏用印'}
+                <strong>{eventHeadline}</strong>
+                <span>{eventSubline}</span>
               </button>
-            )}
-          </section>
+            </section>
+          ) : (
+            <section
+              className="tab-view"
+              data-view="approval"
+              data-testid="province-approval-view"
+            >
+              {viewedTurnPlans.length === 0 ? (
+                <div className="plan-sheet">
+                  <div className="plan-title">
+                    <span className="seal-mark">请</span>
+                    <div>
+                      <strong className="plan-name">本轮暂无请旨方略</strong>
+                      <p className="plan-author">
+                        {incumbent ? incumbent.name : '巡抚悬缺'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                viewedTurnPlans.map((plan) => (
+                  <PlanApprovalCard
+                    key={plan.plan_id}
+                    plan={plan}
+                    courtView={courtView}
+                    characterById={characterById}
+                    isHistoryView={isHistoryView}
+                    planApprovalDraft={planApprovalDraft}
+                    remainingSilver={remainingSilver}
+                    remainingGrain={remainingGrain}
+                    onChangePlanDraftInput={onChangePlanDraftInput}
+                    onSetPlanPresetAmount={onSetPlanPresetAmount}
+                  />
+                ))
+              )}
+
+              {provinceStampError && (
+                <div className="plan-error-line" role="alert">
+                  {provinceStampError}
+                </div>
+              )}
+
+              {interactiveLockedPlans.length > 0 && !isHistoryView && (
+                <button
+                  type="button"
+                  className="button primary full-width-btn"
+                  id="confirm-approval"
+                  data-testid="confirm-approval-btn"
+                  onClick={handleStampProvinceApproval}
+                >
+                  {isProvinceStamped ? '已用印' : '准奏用印'}
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="event-card"
+                data-event={pv.province.province_id}
+                data-testid={`event-pill-${pv.province.province_id}`}
+                onClick={() => onOpenProvinceEvent(pv.province.province_id)}
+              >
+                <strong>{eventHeadline}</strong>
+                <span>{eventSubline}</span>
+              </button>
+            </section>
+          )}
+        </div>
+
+        <div className="left-footer">
+          <button
+            type="button"
+            className="button primary"
+            id="consult"
+            data-testid="minister-chat-btn"
+            disabled={!incumbent}
+            onClick={() => {
+              if (incumbent) onOpenChatForCharacter(incumbent.character_id);
+            }}
+          >
+            召询
+          </button>
+          <button
+            type="button"
+            className="button"
+            id="go-approval"
+            data-testid="go-approval-btn"
+            onClick={() =>
+              onChangeProvinceTab(
+                provinceTab === 'approval' ? 'report' : 'approval'
+              )
+            }
+          >
+            {provinceTab === 'approval' ? '阅奏报' : '阅方略'}
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <aside
+      className="panel left-window"
+      id="context-panel"
+      aria-label={pv.province.name}
+      data-testid="left-context-panel"
+    >
+      <div className="panel-head">
+        <h2 id="panel-title">{pv.province.name}</h2>
+        <button
+          type="button"
+          className="icon-button"
+          id="close-panel"
+          data-testid="close-left-panel-btn"
+          title="收起"
+          aria-label="收起"
+          onClick={onCloseLeftPanel}
+        >
+          <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      </div>
+
+      {pv.province.active ? renderActiveProvince() : renderFrozenProvince()}
+    </aside>
+  );
+};
+
+export interface NationalPanelProps {
+  activeNationalPanel: NationalPanelMode;
+  courtView: GameplayCourtView;
+  characterById: ReadonlyMap<CharacterId, CharacterPublicView>;
+  planApprovalDraft: TurnPlanApprovalDraft;
+  isHistoryView: boolean;
+  canMutateAppointments: boolean;
+  onCloseNationalPanel: () => void;
+  onSelectProvince: (provinceId: ProvinceId) => void;
+  onOpenProvinceEvent: (provinceId: ProvinceId) => void;
+  onOpenReplaceCandidateModal: (officeId: OfficeId) => void;
+  onOpenBiography: (
+    characterId: CharacterId,
+    anchorEl?: HTMLElement | null
+  ) => void;
+  onHoverBiography?: (
+    characterId: CharacterId,
+    anchorEl?: HTMLElement | null
+  ) => void;
+  onLeaveBiography?: (anchorEl?: HTMLElement) => void;
+  onSelectTurn: (turnNumber: number) => void;
+}
+
+export const NationalPanel: React.FC<NationalPanelProps> = ({
+  activeNationalPanel,
+  courtView,
+  characterById,
+  planApprovalDraft,
+  isHistoryView,
+  canMutateAppointments,
+  onCloseNationalPanel,
+  onSelectProvince,
+  onOpenProvinceEvent,
+  onOpenReplaceCandidateModal,
+  onOpenBiography,
+  onHoverBiography,
+  onLeaveBiography,
+  onSelectTurn
+}) => {
+  if (!activeNationalPanel) {
+    return null;
+  }
+
+  const viewedTurnNumber = courtView.viewed_turn.turn_number;
+  const activeProvinces = courtView.provinces.filter((p) => p.province.active);
+  const planEvaluation = evaluatePlanApprovalCompleteness(
+    courtView.provinces,
+    planApprovalDraft
+  );
+  const remainingSilver =
+    courtView.central.gross_silver - planEvaluation.draftApprovedSilver;
+  const remainingGrain =
+    courtView.central.gross_grain - planEvaluation.draftApprovedGrain;
+
+  const titleByMode: Record<Exclude<NationalPanelMode, null>, string> = {
+    economy: '太仓钱粮',
+    population: '户口灾情',
+    talent: '百官',
+    history: '起居注'
+  };
+
+  const renderEconomy = () => {
+    let knownTotalSilver = 0;
+    let knownSilverCount = 0;
+    for (const pv of activeProvinces) {
+      const val = getNumericFactValue(pv.known.gross_silver);
+      if (val !== undefined) {
+        knownTotalSilver += val;
+        knownSilverCount += 1;
+      }
+    }
+
+    return (
+      <div className="national-section" data-testid="panel-economy">
+        <div className="summary-strip">
+          <div className="summary-card">
+            <span>太仓存银</span>
+            <strong>
+              {formatSilverAmountWan(courtView.central.gross_silver)}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>京仓存粮</span>
+            <strong>
+              {formatGrainAmountWan(courtView.central.gross_grain)}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>已奏藩库存银合计</span>
+            <strong>
+              {knownSilverCount > 0
+                ? formatSilverAmountWan(knownTotalSilver)
+                : '未奏报'}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>拟拨后太仓余银</span>
+            <strong className={remainingSilver < 0 ? 'is-overbudget' : ''}>
+              {formatSilverAmountWan(remainingSilver)}
+            </strong>
+          </div>
+        </div>
+
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>省份</th>
+              <th>巡抚</th>
+              <th>存银</th>
+              <th>存粮</th>
+              <th>可用银 / 可用粮</th>
+              <th>修河进度</th>
+              <th>奏报来源</th>
+            </tr>
+          </thead>
+          <tbody>
+            {courtView.provinces.map((pv) => {
+              const pid = pv.province.province_id;
+              const baseColor = getProvinceBaseColor(pid);
+              if (!pv.province.active) {
+                return (
+                  <tr
+                    key={pid}
+                    className="row-clickable"
+                    onClick={() => onSelectProvince(pid)}
+                  >
+                    <td>
+                      <span
+                        className="color-dot"
+                        style={{ background: baseColor }}
+                      />
+                      {pv.province.name}
+                    </td>
+                    <td>未设</td>
+                    <td>银—</td>
+                    <td>粮—</td>
+                    <td>银— / 粮—</td>
+                    <td>无</td>
+                    <td>未奏报</td>
+                  </tr>
+                );
+              }
+
+              const incumbentName = pv.appointment
+                ? (characterById.get(pv.appointment.character_id)?.name ??
+                  pv.appointment.character_id)
+                : '悬缺';
+              const primaryFact =
+                pv.known.disposable_silver ??
+                pv.known.gross_silver ??
+                pv.known.disposable_grain ??
+                pv.known.gross_grain;
+              const prov = formatFactProvenanceTag(
+                primaryFact,
+                viewedTurnNumber,
+                characterById
+              );
+
+              return (
+                <tr
+                  key={pid}
+                  className="row-clickable"
+                  onClick={() => onSelectProvince(pid)}
+                >
+                  <td>
+                    <span
+                      className="color-dot"
+                      style={{ background: baseColor }}
+                    />
+                    {pv.province.name}
+                  </td>
+                  <td>{incumbentName}</td>
+                  <td>
+                    {formatKnownNumericFact(pv.known.gross_silver, 'silver')}
+                  </td>
+                  <td>
+                    {formatKnownNumericFact(pv.known.gross_grain, 'grain')}
+                  </td>
+                  <td>
+                    {formatKnownNumericFact(
+                      pv.known.disposable_silver,
+                      'silver'
+                    )}{' '}
+                    /{' '}
+                    {formatKnownNumericFact(pv.known.disposable_grain, 'grain')}
+                  </td>
+                  <td>
+                    {pv.project
+                      ? pv.project.completed_turn !== null
+                        ? `第${pv.project.completed_turn}轮竣工`
+                        : `${formatSilverAmountWan(pv.project.paid_silver)} / ${formatSilverAmountWan(pv.project.total_cost)}`
+                      : '无'}
+                  </td>
+                  <td>{prov.label || '未奏报'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderPopulation = () => {
+    let totalReliefPop = 0;
+    let hasReliefPop = false;
+    let totalReliefDemand = 0;
+    let hasReliefDemand = false;
+    for (const pv of activeProvinces) {
+      const pop = getNumericFactValue(pv.known.relief_population);
+      if (pop !== undefined) {
+        totalReliefPop += pop;
+        hasReliefPop = true;
+      }
+      const dem = getNumericFactValue(pv.known.relief_demand_grain);
+      if (dem !== undefined) {
+        totalReliefDemand += dem;
+        hasReliefDemand = true;
+      }
+    }
+
+    return (
+      <div className="national-section" data-testid="panel-population">
+        <div className="summary-strip">
+          <div className="summary-card">
+            <span>已奏待赈饥民</span>
+            <strong>
+              {hasReliefPop ? formatPopulationCount(totalReliefPop) : '未奏报'}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>已奏需粮合计</span>
+            <strong>
+              {hasReliefDemand
+                ? formatGrainAmountWan(totalReliefDemand)
+                : '未奏报'}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>拟拨后京仓余粮</span>
+            <strong className={remainingGrain < 0 ? 'is-overbudget' : ''}>
+              {formatGrainAmountWan(remainingGrain)}
+            </strong>
+          </div>
+          <div className="summary-card">
+            <span>灾情查阅</span>
+            <strong>点选省卡阅奏</strong>
+          </div>
+        </div>
+
+        <div className="national-event-row">
+          {activeProvinces.map((pv) => {
+            const pid = pv.province.province_id;
+            const disasterLabel =
+              getStringFactValue(pv.known.disaster_label) ?? '未奏报';
+            const popText = formatKnownNumericFact(
+              pv.known.relief_population,
+              'population'
+            );
+            const demandText = formatKnownNumericFact(
+              pv.known.relief_demand_grain,
+              'grain'
+            );
+            return (
+              <button
+                key={pid}
+                type="button"
+                className="event-card"
+                onClick={() => onOpenProvinceEvent(pid)}
+              >
+                <strong>
+                  {pv.province.name} {disasterLabel}
+                </strong>
+                <span>
+                  待赈 {popText} 需粮 {demandText}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>省份</th>
+              <th>灾情</th>
+              <th>待赈饥民</th>
+              <th>赈粮需求</th>
+              <th>存粮</th>
+              <th>奏报来源</th>
+            </tr>
+          </thead>
+          <tbody>
+            {courtView.provinces.map((pv) => {
+              const pid = pv.province.province_id;
+              const baseColor = getProvinceBaseColor(pid);
+              if (!pv.province.active) {
+                return (
+                  <tr
+                    key={pid}
+                    className="row-clickable"
+                    onClick={() => onSelectProvince(pid)}
+                  >
+                    <td>
+                      <span
+                        className="color-dot"
+                        style={{ background: baseColor }}
+                      />
+                      {pv.province.name}
+                    </td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>粮—</td>
+                    <td>粮—</td>
+                    <td>未奏报</td>
+                  </tr>
+                );
+              }
+              const disasterLabel =
+                getStringFactValue(pv.known.disaster_label) ?? '未奏报';
+              const primaryFact =
+                pv.known.relief_population ??
+                pv.known.relief_demand_grain ??
+                pv.known.disaster_label;
+              const prov = formatFactProvenanceTag(
+                primaryFact,
+                viewedTurnNumber,
+                characterById
+              );
+              return (
+                <tr
+                  key={pid}
+                  className="row-clickable"
+                  onClick={() => onOpenProvinceEvent(pid)}
+                >
+                  <td>
+                    <span
+                      className="color-dot"
+                      style={{ background: baseColor }}
+                    />
+                    {pv.province.name}
+                  </td>
+                  <td>{disasterLabel}</td>
+                  <td>
+                    {formatKnownNumericFact(
+                      pv.known.relief_population,
+                      'population'
+                    )}
+                  </td>
+                  <td>
+                    {formatKnownNumericFact(
+                      pv.known.relief_demand_grain,
+                      'grain'
+                    )}
+                  </td>
+                  <td>
+                    {formatKnownNumericFact(pv.known.gross_grain, 'grain')}
+                  </td>
+                  <td>{prov.label || '未奏报'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderTalent = () => {
+    const activeOfficeByCharacter = new Map<CharacterId, OfficeView>();
+    const officeById = new Map<OfficeId, OfficeView>(
+      courtView.offices.map((o) => [o.office_id, o])
+    );
+    for (const pv of courtView.provinces) {
+      if (pv.appointment) {
+        const off = officeById.get(pv.appointment.office_id);
+        if (off) {
+          activeOfficeByCharacter.set(pv.appointment.character_id, off);
+        }
+      }
+    }
+
+    return (
+      <div className="national-section" data-testid="panel-talent">
+        <div className="talent-offices-section">
+          {courtView.offices.map((office) => {
+            const pv = courtView.provinces.find(
+              (p) => p.province.province_id === office.province_id
+            );
+            const incumbentId = pv?.appointment?.character_id ?? null;
+            const incumbentChar = incumbentId
+              ? characterById.get(incumbentId)
+              : undefined;
+
+            return (
+              <div
+                key={office.office_id}
+                className="office-row"
+                data-testid={`office-row-${office.office_id}`}
+              >
+                <span
+                  className={`portrait ${getCharacterPortraitClass(incumbentChar?.character_id)}`}
+                  aria-hidden="true"
+                />
+                <div className="office-row-copy">
+                  <strong>{office.title}</strong>
+                  <p>{incumbentChar ? incumbentChar.name : '悬缺'}</p>
+                  {office.runtime_profile && (
+                    <small className="office-runtime-tag">
+                      {office.runtime_profile.runtime} /{' '}
+                      {office.runtime_profile.model}
+                    </small>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="button"
+                  data-replace-office={office.office_id}
+                  data-testid={`replace-office-${office.office_id}`}
+                  disabled={!canMutateAppointments}
+                  onClick={() => onOpenReplaceCandidateModal(office.office_id)}
+                >
+                  更替
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="official-grid">
+          {courtView.characters.map((char) => {
+            const heldOffice = activeOfficeByCharacter.get(char.character_id);
+            return (
+              <button
+                key={char.character_id}
+                type="button"
+                className="official-card"
+                data-person={char.character_id}
+                data-testid={`roster-person-${char.character_id}`}
+                onMouseEnter={(e) =>
+                  onHoverBiography?.(char.character_id, e.currentTarget)
+                }
+                onMouseLeave={(e) => onLeaveBiography?.(e.currentTarget)}
+                onBlur={() => onLeaveBiography?.()}
+                onClick={(e) =>
+                  onOpenBiography(char.character_id, e.currentTarget)
+                }
+              >
+                <div className="official-card-top">
+                  <div
+                    className={`portrait ${getCharacterPortraitClass(char.character_id)}`}
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <strong>{char.name}</strong>
+                    <div className="official-role">
+                      {heldOffice ? heldOffice.title : '候任'}
+                    </div>
+                  </div>
+                </div>
+                <p className="official-card-specialty">{char.specialty}</p>
+                <p className="official-card-bio">{char.biography}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistory = () => {
+    const historyOptions = buildAvailableHistoryTurnOptions(
+      courtView.active_turn.turn_number
+    );
+    const settlement = courtView.settlement;
+
+    return (
+      <div className="national-section" data-testid="panel-history">
+        {isHistoryView && (
+          <div style={{ marginBottom: '12px' }}>
+            <button
+              type="button"
+              className="button primary"
+              data-testid="return-active-turn-btn"
+              onClick={() => onSelectTurn(courtView.active_turn.turn_number)}
+            >
+              返回当前第{courtView.active_turn.turn_number}轮
+            </button>
+          </div>
+        )}
+
+        <div className="history-turn-list">
+          {historyOptions.map((opt) => {
+            const isSelected = opt.turn_number === viewedTurnNumber;
+            return (
+              <button
+                key={opt.turn_number}
+                type="button"
+                className={`history-turn-card ${isSelected ? 'active' : ''}`}
+                data-turn={opt.turn_number}
+                data-testid={`history-turn-${opt.turn_number}`}
+                onClick={() => onSelectTurn(opt.turn_number)}
+              >
+                <div>
+                  <strong>
+                    第{opt.turn_number}轮 {formatTurnCalendarDate(opt.turn_number, opt.date_iso)}
+                  </strong>
+                  <span>{opt.is_active ? '当前执政轮' : '历史卷宗'}</span>
+                </div>
+                <em>{isSelected ? '正在检视' : '调阅'}</em>
+              </button>
+            );
+          })}
+        </div>
+
+        {settlement ? (
+          <div style={{ marginTop: '14px' }}>
+            <div className="summary-strip">
+              <div className="summary-card">
+                <span>当轮户部拨银</span>
+                <strong>
+                  {formatSilverAmountWan(settlement.central_spent_silver)}
+                </strong>
+              </div>
+              <div className="summary-card">
+                <span>当轮京仓拨粮</span>
+                <strong>
+                  {formatGrainAmountWan(settlement.central_spent_grain)}
+                </strong>
+              </div>
+              <div className="summary-card">
+                <span>结算后太仓余银</span>
+                <strong>
+                  {formatSilverAmountWan(settlement.central_ending_silver)}
+                </strong>
+              </div>
+              <div className="summary-card">
+                <span>结算后京仓余粮</span>
+                <strong>
+                  {formatGrainAmountWan(settlement.central_ending_grain)}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p style={{ marginTop: '12px', color: 'var(--paper-muted)' }}>
+            第{viewedTurnNumber}轮尚未完成结算归档。
+          </p>
         )}
       </div>
     );
   };
 
   return (
-    <aside
-      className="context-panel"
-      id="context-panel"
-      aria-label={panelTitle}
-      data-testid="left-context-panel"
+    <section
+      className="panel national"
+      id="national"
+      aria-label={titleByMode[activeNationalPanel]}
+      data-testid="national-panel"
     >
-      <div className="panel-header">
-        <div className="panel-title-wrap">
-          <strong id="panel-title">{panelTitle}</strong>
-        </div>
+      <div className="national-head">
+        <h2 id="national-title">{titleByMode[activeNationalPanel]}</h2>
         <button
           type="button"
-          className="close-btn"
-          id="close-panel"
-          data-testid="close-left-panel-btn"
+          className="icon-close"
+          id="close-national"
+          data-testid="close-national-btn"
           aria-label="关闭"
-          onClick={onCloseLeftPanel}
+          onClick={onCloseNationalPanel}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M5 5l14 14M19 5L5 19"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
           </svg>
         </button>
       </div>
-
-      <div className="panel-scroll">
-        {activeLeftPanel === 'economy' && renderEconomyPanel()}
-        {activeLeftPanel === 'population' && renderPopulationPanel()}
-        {activeLeftPanel === 'talent' && renderTalentPanel()}
-        {activeLeftPanel === 'history' && renderHistoryPanel()}
-        {activeLeftPanel === 'province' &&
-          selectedProvinceView &&
-          renderProvincePanel(selectedProvinceView)}
+      <div className="national-body" id="national-body">
+        {activeNationalPanel === 'economy' && renderEconomy()}
+        {activeNationalPanel === 'population' && renderPopulation()}
+        {activeNationalPanel === 'talent' && renderTalent()}
+        {activeNationalPanel === 'history' && renderHistory()}
       </div>
-    </aside>
+    </section>
   );
 };

@@ -47,6 +47,69 @@ export const OFFICE_IDS: readonly OfficeId[] = [
   'governor_huguang'
 ] as const;
 
+export const PROVINCE_FOUR_COLOR_PALETTE = [
+  '#c3b176',
+  '#8da98f',
+  '#c09280',
+  '#9caabe'
+] as const;
+
+export const PROVINCE_BASE_COLOR_BY_ID: Readonly<Record<ProvinceId, string>> = {
+  beizhili: '#c3b176',
+  nanzhili: '#c09280',
+  shandong: '#9caabe',
+  shanxi: '#9caabe',
+  sichuan: '#8da98f',
+  zhejiang: '#c3b176',
+  jiangxi: '#8da98f',
+  fujian: '#9caabe',
+  guangdong: '#c09280',
+  guangxi: '#8da98f',
+  yunnan: '#c3b176',
+  guizhou: '#c09280',
+  shaanxi: '#c09280',
+  henan: '#8da98f',
+  huguang: '#c3b176'
+} as const;
+
+export const PROVINCE_ADJACENT_PAIRS: ReadonlyArray<readonly [ProvinceId, ProvinceId]> = [
+  ['beizhili', 'shanxi'],
+  ['beizhili', 'henan'],
+  ['beizhili', 'shandong'],
+  ['nanzhili', 'shandong'],
+  ['nanzhili', 'zhejiang'],
+  ['sichuan', 'yunnan'],
+  ['jiangxi', 'nanzhili'],
+  ['jiangxi', 'zhejiang'],
+  ['fujian', 'zhejiang'],
+  ['fujian', 'jiangxi'],
+  ['fujian', 'guangdong'],
+  ['guangdong', 'huguang'],
+  ['guangdong', 'jiangxi'],
+  ['guangdong', 'guangxi'],
+  ['guangxi', 'huguang'],
+  ['guangxi', 'yunnan'],
+  ['guangxi', 'guizhou'],
+  ['guizhou', 'sichuan'],
+  ['guizhou', 'huguang'],
+  ['guizhou', 'yunnan'],
+  ['shaanxi', 'shanxi'],
+  ['shaanxi', 'sichuan'],
+  ['henan', 'nanzhili'],
+  ['henan', 'shandong'],
+  ['henan', 'shanxi'],
+  ['henan', 'shaanxi'],
+  ['henan', 'huguang'],
+  ['huguang', 'nanzhili'],
+  ['huguang', 'shaanxi'],
+  ['huguang', 'sichuan'],
+  ['huguang', 'jiangxi']
+] as const;
+
+export function getProvinceBaseColor(provinceId: ProvinceId): string {
+  return PROVINCE_BASE_COLOR_BY_ID[provinceId];
+}
+
 export type MapLayerKind = 'silver' | 'grain' | 'disaster';
 
 export interface MapLayerMeta {
@@ -953,11 +1016,12 @@ export function computeProvinceLayerPresentation(
 ): ProvinceLayerPresentation {
   if (!provinceView || !provinceView.province.active) {
     const pid = provinceView?.province.province_id ?? 'beizhili';
+    const baseColor = PROVINCE_BASE_COLOR_BY_ID[pid];
     return {
       province_id: pid,
       active: false,
       band: 'frozen',
-      fillColor: 'rgba(196, 189, 176, 0.34)',
+      fillColor: baseColor,
       strokeColor: '#8d8373',
       hatchPatternId: null,
       metricText: '冻结',
@@ -971,17 +1035,18 @@ export function computeProvinceLayerPresentation(
   }
 
   const pid = provinceView.province.province_id;
+  const baseColor = PROVINCE_BASE_COLOR_BY_ID[pid];
   const known = provinceView.known;
 
   if (layer === 'silver') {
-    const fact = known.disposable_silver ?? known.gross_silver;
+    const fact = known.gross_silver;
     const val = getNumericFactValue(fact);
     if (!fact || val === undefined) {
       return {
         province_id: pid,
         active: true,
         band: 'unknown',
-        fillColor: 'rgba(204, 195, 178, 0.56)',
+        fillColor: baseColor,
         strokeColor: '#756a5a',
         hatchPatternId: 'hatch-unknown',
         metricText: '存银 未奏报',
@@ -1003,7 +1068,7 @@ export function computeProvinceLayerPresentation(
         province_id: pid,
         active: true,
         band: 'high',
-        fillColor: 'rgba(134, 168, 128, 0.64)',
+        fillColor: baseColor,
         strokeColor: '#3f5f3c',
         hatchPatternId: null,
         metricText: `存银 ${formatWanNumber(valueWan)}万两${staleSuffix}`,
@@ -1021,7 +1086,7 @@ export function computeProvinceLayerPresentation(
         province_id: pid,
         active: true,
         band: 'medium',
-        fillColor: 'rgba(214, 189, 132, 0.62)',
+        fillColor: baseColor,
         strokeColor: '#6d5b34',
         hatchPatternId: 'hatch-medium',
         metricText: `存银 ${formatWanNumber(valueWan)}万两${staleSuffix}`,
@@ -1038,7 +1103,7 @@ export function computeProvinceLayerPresentation(
       province_id: pid,
       active: true,
       band: 'low',
-      fillColor: 'rgba(207, 146, 130, 0.66)',
+      fillColor: baseColor,
       strokeColor: '#7d3a2c',
       hatchPatternId: 'hatch-severe',
       metricText: `存银 ${formatWanNumber(valueWan)}万两${staleSuffix}`,
@@ -1052,14 +1117,14 @@ export function computeProvinceLayerPresentation(
   }
 
   if (layer === 'grain') {
-    const fact = known.disposable_grain ?? known.gross_grain;
+    const fact = known.gross_grain;
     const val = getNumericFactValue(fact);
     if (!fact || val === undefined) {
       return {
         province_id: pid,
         active: true,
         band: 'unknown',
-        fillColor: 'rgba(204, 195, 178, 0.56)',
+        fillColor: baseColor,
         strokeColor: '#756a5a',
         hatchPatternId: 'hatch-unknown',
         metricText: '存粮 未奏报',
@@ -1081,7 +1146,7 @@ export function computeProvinceLayerPresentation(
         province_id: pid,
         active: true,
         band: 'high',
-        fillColor: 'rgba(134, 168, 128, 0.64)',
+        fillColor: baseColor,
         strokeColor: '#3f5f3c',
         hatchPatternId: null,
         metricText: `存粮 ${formatWanNumber(valueWan)}万石${staleSuffix}`,
@@ -1099,7 +1164,7 @@ export function computeProvinceLayerPresentation(
         province_id: pid,
         active: true,
         band: 'medium',
-        fillColor: 'rgba(214, 189, 132, 0.62)',
+        fillColor: baseColor,
         strokeColor: '#6d5b34',
         hatchPatternId: 'hatch-medium',
         metricText: `存粮 ${formatWanNumber(valueWan)}万石${staleSuffix}`,
@@ -1116,7 +1181,7 @@ export function computeProvinceLayerPresentation(
       province_id: pid,
       active: true,
       band: 'low',
-      fillColor: 'rgba(207, 146, 130, 0.66)',
+      fillColor: baseColor,
       strokeColor: '#7d3a2c',
       hatchPatternId: 'hatch-severe',
       metricText: `存粮 ${formatWanNumber(valueWan)}万石${staleSuffix}`,
@@ -1139,7 +1204,7 @@ export function computeProvinceLayerPresentation(
       province_id: pid,
       active: true,
       band: 'unknown',
-      fillColor: 'rgba(204, 195, 178, 0.56)',
+      fillColor: baseColor,
       strokeColor: '#756a5a',
       hatchPatternId: 'hatch-unknown',
       metricText: '灾情 未奏报',
@@ -1189,7 +1254,7 @@ export function computeProvinceLayerPresentation(
       province_id: pid,
       active: true,
       band: 'high',
-      fillColor: 'rgba(207, 146, 130, 0.68)',
+      fillColor: baseColor,
       strokeColor: '#7d3a2c',
       hatchPatternId: 'hatch-severe',
       metricText,
@@ -1207,7 +1272,7 @@ export function computeProvinceLayerPresentation(
       province_id: pid,
       active: true,
       band: 'low',
-      fillColor: 'rgba(134, 168, 128, 0.64)',
+      fillColor: baseColor,
       strokeColor: '#3f5f3c',
       hatchPatternId: null,
       metricText,
@@ -1224,7 +1289,7 @@ export function computeProvinceLayerPresentation(
     province_id: pid,
     active: true,
     band: 'medium',
-    fillColor: 'rgba(214, 189, 132, 0.64)',
+    fillColor: baseColor,
     strokeColor: '#6d5b34',
     hatchPatternId: 'hatch-medium',
     metricText,
@@ -1366,5 +1431,79 @@ export function formatOutlinerProvinceParts(
     summaryText,
     planBadge,
     canalBadge
+  };
+}
+
+export interface ProvinceOverviewNumbers {
+  province_id: ProvinceId;
+  name: string;
+  active: boolean;
+  baseColor: string;
+  silverText: string;
+  grainText: string;
+  silverProvenance: string;
+  grainProvenance: string;
+  accessibleProvenance: string;
+  isStale: boolean;
+}
+
+/**
+ * Formats each province's known silver (`gross_silver`) and grain (`gross_grain`) numbers
+ * for the right province overview (`十五地简况`).
+ * - Uses real `CourtProvinceView.known` disclosure and provenance (never debug truth).
+ * - Preserves explicit `0` as `银0.0万` / `粮0.0万` and missing/unknown values as `银—` / `粮—`
+ *   with accessible provenance, never false zero or status headlines.
+ */
+export function formatProvinceOverviewNumbers(
+  provinceView: CourtProvinceView,
+  viewedTurnNumber: number,
+  characterById?: ReadonlyMap<CharacterId, CharacterPublicView>
+): ProvinceOverviewNumbers {
+  const pid = provinceView.province.province_id;
+  const baseColor = PROVINCE_BASE_COLOR_BY_ID[pid];
+
+  if (!provinceView.province.active) {
+    return {
+      province_id: pid,
+      name: provinceView.province.name,
+      active: false,
+      baseColor,
+      silverText: '银—',
+      grainText: '粮—',
+      silverProvenance: '存银未奏报',
+      grainProvenance: '存粮未奏报',
+      accessibleProvenance: `${provinceView.province.name} 存银未奏报 存粮未奏报`,
+      isStale: false
+    };
+  }
+
+  const silverFact = provinceView.known.gross_silver;
+  const grainFact = provinceView.known.gross_grain;
+
+  const silverVal = getNumericFactValue(silverFact);
+  const grainVal = getNumericFactValue(grainFact);
+
+  const silverText =
+    silverVal !== undefined ? `银${formatWanNumber(silverVal / 10000)}万` : '银—';
+  const grainText =
+    grainVal !== undefined ? `粮${formatWanNumber(grainVal / 10000)}万` : '粮—';
+
+  const silverProv = formatFactProvenanceTag(silverFact, viewedTurnNumber, characterById);
+  const grainProv = formatFactProvenanceTag(grainFact, viewedTurnNumber, characterById);
+
+  const silverProvenance = silverProv.label || '存银未奏报';
+  const grainProvenance = grainProv.label || '存粮未奏报';
+
+  return {
+    province_id: pid,
+    name: provinceView.province.name,
+    active: true,
+    baseColor,
+    silverText,
+    grainText,
+    silverProvenance,
+    grainProvenance,
+    accessibleProvenance: `${provinceView.province.name} 存银${silverVal !== undefined ? `${formatWanNumber(silverVal / 10000)}万两（${silverProvenance}）` : '未奏报'} 存粮${grainVal !== undefined ? `${formatWanNumber(grainVal / 10000)}万石（${grainProvenance}）` : '未奏报'}`,
+    isStale: silverProv.isStale || grainProv.isStale
   };
 }
