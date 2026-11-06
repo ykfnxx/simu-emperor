@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "character": "node --experimental-strip-types src/officers/character-cli.ts",
-    "trace:extract": "node --experimental-strip-types src/observability/extract-cli.ts"
+    "trace:extract": "node --experimental-strip-types src/observability/extract-cli.ts",
+    "test:e2e": "playwright test",
+    "test:smoke": "node --experimental-strip-types scripts/ci/smoke.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
@@ -34,6 +36,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22.13.10",
     "@types/react": "^19.2.14",
