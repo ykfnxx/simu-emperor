@@ -12,7 +12,7 @@ test('U24: API dismissal followed by UI appointment to a vacant office', async (
   expect(vacant.appointment).toBeNull(); expect(vacant.plans.every(p => p.status === 'WITHDRAWN')).toBe(true);
   expect(vacant.reports).toEqual(before.provinces.find(p => p.province.province_id === 'shaanxi')!.reports);
   await page.reload(); await page.getByTestId('event-pill-shaanxi').click();
-  await expect(page.getByRole('button', { name: '召询', exact: true })).toBeDisabled(); await page.keyboard.press('Escape');
+  await expect(page.getByTestId('event-dialog').getByRole('button', { name: '召询', exact: true })).toBeDisabled(); await page.keyboard.press('Escape');
   await page.getByTestId('top-btn-talent').click();
   await expect(page.getByTestId('office-row-governor_shaanxi')).toContainText('悬缺');
   await page.getByTestId('replace-office-governor_shaanxi').click(); await page.getByTestId('candidate-row-character_d').click();
@@ -40,7 +40,7 @@ test('U25: real unauthorized send preserves editable text and accepts one retry'
   await expect(input).toHaveValue('拒收后再发送');
   await expect(page.getByRole('alert').first()).toBeVisible();
   await page.evaluate(token => localStorage.setItem('simu-ming-monarch-settings:v1', JSON.stringify({ courtToken: token, debugToken: '' })), auth.court);
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape'); await page.getByTestId('open-chat-btn').click();
   const sent = page.waitForResponse(r => r.url().endsWith('/api/court/messages') && r.request().method() === 'POST');
   await page.getByTestId('send-chat-btn').click(); const response = await sent; expect(response.status()).toBe(201);
   const { message } = await response.json();

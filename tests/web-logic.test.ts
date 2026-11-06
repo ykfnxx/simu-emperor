@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CharacterId, CharacterPublicView, ProvinceId } from '../src/contracts/gameplay.ts';
 import { GameplayStore } from '../src/engine/gameplay-store.ts';
 import {
+  buildCharacterPersonCardData,
   buildOfficeReplacementCandidates,
   buildProvinceEventDialogData,
   CHARACTER_PORTRAIT_CLASS_BY_ID,
@@ -41,8 +42,10 @@ import {
   formatFactProvenanceTag,
   formatKnownNumericFact,
   formatOutlinerProvinceParts,
+  formatProvinceOverviewNumbers,
   formatTurnCalendarDate,
   formatTurnCalendarIso,
+  getProvinceBaseColor,
   getProvinceScreenCenterX,
   getProvinceScreenCenterY,
   INITIAL_MAP_CAMERA,
@@ -55,6 +58,9 @@ import {
   MING_INTERIOR_BOUNDARY_PATH,
   MING_PROVINCE_GEOMETRIES,
   MING_PROVINCE_GEOMETRY_BY_ID,
+  PROVINCE_ADJACENT_PAIRS,
+  PROVINCE_BASE_COLOR_BY_ID,
+  PROVINCE_FOUR_COLOR_PALETTE,
   PROVINCE_IDS,
   PROVIDER_REGION_ID_TO_PROVINCE_ID,
   resolveProvinceIdFromProviderId,
@@ -196,39 +202,26 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
     }
   });
 
-  it('manages top-left Economy/Population/Talent toggle/collapse and Province detail switching in a single Zustand store', () => {
+  it('keeps national panels independent of province context', () => {
     const uiStore = createCourtUiStore();
-    expect(uiStore.getState().activeLeftPanel).toBeNull();
+    expect(uiStore.getState().activeNationalPanel).toBeNull();
     expect(uiStore.getState().selectedProvinceId).toBeNull();
-
-    // Toggle Economy opens 'economy' in the single left panel
-    uiStore.getState().toggleGlobalPanel('economy');
-    expect(uiStore.getState().activeLeftPanel).toBe('economy');
-
-    // Switching to Population switches the same left panel to 'population'
-    uiStore.getState().toggleGlobalPanel('population');
-    expect(uiStore.getState().activeLeftPanel).toBe('population');
-
-    // Switching to Talent switches the same left panel to 'talent'
+    for (const panel of ['economy', 'population', 'talent'] as const) {
+      uiStore.getState().toggleGlobalPanel(panel);
+      expect(uiStore.getState().activeNationalPanel).toBe(panel);
+    }
     uiStore.getState().toggleGlobalPanel('talent');
-    expect(uiStore.getState().activeLeftPanel).toBe('talent');
-
-    // Clicking the already active top-left Talent button collapses the left panel
-    uiStore.getState().toggleGlobalPanel('talent');
-    expect(uiStore.getState().activeLeftPanel).toBeNull();
-
-    // Clicking a province (active or frozen) opens 'province' details in the same left panel
+    expect(uiStore.getState().activeNationalPanel).toBeNull();
     uiStore.getState().openProvincePanel('beizhili');
-    expect(uiStore.getState().activeLeftPanel).toBe('province');
+    expect(uiStore.getState().leftPanelOpen).toBe(true);
     expect(uiStore.getState().selectedProvinceId).toBe('beizhili');
-
     uiStore.getState().openProvincePanel('henan', 'approval');
-    expect(uiStore.getState().activeLeftPanel).toBe('province');
     expect(uiStore.getState().selectedProvinceId).toBe('henan');
     expect(uiStore.getState().provinceTab).toBe('approval');
-
     uiStore.getState().toggleGlobalPanel('history');
-    expect(uiStore.getState().activeLeftPanel).toBe('history');
+    expect(uiStore.getState().activeNationalPanel).toBe('history');
+    expect(uiStore.getState().leftPanelOpen).toBe(true);
+    expect(uiStore.getState().selectedProvinceId).toBe('henan');
   });
 
   it('matches preset character portraits consistently, enables single-click atomic candidate replacement in OPEN phase while protecting current occupant and locked/history states, and builds real event dialog summaries', () => {
@@ -819,6 +812,133 @@ describe('Three-Province Ming UI on Jiangshan s_ming_c (1636–1643) & Authorita
       expect(content).not.toContain('monarch-token');
       expect(content).not.toContain('monarch-debug-token');
       expect(content).not.toContain('agent-host-token');
+    }
+  });
+
+  it('enforces Kimi v4 4-color topology, right overview silver/grain money slots, central national panel independence, and person card appointment history', () => {
+    // 1. 15-province 4-color topology proof (31 adjacent pairs, adjacent provinces never share a color)
+    expect(PROVINCE_FOUR_COLOR_PALETTE).toEqual(['#c3b176', '#8da98f', '#c09280', '#9caabe']);
+    expect(PROVINCE_ADJACENT_PAIRS).toHaveLength(31);
+    for (const pid of PROVINCE_IDS) {
+      const color = getProvinceBaseColor(pid);
+      expect(PROVINCE_FOUR_COLOR_PALETTE).toContain(color);
+      expect(PROVINCE_BASE_COLOR_BY_ID[pid]).toBe(color);
+    }
+    for (const [a, b] of PROVINCE_ADJACENT_PAIRS) {
+      expect(getProvinceBaseColor(a)).not.toBe(getProvinceBaseColor(b));
+    }
+
+    // 2. Central national panel opens in center without replacing left province card and restores preceding chat state
+    const ui = createCourtUiStore({
+      selectedProvinceId: 'shaanxi',
+      leftPanelOpen: true,
+      chatOpen: true,
+    });
+    expect(ui.getState().leftPanelOpen).toBe(true);
+    expect(ui.getState().selectedProvinceId).toBe('shaanxi');
+    expect(ui.getState().chatOpen).toBe(true);
+    expect(ui.getState().activeNationalPanel).toBeNull();
+
+    ui.getState().openProvincePanel('henan', 'report');
+    expect(ui.getState().selectedProvinceId).toBe('henan');
+    expect(ui.getState().leftPanelOpen).toBe(true);
+
+    ui.getState().toggleGlobalPanel('economy');
+    expect(ui.getState().activeNationalPanel).toBe('economy');
+    expect(ui.getState().leftPanelOpen).toBe(true);
+    expect(ui.getState().selectedProvinceId).toBe('henan');
+    expect(ui.getState().chatOpen).toBe(true);
+
+    ui.getState().closeNationalPanel();
+    expect(ui.getState().activeNationalPanel).toBeNull();
+    expect(ui.getState().chatOpen).toBe(true);
+    expect(ui.getState().leftPanelOpen).toBe(true);
+    expect(ui.getState().selectedProvinceId).toBe('henan');
+
+    // When chat was closed before opening national panel, closing national panel keeps chat closed
+    ui.getState().setChatOpen(false);
+    ui.getState().toggleGlobalPanel('talent');
+    expect(ui.getState().activeNationalPanel).toBe('talent');
+    ui.getState().toggleGlobalPanel('talent');
+    expect(ui.getState().activeNationalPanel).toBeNull();
+    expect(ui.getState().chatOpen).toBe(false);
+
+    // 3. Right overview silver/grain money slots & Person card appointment history
+    const store = new GameplayStore();
+    try {
+      const v1 = store.getCourtView();
+      const charMap = new Map<CharacterId, CharacterPublicView>(
+        v1.characters.map((c) => [c.character_id, c]),
+      );
+
+      // Unreported active & frozen provinces use explicit unknown money slots (银— 粮—), never false zero
+      const shaanxiInit = v1.provinces.find((p) => p.province.province_id === 'shaanxi')!;
+      const beizhiliInit = v1.provinces.find((p) => p.province.province_id === 'beizhili')!;
+      const ovShaanxiInit = formatProvinceOverviewNumbers(shaanxiInit, 1, charMap);
+      const ovBeizhiliInit = formatProvinceOverviewNumbers(beizhiliInit, 1, charMap);
+      expect(ovShaanxiInit.silverText).toBe('银—');
+      expect(ovShaanxiInit.grainText).toBe('粮—');
+      expect(ovBeizhiliInit.silverText).toBe('银—');
+      expect(ovBeizhiliInit.grainText).toBe('粮—');
+      expect(ovBeizhiliInit.accessibleProvenance).toContain('存银未奏报');
+
+      // Disclose gross_silver and gross_grain in Shaanxi
+      const a1 = store.getAssignment('character_a');
+      store.submit({
+        context: a1.context,
+        report: { body: '陕西奏报库储', disclose: ['gross_silver', 'gross_grain'] },
+      });
+      const v1After = store.getCourtView();
+      const shaanxiAfter = v1After.provinces.find((p) => p.province.province_id === 'shaanxi')!;
+      const ovShaanxiAfter = formatProvinceOverviewNumbers(shaanxiAfter, 1, charMap);
+      expect(ovShaanxiAfter.silverText).toBe('银2.0万');
+      expect(ovShaanxiAfter.grainText).toBe('粮1.0万');
+      expect(ovShaanxiAfter.accessibleProvenance).toContain('沈安民奏');
+
+      // Base color preserved across all map layers
+      for (const layer of ['disaster', 'silver', 'grain'] as const) {
+        expect(computeProvinceLayerPresentation(shaanxiAfter, layer, 1).fillColor).toBe(
+          getProvinceBaseColor('shaanxi'),
+        );
+        expect(computeProvinceLayerPresentation(beizhiliInit, layer, 1).fillColor).toBe(
+          getProvinceBaseColor('beizhili'),
+        );
+      }
+
+      // Advance to Turn 2 and transfer character_b to governor_shaanxi (dismissing character_a)
+      store.lock({ game_id: v1.game_id, target_turn: 1 });
+      store.settle({ game_id: v1.game_id, target_turn: 1, decisions: [] });
+      store.appoint({
+        game_id: v1.game_id,
+        target_turn: 2,
+        office_id: 'governor_shaanxi',
+        character_id: 'character_b',
+      });
+
+      const v2 = store.getCourtView();
+      const cardAInTurn2 = buildCharacterPersonCardData('character_a', v2)!;
+      expect(cardAInTurn2.currentOfficeId).toBeNull();
+      expect(cardAInTurn2.currentOfficeTitle).toBe('候任');
+      expect(cardAInTurn2.eligibleOffices).toHaveLength(3);
+      expect(cardAInTurn2.timeline[0]?.summaryText).toBe('曾任 陕西巡抚');
+
+      const cardBInTurn2 = buildCharacterPersonCardData('character_b', v2)!;
+      expect(cardBInTurn2.currentOfficeId).toBe('governor_shaanxi');
+      expect(cardBInTurn2.timeline.map((t) => t.summaryText)).toEqual([
+        '曾任 河南巡抚',
+        '现任 陕西巡抚',
+      ]);
+
+      // Historical Turn 1 view retains character_a as incumbent in Shaanxi and hides Turn 2 transfer
+      const v1History = store.getCourtView(1);
+      const cardAInTurn1History = buildCharacterPersonCardData('character_a', v1History)!;
+      expect(cardAInTurn1History.currentOfficeId).toBe('governor_shaanxi');
+      expect(cardAInTurn1History.canMutateAppointments).toBe(false);
+      expect(cardAInTurn1History.timeline).toHaveLength(1);
+      expect(cardAInTurn1History.timeline[0]?.summaryText).toBe('现任 陕西巡抚');
+      expect(cardAInTurn1History.timeline[0]?.dateRangeText).toContain('当轮在任');
+    } finally {
+      store.close();
     }
   });
 });

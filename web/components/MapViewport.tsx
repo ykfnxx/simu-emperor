@@ -6,13 +6,13 @@ import type {
   GameplayDebugView,
   ProvinceId
 } from '../../src/contracts/gameplay';
-import type { LeftPanelMode } from '../client-api';
 import terrainReliefAsset from '../assets/jiangshan/terrain_relief.webp';
 import {
   computeProvinceLayerPresentation,
   computeSvgViewBox,
   formatGrainAmountWan,
   formatSilverAmountWan,
+   getProvinceBaseColor,
   JIANGSHAN_BACKGROUND_MAP,
   MING_INTERIOR_BOUNDARY_PATH,
   MING_PROVINCE_GEOMETRIES,
@@ -35,7 +35,6 @@ export interface MapViewportProps {
   viewedTurnNumber: number;
   selectedProvinceId: ProvinceId | null;
   leftPanelOpen: boolean;
-  activeLeftPanel?: LeftPanelMode;
   activeLayer: MapLayerKind;
   camera: MapCamera;
   debugTruth: GameplayDebugView | null;
@@ -45,36 +44,15 @@ export interface MapViewportProps {
     viewportHeight: number
   ) => void;
   onClearSelection: () => void;
-  onChangeLayer: (layer: MapLayerKind) => void;
   onChangeCamera: React.Dispatch<React.SetStateAction<MapCamera>>;
-  onToggleGlobalPanel?: (panel: 'economy' | 'population' | 'talent' | 'history') => void;
-  onOpenSettings?: () => void;
-}
-
-function getBandWashFill(band: LayerSeverityBand, layer: MapLayerKind): string {
-  if (band === 'frozen') {
-    return '#b5ab9b';
-  }
-  if (band === 'unknown') {
-    return '#9a9488';
-  }
-  if (layer === 'disaster') {
-    if (band === 'high') return '#b54434';
-    if (band === 'medium') return '#c88a3b';
-    return '#7a9a76';
-  }
-  // For tax_silver and grain_stock: high is healthy sage, medium is ochre, low is urgent cinnabar
-  if (band === 'high') return '#7a9a76';
-  if (band === 'medium') return '#c88a3b';
-  return '#b54434';
 }
 
 function getBandBorderStroke(band: LayerSeverityBand, layer: MapLayerKind): string {
   if (band === 'frozen') {
-    return '#7f7567';
+    return '#6b604e';
   }
   if (band === 'unknown') {
-    return '#7a7067';
+    return '#6b604e';
   }
   if (layer === 'disaster') {
     if (band === 'high') return '#8f3628';
@@ -104,16 +82,12 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   viewedTurnNumber,
   selectedProvinceId,
   leftPanelOpen,
-  activeLeftPanel,
   activeLayer,
   camera,
   debugTruth,
   onSelectProvince,
   onClearSelection,
-  onChangeLayer,
-  onChangeCamera,
-  onToggleGlobalPanel,
-  onOpenSettings
+  onChangeCamera
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
@@ -191,9 +165,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.map-layer-bar')) {
-      return;
-    }
     if (e.pointerType === 'mouse' && e.button !== 0) {
       return;
     }
@@ -334,9 +305,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.map-layer-bar')) {
-      return;
-    }
     const rect = getContainerRect();
     const delta = e.deltaY < 0 ? 0.14 : -0.14;
     onChangeCamera((prev) =>
@@ -386,6 +354,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
   return (
     <div
+      id="strategy-map"
       ref={containerRef}
       className={`map-viewport ${dragging ? 'is-dragging' : ''} ${leftPanelOpen ? 'is-drawer-open' : ''}`}
       data-testid="map-viewport"
@@ -426,24 +395,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               <stop offset="94.5%" className="terrain-edge-stop" stopOpacity="0" />
               <stop offset="100%" className="terrain-edge-stop" />
             </linearGradient>
-
-            <pattern
-              id="unknown-hatch-pattern"
-              width="6"
-              height="6"
-              patternTransform="rotate(45 0 0)"
-              patternUnits="userSpaceOnUse"
-            >
-              <rect width="6" height="6" fill="rgba(222, 216, 204, 0.34)" />
-              <line
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="6"
-                stroke="rgba(122, 112, 103, 0.46)"
-                strokeWidth="1.5"
-              />
-            </pattern>
           </defs>
 
           {/* 1. Base rice-paper sea & georeferenced Jiangshan topographic hillshade */}
@@ -494,7 +445,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             />
           </g>
 
-          {/* 3. All 15 Ming Provincial Units (`s_ming_c` 1636–1643): 12 frozen + 3 active */}
+          {/* 3. All 15 Ming Provincial Units (`s_ming_c` 1636–1643): 4-color topology preserved */}
           <g id="grp-ming-provinces" className="map-polities-group">
             {MING_PROVINCE_GEOMETRIES.map((geom) => {
               const resolvedId = resolveProvinceIdFromProviderId(geom.provider_region_id);
@@ -507,7 +458,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               );
               const isSelected = selectedProvinceId === resolvedId;
               const statusClass = getBandStatusClass(pres.band, activeLayer);
-              const washFill = getBandWashFill(pres.band, activeLayer);
+              const baseColor = getProvinceBaseColor(resolvedId);
               const borderStroke = getBandBorderStroke(pres.band, activeLayer);
 
               return (
@@ -519,6 +470,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   data-provider-id={geom.provider_region_id}
                   data-active={geom.active ? 'true' : 'false'}
                   data-band={pres.band}
+                  data-base-color={baseColor}
                   data-selected={isSelected ? 'true' : 'false'}
                   role="button"
                   tabIndex={0}
@@ -538,18 +490,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 >
                   <path
                     d={geom.outerPath}
-                    fill={washFill}
+                    fill={baseColor}
                     className={`map-polity-wash status-${statusClass} ${geom.active ? 'is-active' : 'is-frozen'}`}
                   />
-
-                  {geom.active && pres.band === 'unknown' && (
-                    <path
-                      d={geom.outerPath}
-                      fill="url(#unknown-hatch-pattern)"
-                      className="map-polity-unknown-hatch"
-                    />
-                  )}
-
                   <path d={geom.outerPath} className="map-polity-casing" />
                   <path
                     d={geom.outerPath}
@@ -610,7 +553,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               ))}
           </g>
 
-          {/* 5. Selected Province Crisp Cinnabar Highlight Outline */}
+          {/* 5. Selected Province Border Highlight */}
           {selectedGeom && (
             <g
               id="grp-selected-outline"
@@ -728,122 +671,6 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             })}
           </g>
         </svg>
-      </div>
-
-      {/* Bottom-Right Map Layer Controls & Mobile Utility Shortcuts */}
-      <div
-        className="map-layer-bar"
-        role="group"
-        aria-label="舆图图层"
-        data-testid="map-layer-switcher"
-      >
-        <button
-          type="button"
-          className={`layer-chip ${activeLayer === 'disaster' ? 'active' : ''}`}
-          data-layer="disaster"
-          data-testid="layer-btn-disaster"
-          aria-pressed={activeLayer === 'disaster'}
-          title="灾情图层"
-          aria-label="灾情图层"
-          onClick={() => onChangeLayer('disaster')}
-        >
-          <span className="painted-icon icon-warning" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`layer-chip ${activeLayer === 'silver' ? 'active' : ''}`}
-          data-layer="silver"
-          data-testid="layer-btn-silver"
-          aria-pressed={activeLayer === 'silver'}
-          title="存银图层"
-          aria-label="存银图层"
-          onClick={() => onChangeLayer('silver')}
-        >
-          <span className="painted-icon icon-silver" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`layer-chip ${activeLayer === 'grain' ? 'active' : ''}`}
-          data-layer="grain"
-          data-testid="layer-btn-grain"
-          aria-pressed={activeLayer === 'grain'}
-          title="存粮图层"
-          aria-label="存粮图层"
-          onClick={() => onChangeLayer('grain')}
-        >
-          <span className="painted-icon icon-grain" aria-hidden="true" />
-        </button>
-
-        {onToggleGlobalPanel && (
-          <>
-            <button
-              type="button"
-              className={`layer-chip mobile-utility ${activeLeftPanel === 'economy' ? 'active' : ''}`}
-              data-top-panel="economy"
-              title="太仓钱粮"
-              aria-label="太仓钱粮"
-              onClick={() => onToggleGlobalPanel('economy')}
-            >
-              <span className="painted-icon icon-economy" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`layer-chip mobile-utility ${activeLeftPanel === 'population' ? 'active' : ''}`}
-              data-top-panel="population"
-              title="户口灾情"
-              aria-label="户口灾情"
-              onClick={() => onToggleGlobalPanel('population')}
-            >
-              <span className="painted-icon icon-population" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`layer-chip mobile-utility ${activeLeftPanel === 'talent' ? 'active' : ''}`}
-              data-top-panel="talent"
-              title="百官"
-              aria-label="百官"
-              onClick={() => onToggleGlobalPanel('talent')}
-            >
-              <span className="painted-icon icon-talent" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`layer-chip mobile-utility ${activeLeftPanel === 'history' ? 'active' : ''}`}
-              data-top-panel="history"
-              title="起居注"
-              aria-label="起居注"
-              onClick={() => onToggleGlobalPanel('history')}
-            >
-              <span className="painted-icon icon-history" aria-hidden="true" />
-            </button>
-          </>
-        )}
-        {onOpenSettings && (
-          <button
-            type="button"
-            className="layer-chip mobile-utility"
-            title="机务"
-            aria-label="机务"
-            onClick={onOpenSettings}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10.4 3h3.2l.5 2.2a7 7 0 0 1 1.7.9l2-1 2.2 2.2-1 2a7 7 0 0 1 .9 1.7L22 11.5v3.1l-2.1.5a7 7 0 0 1-.9 1.7l1 2-2.2 2.2-2-1a7 7 0 0 1-1.7.9L13.6 23h-3.2l-.5-2.1a7 7 0 0 1-1.7-.9l-2 1L4 18.8l1-2a7 7 0 0 1-.9-1.7L2 14.6v-3.1l2.1-.5a7 7 0 0 1 .9-1.7l-1-2L6.2 5.1l2 1a7 7 0 0 1 1.7-.9L10.4 3z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              />
-              <circle
-                cx="12"
-                cy="13"
-                r="2.9"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              />
-            </svg>
-          </button>
-        )}
       </div>
     </div>
   );
